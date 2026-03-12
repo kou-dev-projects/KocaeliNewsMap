@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+.venv/
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# API Keys
+.env
+.env.local
+config/secrets.py
+
+# MongoDB
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Notes (personal)
+NOTES.md

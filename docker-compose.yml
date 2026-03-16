@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:8.0
+    container_name: kocaeli-news_map_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: kocaeli_news
+
+  redis:
+    image: redis:7-alpine
+    container_name: kocaeli-news_map_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: ./backend
+    container_name: kocaeli-news_map_backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+      - redis
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_DB=kocaeli_news
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+
+  frontend:
+    build: ./frontend
+    container_name: kocaeli-news_map_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  mongo_data:
+  redis_data:

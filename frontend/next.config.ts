@@ -1,11 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Docker volume mount'ta hot-reload için
+  // Hot-reload for Docker volumes
   experimental: {
-    // App Router - default zaten aktif
+    // App Router is active by default in Next.js 15
   },
-  // Backend API proxy: /api isteklerini FastAPI'ye yönlendir
+  // Backend API proxy
   async rewrites() {
     return [
       {

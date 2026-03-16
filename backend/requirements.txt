@@ -1,0 +1,17 @@
+fastapi==0.115.8
+uvicorn==0.34.0
+motor==3.7.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+pymongo==4.11.1
+scrapy==2.12.0
+playwright==1.50.0
+beautifulsoup4==4.13.3
+httpx==0.28.1
+apscheduler==3.11.0
+google-generativeai==0.8.4
+anthropic==0.46.0
+redis==5.2.1
+# prophet==1.1.6 (Will be added in Sprint 3)
+# spacy==3.8.4 (Will be added in Sprint 2)

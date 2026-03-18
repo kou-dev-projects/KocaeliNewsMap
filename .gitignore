@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.env
+#.env
 venv/
 .venv/
 
@@ -11,6 +11,9 @@ node_modules/
 dist/
 build/
 
+scrums.txt
+projectdetails.md
+schema.sql
 # Next.js
 .next/
 out/
@@ -24,8 +27,8 @@ frontend/out/
 *.user
 
 # API Keys
-.env
-.env.local
+#.env
+#.env.local
 config/secrets.py
 
 # MongoDB

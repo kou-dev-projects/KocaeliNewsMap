@@ -1,6 +1,28 @@
+import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
+
+NOISE_PATTERNS = [
+    r"Daha fazlasını keşfedin",
+    r"Yerel ürün sepetleri",
+    r"Dijital Gazete Aboneliği",
+    r"Şehir rehberi kitapçıkları",
+]
+
+def clean_content(text: str | None) -> str | None:
+    if not text:
+        return text
+
+    cleaned = text
+
+    for pattern in NOISE_PATTERNS:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = cleaned.lstrip("-+ ").strip()
+
+    return cleaned
 
 def is_valid_news_url(url: str) -> bool:
     return (
@@ -40,11 +62,12 @@ def parse_detail(html: str, url: str) -> dict:
     content_el = soup.select_one(selectors.DETAIL_CONTENT)
     date_meta = soup.select_one(selectors.DETAIL_DATE_META)
     og_image = soup.select_one(selectors.DETAIL_OG_IMAGE)
+    content = content_el.get_text(" ", strip=True) if content_el else None
 
     result = {
         "url": url,
         "title": title_el.get_text(strip=True) if title_el else None,
-        "content": content_el.get_text(" ", strip=True) if content_el else None,
+        "content": clean_content(content),
         "published_at_raw": date_meta.get("content") if date_meta else None,
         "image_url": og_image.get("content") if og_image else None,
     }

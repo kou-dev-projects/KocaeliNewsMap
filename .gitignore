@@ -27,8 +27,8 @@ frontend/out/
 *.user
 
 # API Keys
-#.env
-#.env.local
+.env
+.env.local
 config/secrets.py
 
 # MongoDB
@@ -40,3 +40,5 @@ Thumbs.db
 
 # Project Notes (personal)
 NOTES.md
+
+backend/.env

@@ -215,6 +215,20 @@ ensureIndex("raw_documents", { content_hash: 1 }, { name: "content_hash" });
 ensureIndex("raw_documents", { crawl_session_id: 1 }, { name: "crawl_session_id" });
 
 // 4) SOURCE_RECORDS
+// NOTE:
+// Atlas UI üzerinden source_records koleksiyonu için ek bir Vector Search index oluşturuldu.
+// Index adı: source_records_embedding_vector
+// Alan: embedding
+// Boyut: 768
+// Similarity: cosine
+//
+// Bu index, workflow'taki eski "knnVector" beklentisinin Atlas'taki güncel karşılığıdır.
+// database.js içindeki normal createIndex çağrılarıyla değil, Atlas Search & Vector Search ekranından oluşturulmuştur.
+//
+// Sonraki aşamada:
+// - source_records.embedding alanına gerçek embedding verileri yazılacak
+// - embedding uzunluğu uygulama tarafında 768 olarak doğrulanacak
+// - benzer haber araması vector search ile yapılacak
 ensureCollection("source_records", {
   validator: {
     $jsonSchema: {

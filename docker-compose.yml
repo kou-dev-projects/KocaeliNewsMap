@@ -25,10 +25,9 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - mongodb
       - redis
     environment:
-      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_URL=${MONGO_URL}
       - MONGO_DB=kocaeli_news
       - REDIS_URL=redis://redis:6379
     volumes:

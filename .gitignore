@@ -28,7 +28,7 @@ frontend/out/
 
 # API Keys
 .env
-#.env.local
+.env.local
 config/secrets.py
 
 # MongoDB

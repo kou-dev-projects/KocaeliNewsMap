@@ -15,3 +15,6 @@ anthropic==0.46.0
 redis==5.2.1
 # prophet==1.1.6 (Will be added in Sprint 3)
 # spacy==3.8.4 (Will be added in Sprint 2)
+flag-embedding==0.1.0
+pillow==12.1.1
+#pip install FlagEmbedding transformers torch Pillow

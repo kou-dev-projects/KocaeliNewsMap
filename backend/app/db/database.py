@@ -1,11 +1,11 @@
-from dotenv import load_dotenv
-load_dotenv()
-
 from pymongo import MongoClient
-import os
 
-MONGO_URL = os.getenv("MONGO_URL")
-MONGO_DB = os.getenv("MONGO_DB")
+from app.settings import settings
 
-client = MongoClient(MONGO_URL)
-db = client[MONGO_DB]
+
+client = MongoClient(
+    settings.mongo_url,
+    serverSelectionTimeoutMS=5000,
+)
+
+db = client[settings.mongo_db]

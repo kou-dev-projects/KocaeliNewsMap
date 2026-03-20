@@ -1,5 +1,7 @@
 from fastapi import APIRouter
+
 from app.settings import settings
+
 
 router = APIRouter(prefix="/api/v1", tags=["system"])
 

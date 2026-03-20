@@ -85,7 +85,14 @@ class EmbeddingService:
                 image_similarity=None,
                 final_score=0.0,
                 is_duplicate=False,
-                debug={"reason": "Karşılaştırılacak aday haber yok"},
+                debug={
+                    "reason": "Karşılaştırılacak aday haber yok",
+                    "threshold": self._cfg.duplicate_threshold,
+                    "text_weight": self._cfg.text_score_weight,
+                    "image_weight": self._cfg.image_score_weight,
+                    "image_used": False,
+                    "candidate_count": 0,
+                },
             )
 
         best_final = 0.0

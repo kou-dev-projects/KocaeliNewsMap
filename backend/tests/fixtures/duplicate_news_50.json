@@ -1,0 +1,402 @@
+[
+  {
+    "id": "n001",
+    "title": "Gebze TEM baglanti yolunda zincirleme trafik kazasi",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Gebze TEM baglanti yolunda sabah saatlerinde meydana gelen zincirleme trafik kazasinda uc otomobil ile bir hafif ticari arac birbirine girdi. Olay yerine saglik ve polis ekipleri sevk edildi, trafik bir sure tek seritten verildi.",
+    "image_url": "https://fixtures.local/images/grp_01.jpg",
+    "label": "duplicate_of_grp_01"
+  },
+  {
+    "id": "n002",
+    "title": "Gebze TEM baglanti yolunda zincirleme trafik kazasi",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Gebze TEM baglanti yolunda sabah saatlerinde meydana gelen zincirleme trafik kazasinda uc otomobil ile bir hafif ticari arac birbirine girdi. Olay yerine saglik ve polis ekipleri sevk edildi, trafik bir sure tek seritten verildi.",
+    "image_url": "https://fixtures.local/images/grp_01.jpg",
+    "label": "duplicate_of_grp_01"
+  },
+  {
+    "id": "n003",
+    "title": "Izmit sanayi sitesindeki depoda yangin cikti",
+    "source": "seskocaeli.com",
+    "content": "Izmit Sanayi Sitesi icindeki bir yedek parca deposunda aksam saatlerinde yangin cikti. Itfaiye ekiplerinin mudahalesiyle alevler cevre is yerlerine siçramadan kontrol altina alindi.",
+    "image_url": "https://fixtures.local/images/grp_02.jpg",
+    "label": "duplicate_of_grp_02"
+  },
+  {
+    "id": "n004",
+    "title": "Izmit sanayi sitesindeki depoda yangin cikti",
+    "source": "yenikocaeli.com",
+    "content": "Izmit Sanayi Sitesi icindeki bir yedek parca deposunda aksam saatlerinde yangin cikti. Itfaiye ekiplerinin mudahalesiyle alevler cevre is yerlerine siçramadan kontrol altina alindi.",
+    "image_url": "https://fixtures.local/images/grp_02.jpg",
+    "label": "duplicate_of_grp_02"
+  },
+  {
+    "id": "n005",
+    "title": "Darica merkezde planli elektrik kesintisi duyuruldu",
+    "source": "bizimyaka.com",
+    "content": "Darica merkez ve bagli mahallelerde sali gunu planli elektrik kesintisi uygulanacagi bildirildi. Bakim ve onarim calismalari nedeniyle enerji sabah dokuz ile ogleden sonra uc arasinda verilemeyecek.",
+    "image_url": "https://fixtures.local/images/grp_03.jpg",
+    "label": "duplicate_of_grp_03"
+  },
+  {
+    "id": "n006",
+    "title": "Darica merkezde planli elektrik kesintisi duyuruldu",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Darica merkez ve bagli mahallelerde sali gunu planli elektrik kesintisi uygulanacagi bildirildi. Bakim ve onarim calismalari nedeniyle enerji sabah dokuz ile ogleden sonra uc arasinda verilemeyecek.",
+    "image_url": "https://fixtures.local/images/grp_03.jpg",
+    "label": "duplicate_of_grp_03"
+  },
+  {
+    "id": "n007",
+    "title": "Golcuk marinada gece saatlerinde hirsizlik girisimi",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Golcuk Marina cevresinde park halindeki iki tekneye gece saatlerinde hirsizlik girisiminde bulunuldu. Guvenlik kameralarini inceleyen ekipler suphelileri yakalamak icin calisma baslatti.",
+    "image_url": "https://fixtures.local/images/grp_04.jpg",
+    "label": "duplicate_of_grp_04"
+  },
+  {
+    "id": "n008",
+    "title": "Golcuk marinada gece saatlerinde hirsizlik girisimi",
+    "source": "seskocaeli.com",
+    "content": "Golcuk Marina cevresinde park halindeki iki tekneye gece saatlerinde hirsizlik girisiminde bulunuldu. Guvenlik kameralarini inceleyen ekipler suphelileri yakalamak icin calisma baslatti.",
+    "image_url": "https://fixtures.local/images/grp_04.jpg",
+    "label": "duplicate_of_grp_04"
+  },
+  {
+    "id": "n009",
+    "title": "Kocaeli kitap fuari bu hafta kapilarini aciyor",
+    "source": "yenikocaeli.com",
+    "content": "Kocaeli Kitap Fuari bu hafta sonu ziyaretcilerini agirlamaya hazirlaniyor. Etkinlik programinda yazar soylesileri, imza gunleri ve cocuklar icin atolyeler yer aliyor.",
+    "image_url": "https://fixtures.local/images/grp_05.jpg",
+    "label": "duplicate_of_grp_05"
+  },
+  {
+    "id": "n010",
+    "title": "Kocaeli kitap fuari bu hafta kapilarini aciyor",
+    "source": "bizimyaka.com",
+    "content": "Kocaeli Kitap Fuari bu hafta sonu ziyaretcilerini agirlamaya hazirlaniyor. Etkinlik programinda yazar soylesileri, imza gunleri ve cocuklar icin atolyeler yer aliyor.",
+    "image_url": "https://fixtures.local/images/grp_05.jpg",
+    "label": "duplicate_of_grp_05"
+  },
+  {
+    "id": "n011",
+    "title": "Korfez D100 gecisinde iki arac carpisti",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Korfez D100 karayolu gecisinde yagisli hava nedeniyle iki arac carpisti. Kazada yaralanan iki kisi ambulansla hastaneye kaldirildi, polis ekipleri guvenlik onlemi aldi.",
+    "image_url": "https://fixtures.local/images/grp_06.jpg",
+    "label": "duplicate_of_grp_06"
+  },
+  {
+    "id": "n012",
+    "title": "Korfez D100 gecisinde iki arac carpisti",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Korfez D100 karayolu gecisinde yagisli hava nedeniyle iki arac carpisti. Kazada yaralanan iki kisi ambulansla hastaneye kaldirildi, polis ekipleri guvenlik onlemi aldi.",
+    "image_url": "https://fixtures.local/images/grp_06.jpg",
+    "label": "duplicate_of_grp_06"
+  },
+  {
+    "id": "n013",
+    "title": "Basiskeledeki depoda cikan yangin sonduruldu",
+    "source": "seskocaeli.com",
+    "content": "Basiskele ilcesindeki bir lojistik deposunda cikan yangin gece boyunca ekipleri alarma gecirdi. Olay yerine sevk edilen itfaiye ekipleri yangini sabaha karsi tamamen sondurdu.",
+    "image_url": "https://fixtures.local/images/grp_07.jpg",
+    "label": "duplicate_of_grp_07"
+  },
+  {
+    "id": "n014",
+    "title": "Basiskeledeki depoda cikan yangin sonduruldu",
+    "source": "yenikocaeli.com",
+    "content": "Basiskele ilcesindeki bir lojistik deposunda cikan yangin gece boyunca ekipleri alarma gecirdi. Olay yerine sevk edilen itfaiye ekipleri yangini sabaha karsi tamamen sondurdu.",
+    "image_url": "https://fixtures.local/images/grp_07.jpg",
+    "label": "duplicate_of_grp_07"
+  },
+  {
+    "id": "n015",
+    "title": "Kartepe Istasyon Mahallesinde planli enerji kesintisi",
+    "source": "bizimyaka.com",
+    "content": "Kartepe Istasyon Mahallesinde trafolar uzerinde yapilacak calisma nedeniyle planli enerji kesintisi uygulanacak. Kesintinin sabah sekizden ogle saatlerine kadar surmesi bekleniyor.",
+    "image_url": "https://fixtures.local/images/grp_08.jpg",
+    "label": "duplicate_of_grp_08"
+  },
+  {
+    "id": "n016",
+    "title": "Kartepe Istasyon Mahallesinde planli enerji kesintisi",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Kartepe Istasyon Mahallesinde trafolar uzerinde yapilacak calisma nedeniyle planli enerji kesintisi uygulanacak. Kesintinin sabah sekizden ogle saatlerine kadar surmesi bekleniyor.",
+    "image_url": "https://fixtures.local/images/grp_08.jpg",
+    "label": "duplicate_of_grp_08"
+  },
+  {
+    "id": "n017",
+    "title": "Derincede park halindeki otomobilden hirsizlik",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Derince ilcesinde park halindeki bir otomobilin cami kirilarak icindeki elektronik esyalar calindi. Polis ekipleri cevredeki is yerlerinin kamera kayitlarini toplamaya basladi.",
+    "image_url": "https://fixtures.local/images/grp_09.jpg",
+    "label": "duplicate_of_grp_09"
+  },
+  {
+    "id": "n018",
+    "title": "Derincede park halindeki otomobilden hirsizlik",
+    "source": "seskocaeli.com",
+    "content": "Derince ilcesinde park halindeki bir otomobilin cami kirilarak icindeki elektronik esyalar calindi. Polis ekipleri cevredeki is yerlerinin kamera kayitlarini toplamaya basladi.",
+    "image_url": "https://fixtures.local/images/grp_09.jpg",
+    "label": "duplicate_of_grp_09"
+  },
+  {
+    "id": "n019",
+    "title": "Gebzede genclik festivali icin geri sayim basladi",
+    "source": "yenikocaeli.com",
+    "content": "Gebze Belediyesi tarafindan duzenlenecek genclik festivali icin konser ve spor etkinliklerinin programi aciklandi. Festival alaninda hafta sonu boyunca atolyeler ve sahne gosterileri yapilacak.",
+    "image_url": "https://fixtures.local/images/grp_10.jpg",
+    "label": "duplicate_of_grp_10"
+  },
+  {
+    "id": "n020",
+    "title": "Gebzede genclik festivali icin geri sayim basladi",
+    "source": "bizimyaka.com",
+    "content": "Gebze Belediyesi tarafindan duzenlenecek genclik festivali icin konser ve spor etkinliklerinin programi aciklandi. Festival alaninda hafta sonu boyunca atolyeler ve sahne gosterileri yapilacak.",
+    "image_url": "https://fixtures.local/images/grp_10.jpg",
+    "label": "duplicate_of_grp_10"
+  },
+  {
+    "id": "n021",
+    "title": "Kandira yolunda servis minibusu ile otomobil carpisti",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Kandira yolunda sabah saatlerinde servis minibusu ile otomobil carpisti. Kazanin ardindan ulasim bir sure kontrollu saglandi, yaralilarin durumunun iyi oldugu bildirildi.",
+    "image_url": "https://fixtures.local/images/grp_11.jpg",
+    "label": "duplicate_of_grp_11"
+  },
+  {
+    "id": "n022",
+    "title": "Kandira yolunda servis minibusu ile otomobil carpisti",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Kandira yolunda sabah saatlerinde servis minibusu ile otomobil carpisti. Kazanin ardindan ulasim bir sure kontrollu saglandi, yaralilarin durumunun iyi oldugu bildirildi.",
+    "image_url": "https://fixtures.local/images/grp_11.jpg",
+    "label": "duplicate_of_grp_11"
+  },
+  {
+    "id": "n023",
+    "title": "Cayirovadaki geri donusum tesisinde yangin",
+    "source": "seskocaeli.com",
+    "content": "Cayirovadaki geri donusum tesisinde atik malzemelerin bulundugu bolumde yangin cikti. Yogun duman nedeniyle cevrede guvenlik onlemleri artirilirken alevler ekiplerin mudahalesiyle durduruldu.",
+    "image_url": "https://fixtures.local/images/grp_12.jpg",
+    "label": "duplicate_of_grp_12"
+  },
+  {
+    "id": "n024",
+    "title": "Cayirovadaki geri donusum tesisinde yangin",
+    "source": "yenikocaeli.com",
+    "content": "Cayirovadaki geri donusum tesisinde atik malzemelerin bulundugu bolumde yangin cikti. Yogun duman nedeniyle cevrede guvenlik onlemleri artirilirken alevler ekiplerin mudahalesiyle durduruldu.",
+    "image_url": "https://fixtures.local/images/grp_12.jpg",
+    "label": "duplicate_of_grp_12"
+  },
+  {
+    "id": "n025",
+    "title": "Yahya Kaptanda planli elektrik kesintisi aciklandi",
+    "source": "bizimyaka.com",
+    "content": "Izmit Yahya Kaptan Mahallesindeki bakim calismalari nedeniyle planli elektrik kesintisi uygulanacak. Yetkililer, enerji arzinin aksam saatlerine kadar kademeli olarak normale donecegini bildirdi.",
+    "image_url": "https://fixtures.local/images/grp_13.jpg",
+    "label": "duplicate_of_grp_13"
+  },
+  {
+    "id": "n026",
+    "title": "Yahya Kaptanda planli elektrik kesintisi aciklandi",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Izmit Yahya Kaptan Mahallesindeki bakim calismalari nedeniyle planli elektrik kesintisi uygulanacak. Yetkililer, enerji arzinin aksam saatlerine kadar kademeli olarak normale donecegini bildirdi.",
+    "image_url": "https://fixtures.local/images/grp_13.jpg",
+    "label": "duplicate_of_grp_13"
+  },
+  {
+    "id": "n027",
+    "title": "Kartepede markete giren hirsizlar kamerada",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Kartepe ilcesinde bir markete gece saatlerinde giren hirsizlar kasadaki nakit para ile bazi elektronik urunleri alarak kayiplara karisti. Olay guvenlik kamerasina yansidi.",
+    "image_url": "https://fixtures.local/images/grp_14.jpg",
+    "label": "duplicate_of_grp_14"
+  },
+  {
+    "id": "n028",
+    "title": "Kartepede markete giren hirsizlar kamerada",
+    "source": "seskocaeli.com",
+    "content": "Kartepe ilcesinde bir markete gece saatlerinde giren hirsizlar kasadaki nakit para ile bazi elektronik urunleri alarak kayiplara karisti. Olay guvenlik kamerasina yansidi.",
+    "image_url": "https://fixtures.local/images/grp_14.jpg",
+    "label": "duplicate_of_grp_14"
+  },
+  {
+    "id": "n029",
+    "title": "Darica sahilinde acik hava konseri duzenlenecek",
+    "source": "yenikocaeli.com",
+    "content": "Darica sahilinde hafta sonu acik hava konseri ve sokak lezzetleri etkinligi duzenlenecek. Belediye, programa yogun katilim beklediklerini ve guvenlik onlemlerinin alindigini duyurdu.",
+    "image_url": "https://fixtures.local/images/grp_15.jpg",
+    "label": "duplicate_of_grp_15"
+  },
+  {
+    "id": "n030",
+    "title": "Darica sahilinde acik hava konseri duzenlenecek",
+    "source": "bizimyaka.com",
+    "content": "Darica sahilinde hafta sonu acik hava konseri ve sokak lezzetleri etkinligi duzenlenecek. Belediye, programa yogun katilim beklediklerini ve guvenlik onlemlerinin alindigini duyurdu.",
+    "image_url": "https://fixtures.local/images/grp_15.jpg",
+    "label": "duplicate_of_grp_15"
+  },
+  {
+    "id": "n031",
+    "title": "Dilovasi rampasinda tir ile kamyonet carpisti",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Dilovasi rampasinda meydana gelen kazada tir ile kamyonet carpisti. Ulasimda aksama yasanirken ekipler yolun guvenli sekilde acilmasi icin uzun sure calisma yuruttu.",
+    "image_url": "https://fixtures.local/images/grp_16.jpg",
+    "label": "duplicate_of_grp_16"
+  },
+  {
+    "id": "n032",
+    "title": "Dilovasi rampasinda tir ile kamyonet carpisti",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Dilovasi rampasinda meydana gelen kazada tir ile kamyonet carpisti. Ulasimda aksama yasanirken ekipler yolun guvenli sekilde acilmasi icin uzun sure calisma yuruttu.",
+    "image_url": "https://fixtures.local/images/grp_16.jpg",
+    "label": "duplicate_of_grp_16"
+  },
+  {
+    "id": "n033",
+    "title": "Derince limaninda konteyner yangini panige yol acti",
+    "source": "seskocaeli.com",
+    "content": "Derince Limani icindeki bir konteynerde cikan yangin kisa sureli panige yol acti. Liman ve itfaiye ekipleri hizli mudahale ederek yanginin buyumesini engelledi.",
+    "image_url": "https://fixtures.local/images/grp_17.jpg",
+    "label": "duplicate_of_grp_17"
+  },
+  {
+    "id": "n034",
+    "title": "Derince limaninda konteyner yangini panige yol acti",
+    "source": "yenikocaeli.com",
+    "content": "Derince Limani icindeki bir konteynerde cikan yangin kisa sureli panige yol acti. Liman ve itfaiye ekipleri hizli mudahale ederek yanginin buyumesini engelledi.",
+    "image_url": "https://fixtures.local/images/grp_17.jpg",
+    "label": "duplicate_of_grp_17"
+  },
+  {
+    "id": "n035",
+    "title": "Herekede yarin icin elektrik kesintisi planlandi",
+    "source": "bizimyaka.com",
+    "content": "Korfez Hereke bolgesinde yarin planli elektrik kesintisi uygulanacagi aciklandi. Dagitim firmasi, saha yenileme calismasi nedeniyle bazi sokaklarda enerji verilemeyecegini bildirdi.",
+    "image_url": "https://fixtures.local/images/grp_18.jpg",
+    "label": "duplicate_of_grp_18"
+  },
+  {
+    "id": "n036",
+    "title": "Herekede yarin icin elektrik kesintisi planlandi",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Korfez Hereke bolgesinde yarin planli elektrik kesintisi uygulanacagi aciklandi. Dagitim firmasi, saha yenileme calismasi nedeniyle bazi sokaklarda enerji verilemeyecegini bildirdi.",
+    "image_url": "https://fixtures.local/images/grp_18.jpg",
+    "label": "duplicate_of_grp_18"
+  },
+  {
+    "id": "n037",
+    "title": "Basiskelede santiye sahasinda hirsizlik olayi",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Basiskelede devam eden bir insaat santiyesinde gece saatlerinde kablo ve el aletleri calindi. Sahadaki guvenlik gorevlilerinin ihbari uzerine polis inceleme baslatti.",
+    "image_url": "https://fixtures.local/images/grp_19.jpg",
+    "label": "duplicate_of_grp_19"
+  },
+  {
+    "id": "n038",
+    "title": "Basiskelede santiye sahasinda hirsizlik olayi",
+    "source": "seskocaeli.com",
+    "content": "Basiskelede devam eden bir insaat santiyesinde gece saatlerinde kablo ve el aletleri calindi. Sahadaki guvenlik gorevlilerinin ihbari uzerine polis inceleme baslatti.",
+    "image_url": "https://fixtures.local/images/grp_19.jpg",
+    "label": "duplicate_of_grp_19"
+  },
+  {
+    "id": "n039",
+    "title": "Golcukte fotograf sergisi sanatseverlerle bulusuyor",
+    "source": "yenikocaeli.com",
+    "content": "Golcuk Belediyesi tarafindan hazirlanan fotograf sergisi bu hafta kultur merkezinde aciliyor. Sergide kentin gecmisine ve gunluk yasamina dair kareler sanatseverlerle bulusacak.",
+    "image_url": "https://fixtures.local/images/grp_20.jpg",
+    "label": "duplicate_of_grp_20"
+  },
+  {
+    "id": "n040",
+    "title": "Golcukte fotograf sergisi sanatseverlerle bulusuyor",
+    "source": "bizimyaka.com",
+    "content": "Golcuk Belediyesi tarafindan hazirlanan fotograf sergisi bu hafta kultur merkezinde aciliyor. Sergide kentin gecmisine ve gunluk yasamina dair kareler sanatseverlerle bulusacak.",
+    "image_url": "https://fixtures.local/images/grp_20.jpg",
+    "label": "duplicate_of_grp_20"
+  },
+  {
+    "id": "n041",
+    "title": "Izmit tramvay kavsaginda trafik kazasi meydana geldi",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Izmit tramvay kavsaginda iki otomobilin carpismasi sonucu maddi hasarli trafik kazasi meydana geldi. Kavsakta kisa sureli yogunluk olusurken ekipler yol acma calismasi yapti.",
+    "image_url": "https://fixtures.local/images/grp_21.jpg",
+    "label": "duplicate_of_grp_21"
+  },
+  {
+    "id": "n042",
+    "title": "Izmit tramvay kavsaginda trafik kazasi meydana geldi",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Izmit tramvay kavsaginda iki otomobilin carpismasi sonucu maddi hasarli trafik kazasi meydana geldi. Kavsakta kisa sureli yogunluk olusurken ekipler yol acma calismasi yapti.",
+    "image_url": "https://fixtures.local/images/grp_21.jpg",
+    "label": "duplicate_of_grp_21"
+  },
+  {
+    "id": "n043",
+    "title": "Kandirada samanlik yangini ekipleri harekete gecirdi",
+    "source": "seskocaeli.com",
+    "content": "Kandirada bir samanlikta cikan yangin ruzgarin da etkisiyle kisa surede buyudu. Itfaiye ekipleri ve koy sakinleri birlikte mudahale ederek alevlerin cevreye yayilmasini onledi.",
+    "image_url": "https://fixtures.local/images/grp_22.jpg",
+    "label": "duplicate_of_grp_22"
+  },
+  {
+    "id": "n044",
+    "title": "Kandirada samanlik yangini ekipleri harekete gecirdi",
+    "source": "yenikocaeli.com",
+    "content": "Kandirada bir samanlikta cikan yangin ruzgarin da etkisiyle kisa surede buyudu. Itfaiye ekipleri ve koy sakinleri birlikte mudahale ederek alevlerin cevreye yayilmasini onledi.",
+    "image_url": "https://fixtures.local/images/grp_22.jpg",
+    "label": "duplicate_of_grp_22"
+  },
+  {
+    "id": "n045",
+    "title": "Cayirova sanayi bolgesinde elektrik kesintisi olacak",
+    "source": "bizimyaka.com",
+    "content": "Cayirova sanayi bolgesindeki orta gerilim hatlarinda yenileme yapilacagi icin elektrik kesintisi duyuruldu. Isletmelerin planli kesintiye gore hazirlik yapmasi istendi.",
+    "image_url": "https://fixtures.local/images/grp_23.jpg",
+    "label": "duplicate_of_grp_23"
+  },
+  {
+    "id": "n046",
+    "title": "Cayirova sanayi bolgesinde elektrik kesintisi olacak",
+    "source": "cagdaskocaeli.com.tr",
+    "content": "Cayirova sanayi bolgesindeki orta gerilim hatlarinda yenileme yapilacagi icin elektrik kesintisi duyuruldu. Isletmelerin planli kesintiye gore hazirlik yapmasi istendi.",
+    "image_url": "https://fixtures.local/images/grp_23.jpg",
+    "label": "duplicate_of_grp_23"
+  },
+  {
+    "id": "n047",
+    "title": "Gebzede telefon dukkaninda hirsizlik",
+    "source": "ozgurkocaeli.com.tr",
+    "content": "Gebzede bir telefon dukkanina giren hirsizlar cok sayida cep telefonu ve aksesuar caldi. Sabah dukkanini acan is yeri sahibi durumu polis ekiplerine bildirdi.",
+    "image_url": "https://fixtures.local/images/grp_24.jpg",
+    "label": "duplicate_of_grp_24"
+  },
+  {
+    "id": "n048",
+    "title": "Gebzede telefon dukkaninda hirsizlik",
+    "source": "seskocaeli.com",
+    "content": "Gebzede bir telefon dukkanina giren hirsizlar cok sayida cep telefonu ve aksesuar caldi. Sabah dukkanini acan is yeri sahibi durumu polis ekiplerine bildirdi.",
+    "image_url": "https://fixtures.local/images/grp_24.jpg",
+    "label": "duplicate_of_grp_24"
+  },
+  {
+    "id": "n049",
+    "title": "Basiskelede cocuk tiyatrosu hafta sonu sahneleniyor",
+    "source": "yenikocaeli.com",
+    "content": "Basiskelede hafta sonu cocuk tiyatrosu gosterisi sahnelenecek. Ailelerin yogun ilgi gostermesi beklenen etkinlikte atolyeler ve interaktif oyunlar da yer alacak.",
+    "image_url": "https://fixtures.local/images/grp_25.jpg",
+    "label": "duplicate_of_grp_25"
+  },
+  {
+    "id": "n050",
+    "title": "Basiskelede cocuk tiyatrosu hafta sonu sahneleniyor",
+    "source": "bizimyaka.com",
+    "content": "Basiskelede hafta sonu cocuk tiyatrosu gosterisi sahnelenecek. Ailelerin yogun ilgi gostermesi beklenen etkinlikte atolyeler ve interaktif oyunlar da yer alacak.",
+    "image_url": "https://fixtures.local/images/grp_25.jpg",
+    "label": "duplicate_of_grp_25"
+  }
+]

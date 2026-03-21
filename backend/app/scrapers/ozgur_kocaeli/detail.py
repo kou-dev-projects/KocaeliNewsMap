@@ -7,10 +7,8 @@ from bs4 import BeautifulSoup
 from app.scrapers.base.static_client import StaticHttpClient
 from app.scrapers.base.static_helpers import clean_text
 from app.scrapers.ozgur_kocaeli.selectors import (
-    CONTENT_SELECTORS,
     DATE_SELECTORS,
     IMAGE_SELECTORS,
-    SUMMARY_SELECTORS,
     TITLE_SELECTORS,
 )
 
@@ -21,6 +19,21 @@ PUBLISHED_AT_REGEX = re.compile(
 
 
 class OzgurKocaeliDetailScraper:
+    INVALID_CONTENT_PHRASES = [
+    "Topluluk Kuralları",
+    "Yorum yazarak",
+    "Yazılan yorumlardan",
+    "Haber ajansları tarafından servis edilen",
+    "Yorumunuz gözden geçirilip yayınlanacaktır",
+    "Mahreç",
+    "Okunma",
+    "Yazdır",
+    "Son bir ayda ozgurkocaeli.com.tr sitesinde",
+    "Yorumunuz yarım kaldı",
+    "Kırmızı alanlar eksik veya hatalı girildi",
+    "Yorumunuz için teşekkürler",
+    ]
+
     def __init__(self, client: StaticHttpClient | None = None) -> None:
         self.client = client or StaticHttpClient()
 
@@ -30,9 +43,9 @@ class OzgurKocaeliDetailScraper:
     def extract_detail_fields(self, html: str) -> dict:
         soup = BeautifulSoup(html, "html.parser")
 
-        title = self._extract_text_by_selectors(soup, TITLE_SELECTORS)
-        summary = self._extract_summary(soup)
-        content = self._extract_content(soup)
+        title = self._extract_title(soup)
+        summary = self._extract_summary(soup, title)
+        content = self._extract_content(soup, title, summary)
         published_at_raw = self._extract_published_at(soup)
         image_url = self._extract_image(soup)
 
@@ -44,19 +57,8 @@ class OzgurKocaeliDetailScraper:
             "image_url": image_url,
         }
 
-    def _extract_text_by_selectors(
-        self,
-        soup: BeautifulSoup,
-        selectors: list[str],
-    ) -> str:
-        for selector in selectors:
-            node = soup.select_one(selector)
-            if node:
-                return clean_text(node.get_text(" ", strip=True))
-        return ""
-
-    def _extract_summary(self, soup: BeautifulSoup) -> str:
-        for selector in SUMMARY_SELECTORS:
+    def _extract_title(self, soup: BeautifulSoup) -> str:
+        for selector in TITLE_SELECTORS:
             node = soup.select_one(selector)
             if node:
                 text = clean_text(node.get_text(" ", strip=True))
@@ -64,32 +66,51 @@ class OzgurKocaeliDetailScraper:
                     return text
         return ""
 
-    def _extract_content(self, soup: BeautifulSoup) -> str:
-        for selector in CONTENT_SELECTORS:
-            node = soup.select_one(selector)
-            if not node:
+    def _extract_summary(self, soup: BeautifulSoup, title: str) -> str:
+        paragraphs = [
+            clean_text(p.get_text(" ", strip=True))
+            for p in soup.find_all("p")
+        ]
+        paragraphs = [p for p in paragraphs if p]
+
+        for paragraph in paragraphs:
+            lowered = paragraph.lower()
+
+            if paragraph == title:
+                continue
+            if any(bad.lower() in lowered for bad in self.INVALID_CONTENT_PHRASES):
+                continue
+            if len(paragraph) < 25:
                 continue
 
-            paragraphs = [
-                clean_text(p.get_text(" ", strip=True))
-                for p in node.find_all(["p", "li"])
-            ]
-            paragraphs = [
-                p for p in paragraphs
-                if p
-                and "Topluluk Kuralları" not in p
-                and "Yorumunuz" not in p
-                and "hukuki muhatabı" not in p
-            ]
-
-            if paragraphs:
-                return "\n".join(paragraphs)
-
-            text = clean_text(node.get_text(" ", strip=True))
-            if text:
-                return text
+            return paragraph
 
         return ""
+
+    def _extract_content(self, soup: BeautifulSoup, title: str, summary: str) -> str:
+        paragraphs = [
+            clean_text(p.get_text(" ", strip=True))
+            for p in soup.find_all("p")
+        ]
+        paragraphs = [p for p in paragraphs if p]
+
+        cleaned_paragraphs: list[str] = []
+        for paragraph in paragraphs:
+            lowered = paragraph.lower()
+
+            if paragraph == title:
+                continue
+            if summary and paragraph == summary:
+                continue
+            if len(paragraph) < 20:
+                continue
+            
+            if any(bad.lower() in lowered for bad in self.INVALID_CONTENT_PHRASES):
+                break
+
+            cleaned_paragraphs.append(paragraph)
+
+        return "\n".join(cleaned_paragraphs).strip()
 
     def _extract_published_at(self, soup: BeautifulSoup) -> str:
         for selector in DATE_SELECTORS:

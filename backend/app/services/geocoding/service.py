@@ -1,35 +1,45 @@
 from __future__ import annotations
+
 import logging
-from typing import Union
 
 from .cache import RedisGeoCache
 from .config import GeocodingConfig
-from .exceptions import (
-    LowConfidenceError,
-    OutOfBoundsError,
-    ProviderRateLimitError,
-    ProviderUnavailableError,
-)
+from .exceptions import ProviderRateLimitError, ProviderUnavailableError
 from .metrics import GeocodingMetrics
 from .providers.base import GeocodingProvider
 from .queue import GeocodingQueue
-from .schemas import GeocodingFailure, GeocodingInput, GeocodingResult
+from .schemas import (
+    GeocodingFailure,
+    GeocodingInput,
+    GeocodingResult,
+    _normalize_for_compare,
+)
 
 logger = logging.getLogger(__name__)
 
-# Kocaeli bounding box — WGS84
 _LAT_MIN, _LAT_MAX = 40.35, 41.15
 _LNG_MIN, _LNG_MAX = 29.10, 30.90
 
-KOCAELI_DISTRICTS = {
-    "izmit", "gebze", "darıca", "gölcük", "körfez",
-    "kartepe", "başiskele", "çayırova", "dilovası",
-    "kandıra", "karamürsel", "derince",
-}
+KOCAELI_DISTRICTS = frozenset(
+    _normalize_for_compare(name)
+    for name in (
+        "İzmit",
+        "Gebze",
+        "Darıca",
+        "Gölcük",
+        "Körfez",
+        "Kartepe",
+        "Başiskele",
+        "Çayırova",
+        "Dilovası",
+        "Kandıra",
+        "Karamürsel",
+        "Derince",
+    )
+)
 
 
 class GeocodingService:
-
     def __init__(
         self,
         provider: GeocodingProvider,
@@ -46,9 +56,7 @@ class GeocodingService:
 
     def geocode(
         self, input_data: GeocodingInput
-    ) -> Union[GeocodingResult, GeocodingFailure]:
-
-        # 1) Cache
+    ) -> GeocodingResult | GeocodingFailure:
         cached = self._cache.get(input_data)
         if cached:
             self._metrics.record_success(
@@ -58,23 +66,33 @@ class GeocodingService:
             )
             return cached
 
-        # 2) Provider
         try:
             result = self._provider.geocode(input_data)
-
         except ProviderRateLimitError as exc:
-            self._metrics.record_rate_limit(exc.provider, exc.retry_after)
-            self._queue.enqueue(input_data, reason=f"rate_limit:{exc.provider}")
+            self._metrics.record_rate_limit(
+                exc.provider,
+                exc.retry_after,
+                address=input_data.address,
+            )
+            queued = self._queue.enqueue(
+                input_data,
+                reason=f"rate_limit:{exc.provider}",
+            )
             return GeocodingFailure(
                 address=input_data.address,
-                reason=f"Rate limit — kuyruğa alındı ({exc.retry_after}s)",
-                failure_type="rate_limit",
+                reason=(
+                    f"Rate limit — kuyruğa alındı ({exc.retry_after}s)"
+                    if queued
+                    else "Rate limit — kuyruk dolu, adres düşürüldü"
+                ),
+                failure_type="rate_limit" if queued else "queue_full",
                 news_id=input_data.news_id,
             )
-
         except ProviderUnavailableError as exc:
             self._metrics.record_failure(
-                input_data.address, "provider_unavailable", str(exc)
+                input_data.address,
+                "provider_unavailable",
+                str(exc),
             )
             return GeocodingFailure(
                 address=input_data.address,
@@ -82,10 +100,11 @@ class GeocodingService:
                 failure_type="provider_error",
                 news_id=input_data.news_id,
             )
-
         except Exception as exc:
             self._metrics.record_failure(
-                input_data.address, "unexpected_error", type(exc).__name__
+                input_data.address,
+                "unexpected_error",
+                type(exc).__name__,
             )
             logger.exception(
                 "geocoding.unexpected_error",
@@ -98,10 +117,11 @@ class GeocodingService:
                 news_id=input_data.news_id,
             )
 
-        # 3) Sonuç yok
         if result is None:
             self._metrics.record_failure(
-                input_data.address, "not_found", "Provider sonuç döndürmedi"
+                input_data.address,
+                "not_found",
+                "Provider sonuç döndürmedi",
             )
             return GeocodingFailure(
                 address=input_data.address,
@@ -110,7 +130,6 @@ class GeocodingService:
                 news_id=input_data.news_id,
             )
 
-        # 4) Confidence kontrolü
         if result.confidence < self._cfg.min_confidence:
             self._metrics.record_failure(
                 input_data.address,
@@ -124,7 +143,6 @@ class GeocodingService:
                 news_id=input_data.news_id,
             )
 
-        # 5) Kocaeli bölge doğrulaması
         if not self._is_kocaeli(result):
             self._metrics.record_failure(
                 input_data.address,
@@ -138,19 +156,15 @@ class GeocodingService:
                 news_id=input_data.news_id,
             )
 
-        # 6) Cache'e yaz
         self._cache.set(input_data, result)
-
         self._metrics.record_success(
             source=result.source,
             district=result.district,
             confidence=result.confidence,
         )
-
         return result
 
     def metrics_summary(self) -> dict:
-        """Health endpoint veya log için."""
         return {
             **self._metrics.summary(),
             "cache_available": self._cache.available,
@@ -159,10 +173,13 @@ class GeocodingService:
         }
 
     def _is_kocaeli(self, result: GeocodingResult) -> bool:
-        display = result.display_name.lower()
+        display = _normalize_for_compare(result.display_name)
         if "kocaeli" in display or "izmit" in display:
             return True
-        if result.district and result.district.lower() in KOCAELI_DISTRICTS:
+        if (
+            result.district
+            and _normalize_for_compare(result.district) in KOCAELI_DISTRICTS
+        ):
             return True
         if _LAT_MIN <= result.lat <= _LAT_MAX and _LNG_MIN <= result.lng <= _LNG_MAX:
             return True

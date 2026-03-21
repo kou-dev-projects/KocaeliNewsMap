@@ -26,3 +26,13 @@ def test_summary_has_all_keys():
     assert "success_rate" in s
     assert "cache_hit_rate" in s
     assert "failure_by_type" in s
+    assert "top_failure_types" in s
+
+
+def test_rate_limit_counts_as_failure():
+    m = GeocodingMetrics()
+    m.record_rate_limit("nominatim", 1.0, address="İzmit")
+    assert m.total_requests == 1
+    assert m.total_failure == 1
+    assert m.failure_by_type["rate_limit"] == 1
+    assert m.failed_addresses == ["İzmit"]

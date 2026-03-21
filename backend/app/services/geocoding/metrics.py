@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 import threading
 from collections import defaultdict
@@ -10,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GeocodingMetrics:
- 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     total_requests: int = 0
@@ -19,19 +19,12 @@ class GeocodingMetrics:
     cache_hits: int = 0
     provider_calls: int = 0
 
-    # Hata dağılımı — hangi tür hata ne sıklıkta?
-    failure_by_type: dict[str, int] = field(
-        default_factory=lambda: defaultdict(int)
-    )
-
-    # İlçe başarı oranı — hangi ilçe daha zor geocode ediliyor?
+    failure_by_type: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     success_by_district: dict[str, int] = field(
         default_factory=lambda: defaultdict(int)
     )
-
-    # Sürekli başarısız olan adresler — normalizasyon gerektiriyor mu?
     failed_addresses: list[str] = field(default_factory=list)
-    _max_failed_addresses: int = 100   # bellek kontrolü
+    _max_failed_addresses: int = 100
 
     def record_success(
         self,
@@ -70,16 +63,25 @@ class GeocodingMetrics:
         logger.warning(
             "geocoding.failure",
             extra={
-                "address": address[:80],    # PII sınırlaması
+                "address": address[:80],
                 "failure_type": failure_type,
                 "reason": reason[:120],
                 "total_failure_rate": self._failure_rate(),
             },
         )
 
-    def record_rate_limit(self, provider: str, retry_after: float) -> None:
+    def record_rate_limit(
+        self,
+        provider: str,
+        retry_after: float,
+        address: Optional[str] = None,
+    ) -> None:
         with self._lock:
+            self.total_requests += 1
+            self.total_failure += 1
             self.failure_by_type["rate_limit"] += 1
+            if address and len(self.failed_addresses) < self._max_failed_addresses:
+                self.failed_addresses.append(address)
 
         logger.warning(
             "geocoding.rate_limit",
@@ -90,14 +92,13 @@ class GeocodingMetrics:
         )
 
     def summary(self) -> dict:
-        """Structured özet — log veya health endpoint için."""
         with self._lock:
             return {
                 "total_requests": self.total_requests,
                 "success_rate": self._success_rate(),
                 "cache_hit_rate": self._cache_hit_rate(),
                 "failure_by_type": dict(self.failure_by_type),
-                "top_failed_districts": self._top_failures(),
+                "top_failure_types": self._top_failures(),
             }
 
     def _success_rate(self) -> float:
@@ -111,19 +112,21 @@ class GeocodingMetrics:
         return round(self.total_failure / self.total_requests, 3)
 
     def _cache_hit_rate(self) -> float:
-        if self.provider_calls + self.cache_hits == 0:
+        total_hits = self.provider_calls + self.cache_hits
+        if total_hits == 0:
             return 0.0
-        return round(
-            self.cache_hits / (self.provider_calls + self.cache_hits), 3
-        )
+        return round(self.cache_hits / total_hits, 3)
 
     def _top_failures(self) -> dict:
         return dict(
-            sorted(self.failure_by_type.items(), key=lambda x: x[1], reverse=True)[:5]
+            sorted(
+                self.failure_by_type.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:5]
         )
 
 
-# Global singleton — uygulama boyunca tek instance
 _metrics = GeocodingMetrics()
 
 

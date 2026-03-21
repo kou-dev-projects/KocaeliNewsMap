@@ -30,3 +30,9 @@ def test_max_retries_drops_item():
         item.attempt_count += 1
     q.requeue(item, "still failing")
     assert q.size == 0   # max retries aşıldı, drop edildi
+
+
+def test_enqueue_returns_false_when_full():
+    q = GeocodingQueue()
+    q._MAX_SIZE = 0
+    assert q.enqueue(GeocodingInput(address="İzmit"), "rate_limit") is False

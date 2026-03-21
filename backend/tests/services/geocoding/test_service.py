@@ -1,6 +1,7 @@
 import pytest
 from app.services.geocoding.factory import build_geocoding_service
 from app.services.geocoding.config import GeocodingConfig
+from app.services.geocoding.exceptions import ProviderRateLimitError
 from app.services.geocoding.schemas import GeocodingInput, GeocodingResult, GeocodingFailure
 from app.services.geocoding.metrics import GeocodingMetrics
 from app.services.geocoding.cache import RedisGeoCache
@@ -27,6 +28,26 @@ def svc(cfg):
         metrics=GeocodingMetrics(),
         config=cfg,
     )
+
+
+class RateLimitedProvider:
+    name = "dummy"
+
+    def geocode(self, input_data):
+        raise ProviderRateLimitError(self.name, retry_after=1.0)
+
+
+def test_factory_builds_mock_service(cfg):
+    service = build_geocoding_service(cfg)
+    summary = service.metrics_summary()
+    assert isinstance(service, GeocodingService)
+    assert summary["provider"] == "mock"
+
+
+def test_normalized_turkish_i_is_stable():
+    assert GeocodingInput(address="İzmit").normalized() == GeocodingInput(
+        address="izmit"
+    ).normalized()
 
 
 def test_known_district_returns_result(svc):
@@ -82,3 +103,19 @@ def test_metrics_summary_has_required_keys(svc):
     assert "cache_available" in summary
     assert "queue_size" in summary
     assert "provider" in summary
+
+
+def test_rate_limit_queue_full_returns_queue_full_failure(cfg):
+    queue = GeocodingQueue()
+    queue._MAX_SIZE = 0
+    svc = GeocodingService(
+        provider=RateLimitedProvider(),
+        cache=RedisGeoCache(cfg.redis_url, cfg.cache_ttl_seconds),
+        queue=queue,
+        metrics=GeocodingMetrics(),
+        config=cfg,
+    )
+
+    result = svc.geocode(GeocodingInput(address="İzmit"))
+    assert isinstance(result, GeocodingFailure)
+    assert result.failure_type == "queue_full"

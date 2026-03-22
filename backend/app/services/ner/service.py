@@ -63,6 +63,7 @@ class NERService:
     def _gazetteer_pass(self, text: str) -> list[LocationCandidate]:
         """Metni tokenize edip gazetteer ile eşleştirir."""
         import re
+        text = text.replace("’", "'")
         tokens = re.split(r"[\s,;:.!?()\[\]\"\"]+", text)
         tokens = [t for t in tokens if len(t) >= 3]
 

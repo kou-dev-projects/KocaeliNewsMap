@@ -12,7 +12,8 @@ from .morphology import generate_candidates
 
 logger = logging.getLogger(__name__)
 
-_FUZZY_THRESHOLD = 90   # 0-100, rapidfuzz skoru
+_FUZZY_THRESHOLD = 94
+_FUZZY_MIN_LEN = 6
 
 try:
     from rapidfuzz import fuzz, process
@@ -93,15 +94,30 @@ class GazetteerMatcher:
             )
 
         # 4) Fuzzy match
-        if _FUZZY_AVAILABLE:
+        if (
+            _FUZZY_AVAILABLE
+            and len(norm) >= _FUZZY_MIN_LEN
+            and " " not in norm
+            and norm.isalpha()
+        ):
+            normalized_choices = [
+                normalize_for_compare(n) for n in self._canonical_names
+            ]
             result = process.extractOne(
                 norm,
-                [normalize_for_compare(n) for n in self._canonical_names],
+                normalized_choices,
                 scorer=fuzz.ratio,
                 score_cutoff=_FUZZY_THRESHOLD,
             )
             if result:
                 matched_norm, score, idx = result
+
+                # Çok alakasız kelimeleri district'e çevirmesin.
+                if matched_norm[:3] != norm[:3]:
+                    return None
+                if abs(len(matched_norm) - len(norm)) > 2:
+                    return None
+
                 canonical = self._canonical_names[idx]
                 logger.debug(
                     "ner.gazetteer.fuzzy_match",

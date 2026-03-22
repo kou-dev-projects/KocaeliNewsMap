@@ -47,13 +47,8 @@ class NewsWriteService:
         self._mongo = mongo_client
 
     def write(self, request: NewsWriteRequest) -> WriteResult:
-        """
-        Ana yazma entry point.
-        Her zaman WriteResult döner — exception fırlatmaz.
-        """
         idem_key = request.idempotency_key()
 
-        # 1) Idempotency check
         if self._idempotency.is_duplicate(idem_key):
             existing_id = self._idempotency.get_existing_id(idem_key)
             logger.info(
@@ -68,24 +63,23 @@ class NewsWriteService:
                 reason="idempotency_cache_hit",
             )
 
-        # 2) MongoDB yazma
+        error_message: str | None = None
+
         try:
-            result = self._mongo_write(request, idem_key)
-            return result
+            return self._mongo_write(request, idem_key)
         except Exception as exc:
+            error_message = str(exc)
             logger.warning(
                 "mcp.write.mongo_error",
                 extra={"error": type(exc).__name__, **request.safe_log_repr()},
             )
 
-        # 3) Fail-closed: MongoDB down → queue
         if self._cfg.fail_closed:
-            return self._handle_failure(request, idem_key, str(exc))
+            return self._handle_failure(request, idem_key, error_message or "unknown_error")
 
-        # fail_closed=False sadece dev — asla production'da
         logger.error(
             "mcp.write.fail_open_mode",
-            extra={"warning": "fail_closed=False — production'da kullanma"},
+            extra={"warning": "fail_closed=False - production'da kullanma"},
         )
         return WriteResult(
             status=WriteStatus.DEAD_LETTERED,
@@ -98,9 +92,7 @@ class NewsWriteService:
     def _mongo_write(
         self, request: NewsWriteRequest, idem_key: str
     ) -> WriteResult:
-    
         if self._mongo is None:
-            # Mock mod — test için
             fake_id = f"mock_{idem_key[:12]}"
             self._idempotency.mark_processed(idem_key, fake_id)
             logger.info(
@@ -114,26 +106,8 @@ class NewsWriteService:
                 idempotency_key=idem_key,
             )
 
-    
         collection = self._mongo[self._cfg.mongo_db]["haberler"]
-        existing = collection.find_one({"url": request.url})
 
-        if existing:
-            
-            collection.update_one(
-                {"_id": existing["_id"]},
-                {"$addToSet": {"kaynak_listesi": request.source}},
-            )
-            news_id = str(existing["_id"])
-            self._idempotency.mark_processed(idem_key, news_id)
-            return WriteResult(
-                status=WriteStatus.DUPLICATE_MERGED,
-                news_id=news_id,
-                was_duplicate=True,
-                idempotency_key=idem_key,
-            )
-
-        # Yeni haber
         doc = {
             "baslik": request.title,
             "url": request.url,
@@ -145,17 +119,35 @@ class NewsWriteService:
             "yayin_tarihi": request.published_at,
             "idempotency_key": idem_key,
         }
-        result = collection.insert_one(doc)
-        news_id = str(result.inserted_id)
-        self._idempotency.mark_processed(idem_key, news_id)
 
-        return WriteResult(
-            status=WriteStatus.INSERTED,
-            news_id=news_id,
-            was_duplicate=False,
-            idempotency_key=idem_key,
+        result = collection.update_one(
+            {"url": request.url},
+            {
+                "$setOnInsert": doc,
+                "$addToSet": {"kaynak_listesi": request.source},
+            },
+            upsert=True,
         )
 
+        saved = collection.find_one({"url": request.url})
+        news_id = str(saved["_id"])
+
+        self._idempotency.mark_processed(idem_key, news_id)
+
+        if result.upserted_id is not None:
+            return WriteResult(
+                status=WriteStatus.INSERTED,
+                news_id=news_id,
+                was_duplicate=False,
+                idempotency_key=idem_key,
+            )
+
+        return WriteResult(
+            status=WriteStatus.DUPLICATE_MERGED,
+            news_id=news_id,
+            was_duplicate=True,
+            idempotency_key=idem_key,
+        )
     def _handle_failure(
         self, request: NewsWriteRequest, idem_key: str, error: str
     ) -> WriteResult:

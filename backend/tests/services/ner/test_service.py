@@ -1,7 +1,7 @@
 from app.services.ner.providers.mock import MockNERProvider
 from app.services.ner.schemas import NERInput
 from app.services.ner.service import NERService
-
+from app.services.ner.schemas import RawEntity
 
 def build_service() -> NERService:
     return NERService(
@@ -79,3 +79,23 @@ def test_extract_locations_keeps_location_candidates():
     assert result.location_candidates[0].normalized_text == "Başiskele"
     assert result.location_candidates[0].district == "Başiskele"
     assert result.location_candidates[0].is_kocaeli_district is True
+
+
+class StubProvider:
+    name = "stub-ner"
+
+    def extract_entities(self, text: str):
+        return [
+            RawEntity(text="Gebze TEM", label="LOC", score=0.90),
+            RawEntity(text="Körfez D100", label="LOC", score=0.90),
+            RawEntity(text="İstanbul", label="LOC", score=0.95),
+        ]
+
+def test_extract_locations_recovers_district_from_extended_span():
+    service = NERService(provider=StubProvider(), min_score=0.50)
+
+    result = service.extract_locations(
+        NERInput(title="Test", content="Test")
+    )
+
+    assert result.validated_districts == ["Gebze", "Körfez"]

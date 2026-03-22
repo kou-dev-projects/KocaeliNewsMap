@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .districts import canonical_district_name
+from .districts import recover_district_name
 from .normalizer import normalize_location_text
 from .providers.base import NERProvider
 from .schemas import LocationCandidate, NERInput, NERResult, RawEntity
@@ -40,7 +40,7 @@ class NERService:
                 continue
 
             normalized_text = normalize_location_text(entity.text)
-            district = canonical_district_name(normalized_text)
+            district = recover_district_name(normalized_text)
             is_kocaeli = district is not None
 
             candidate = LocationCandidate(

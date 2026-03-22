@@ -27,3 +27,8 @@ def test_empty_queue():
     q = WriteQueue(10, 3)
     assert q.is_empty() is True
     assert q.dequeue_batch(5) == []
+    
+def test_queue_full_returns_false():
+    q = WriteQueue(0, 3)
+    assert q.enqueue(_req()) is False
+    

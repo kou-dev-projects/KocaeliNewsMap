@@ -40,3 +40,16 @@ def test_server_still_keeps_client_when_ping_fails(mock_mongo_client):
     server = MCPServer(config=_cfg())
 
     assert server._write_service._mongo is fake_client
+
+import pytest
+
+@patch("app.services.mcp.server.MongoClient")
+def test_unknown_tool_raises_value_error(mock_mongo_client):
+    fake_client = MagicMock()
+    fake_client.admin.command.return_value = {"ok": 1}
+    mock_mongo_client.return_value = fake_client
+
+    server = MCPServer(config=_cfg())
+
+    with pytest.raises(ValueError):
+        server.call("does_not_exist")

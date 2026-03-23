@@ -1,18 +1,13 @@
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException, Path
 
 from app.db.database import db
 from app.schemas import NewsListItem, NewsListResponse, NewsResponse
 
-from typing import Any, Optional
-from urllib.parse import urlparse
-
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, HTTPException, Path, Query
-
 
 router = APIRouter(prefix="/news", tags=["news"])
 
@@ -61,6 +56,7 @@ def map_doc_to_news_response(doc: dict[str, Any]) -> NewsResponse:
 @router.get("", response_model=NewsListResponse)
 def list_news(
     source: Optional[str] = Query(default=None),
+    category: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
@@ -68,6 +64,8 @@ def list_news(
 
     if source:
         query["source_name_snapshot"] = source
+    if category:
+        query["category_predicted"] = category
 
     collection = db["source_records"]
     total = collection.count_documents(query)
@@ -80,6 +78,7 @@ def list_news(
         items=items,
         total=total,
     )
+
 
 @router.get("/{id}", response_model=NewsResponse)
 def get_news_detail(

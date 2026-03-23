@@ -23,6 +23,7 @@ SUMMARY_SELECTORS = [
 ]
 
 CONTENT_SELECTORS = [
+    ".news",
     "article",
     ".news-detail-content",
     ".article-content",

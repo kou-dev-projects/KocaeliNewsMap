@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from app.scrapers.base.static_client import StaticHttpClient
 from app.scrapers.base.static_helpers import clean_text
 from app.scrapers.yeni_kocaeli.selectors import (
+    CONTENT_SELECTORS,
     DATE_SELECTORS,
     IMAGE_SELECTORS,
     TITLE_SELECTORS,
@@ -83,35 +84,42 @@ class YeniKocaeliDetailScraper:
         return ""
 
     def _extract_content(self, soup: BeautifulSoup, title: str, summary: str) -> str:
-        news_node = soup.select_one(".news")
-        if not news_node:
-            return ""
-
-        paragraphs = [
-            clean_text(p.get_text(" ", strip=True))
-            for p in news_node.find_all("p")
-        ]     
-        paragraphs = [p for p in paragraphs if p]
-
-        cleaned_paragraphs: list[str] = []
-        for paragraph in paragraphs:
-            lowered = paragraph.lower()
-
-            if paragraph == title:
-                continue
-            if summary and paragraph == summary:
-                continue
-            if paragraph.startswith("Anasayfa"):
-                continue
-            if paragraph.startswith("Güncel "):
+        for selector in CONTENT_SELECTORS:
+            news_node = soup.select_one(selector)
+            if not news_node:
                 continue
 
-            if any(bad.lower() in lowered for bad in self.INVALID_CONTENT_PHRASES):
-                break
+            paragraphs = [
+                clean_text(p.get_text(" ", strip=True))
+                for p in news_node.find_all(["p", "li"])
+            ]
+            paragraphs = [p for p in paragraphs if p]
 
-            cleaned_paragraphs.append(paragraph)
+            cleaned_paragraphs: list[str] = []
+            for paragraph in paragraphs:
+                lowered = paragraph.lower()
 
-        return "\n".join(cleaned_paragraphs).strip()
+                if paragraph == title:
+                    continue
+                if summary and paragraph == summary:
+                    continue
+                if paragraph.startswith("Anasayfa"):
+                    continue
+                if paragraph.startswith("Güncel "):
+                    continue
+                if any(bad.lower() in lowered for bad in self.INVALID_CONTENT_PHRASES):
+                    break
+
+                cleaned_paragraphs.append(paragraph)
+
+            if cleaned_paragraphs:
+                return "\n".join(cleaned_paragraphs).strip()
+
+            fallback = clean_text(news_node.get_text(" ", strip=True))
+            if fallback and fallback != title and fallback != summary:
+                return fallback
+
+        return ""
 
     def _extract_published_at(self, soup: BeautifulSoup) -> str:
         for selector in DATE_SELECTORS:

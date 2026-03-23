@@ -19,7 +19,7 @@ _MAX_REDIRECTS = 3
 try:
     import torch
     from PIL import Image
-    from transformers import AutoModel, AutoProcessor
+    from transformers import AutoImageProcessor, AutoModel, AutoProcessor
 
     _AVAILABLE = True
 except ImportError:
@@ -108,9 +108,20 @@ class SigLIP2Provider:
     def _get_model(self):
         if self._model is None:
             logger.info("SigLIP2 modeli yükleniyor")
-            self._processor = AutoProcessor.from_pretrained(
-                "google/siglip2-base-patch16-224"
-            )
+            # Some transformers versions fail to build SigLIP tokenizer for AutoProcessor.
+            # We only need image preprocessing for this provider, so we fallback to AutoImageProcessor.
+            try:
+                self._processor = AutoProcessor.from_pretrained(
+                    "google/siglip2-base-patch16-224"
+                )
+            except Exception as exc:
+                logger.warning(
+                    "SigLIP2 AutoProcessor yüklenemedi, AutoImageProcessor fallback kullanılacak. hata_tipi=%s",
+                    type(exc).__name__,
+                )
+                self._processor = AutoImageProcessor.from_pretrained(
+                    "google/siglip2-base-patch16-224"
+                )
             self._model = AutoModel.from_pretrained(
                 "google/siglip2-base-patch16-224"
             )

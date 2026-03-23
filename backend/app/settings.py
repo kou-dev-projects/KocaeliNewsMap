@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     mongo_url: str
     mongo_db: str = "kocaeli_news"
     redis_url: str = "redis://localhost:6379"
+    scheduler_enabled: bool = True
+    scheduler_timezone: str = "Europe/Istanbul"
+    scheduler_interval_hours: int = 3
 
 
 settings = Settings()

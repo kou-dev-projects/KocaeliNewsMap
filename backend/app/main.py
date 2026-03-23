@@ -1,14 +1,27 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router as api_router
 from app.db.database import db
+from app.scheduler import scheduler_service
 from app.settings import settings
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    scheduler_service.start()
+    try:
+        yield
+    finally:
+        scheduler_service.shutdown()
 
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
+    lifespan=lifespan,
 )
 
 app.add_middleware(

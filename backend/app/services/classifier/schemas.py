@@ -1,18 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Optional
 
-
-class NewsCategory(str, Enum):
-   
-    TRAFIK_KAZASI = "trafik_kazasi"
-    YANGIN = "yangin"
-    HIRSIZLIK = "hirsizlik"
-    ELEKTRIK_KESINTISI = "elektrik_kesintisi"
-    KULTUREL_ETKINLIK = "kulturel_etkinlik"
-    UNKNOWN = "unknown"   
-
+from app.domain.enums import NewsCategory
 
 CATEGORY_PRIORITY: dict[NewsCategory, int] = {
     NewsCategory.TRAFIK_KAZASI:      1,   # en yüksek öncelik

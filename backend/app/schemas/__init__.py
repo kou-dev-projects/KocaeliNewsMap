@@ -1,8 +1,8 @@
-from .haber import HaberCreate, HaberListItem, HaberListResponse, HaberResponse
+from .news import NewsCreate, NewsListItem, NewsListResponse, NewsResponse
 
 __all__ = [
-    "HaberCreate",
-    "HaberListItem",
-    "HaberListResponse",
-    "HaberResponse",
+    "NewsCreate",
+    "NewsListItem",
+    "NewsListResponse",
+    "NewsResponse",
 ]

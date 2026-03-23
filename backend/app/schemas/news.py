@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict
 
 
-class HaberBase(BaseModel):
+class NewsBase(BaseModel):
     title: str
     summary: Optional[str] = None
     source_name: str
@@ -14,21 +14,21 @@ class HaberBase(BaseModel):
     published_at_raw: Optional[str] = None
 
 
-class HaberCreate(HaberBase):
+class NewsCreate(NewsBase):
     content_text: str
 
 
-class HaberListItem(HaberBase):
+class NewsListItem(NewsBase):
     id: str
     scraped_at: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class HaberResponse(HaberListItem):
+class NewsResponse(NewsListItem):
     content_text: str
 
 
-class HaberListResponse(BaseModel):
-    items: list[HaberListItem]
+class NewsListResponse(BaseModel):
+    items: list[NewsListItem]
     total: int

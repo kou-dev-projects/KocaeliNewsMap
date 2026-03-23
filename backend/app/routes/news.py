@@ -6,6 +6,13 @@ from fastapi import APIRouter, Query
 from app.db.database import db
 from app.schemas import NewsListItem, NewsListResponse, NewsResponse
 
+from typing import Any, Optional
+from urllib.parse import urlparse
+
+from bson import ObjectId
+from bson.errors import InvalidId
+from fastapi import APIRouter, HTTPException, Path, Query
+
 
 router = APIRouter(prefix="/news", tags=["news"])
 
@@ -73,3 +80,26 @@ def list_news(
         items=items,
         total=total,
     )
+
+@router.get("/{id}", response_model=NewsResponse)
+def get_news_detail(
+    id: str = Path(..., description="MongoDB ObjectId"),
+):
+    try:
+        object_id = ObjectId(id)
+    except InvalidId:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid news id format",
+        )
+
+    collection = db["source_records"]
+    doc = collection.find_one({"_id": object_id})
+
+    if doc is None:
+        raise HTTPException(
+            status_code=404,
+            detail="News not found",
+        )
+
+    return map_doc_to_news_response(doc)

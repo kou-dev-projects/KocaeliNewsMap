@@ -9,6 +9,9 @@ from app.schemas import NewsListItem, NewsListResponse, NewsResponse
 from bson import ObjectId
 from bson.errors import InvalidId
 
+from app.services.classifier.schemas import NewsCategory
+
+
 router = APIRouter(prefix="/news", tags=["news"])
 
 
@@ -56,7 +59,7 @@ def map_doc_to_news_response(doc: dict[str, Any]) -> NewsResponse:
 @router.get("", response_model=NewsListResponse)
 def list_news(
     source: Optional[str] = Query(default=None),
-    category: Optional[str] = Query(default=None),
+    category: Optional[NewsCategory] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):

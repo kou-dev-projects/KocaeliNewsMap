@@ -1,11 +1,11 @@
 db = db.getSiblingDB("kocaeli_news");
 
 const MANDATORY_CATEGORIES = [
-  "Trafik Kazası",
-  "Yangın",
-  "Elektrik Kesintisi",
-  "Hırsızlık",
-  "Kültürel Etkinlikler",
+  "trafik_kazasi",
+  "yangin",
+  "elektrik_kesintisi",
+  "hirsizlik",
+  "kulturel_etkinlik",
 ];
 
 const SOURCE_WHITELIST = [

@@ -1,50 +1,53 @@
 """
-NewsWriteService — persistence boundary.
+NewsWriteService - persistence boundary.
 
-Tüm scraper yazmaları buradan geçer.
-Doğrudan MongoDB erişimi yoktur scraper'larda.
+All scraper writes pass through this service.
+Scrapers do not write directly to MongoDB.
 
-Yazma akışı:
-  1) Idempotency check (Redis) → zaten işlendi mi?
-  2) MongoDB upsert (url unique index) → insert veya duplicate merge
-  3) Idempotency key kaydet
-  4) WriteResult döndür
-
-Fail-closed:
-  MongoDB bağlantısı yoksa → queue'ya al
-  Queue doluysa → dead-letter
-  Her iki durumda da scraper'a WriteStatus.QUEUED veya
-  WriteStatus.DEAD_LETTERED döner.
-  Scraper asla doğrudan DB'ye yazmaz.
+Write flow:
+  1) Idempotency check
+  2) Resolve source and crawl session
+  3) Upsert raw_documents
+  4) Materialize and upsert source_records
+  5) Mark idempotency key as processed
 """
 from __future__ import annotations
+
+import hashlib
 import logging
-from typing import Optional
+from datetime import datetime, timezone
+
+from bson import ObjectId
+from bson.errors import InvalidId
+
+from app.pipelines import SourceRecordMaterializer
+from app.scrapers.base.date_utils import parse_published_at_raw
 
 from .config import MCPConfig
 from .dead_letter import DeadLetterStore
 from .idempotency import IdempotencyStore
-from .queue import WriteQueue, QueueItem
+from .queue import WriteQueue
 from .schemas import NewsWriteRequest, WriteResult, WriteStatus
 
 logger = logging.getLogger(__name__)
 
 
 class NewsWriteService:
-
     def __init__(
         self,
         idempotency: IdempotencyStore,
         queue: WriteQueue,
         dead_letter: DeadLetterStore,
         config: MCPConfig,
-        mongo_client=None,   # Sprint 1: inject edilebilir, test için None
+        mongo_client=None,
+        materializer: SourceRecordMaterializer | None = None,
     ) -> None:
         self._idempotency = idempotency
         self._queue = queue
         self._dead_letter = dead_letter
         self._cfg = config
         self._mongo = mongo_client
+        self._materializer = materializer or SourceRecordMaterializer()
 
     def write(self, request: NewsWriteRequest) -> WriteResult:
         idem_key = request.idempotency_key()
@@ -79,7 +82,7 @@ class NewsWriteService:
 
         logger.error(
             "mcp.write.fail_open_mode",
-            extra={"warning": "fail_closed=False - production'da kullanma"},
+            extra={"warning": "fail_closed=False - do not use in production"},
         )
         return WriteResult(
             status=WriteStatus.DEAD_LETTERED,
@@ -89,9 +92,7 @@ class NewsWriteService:
             reason="fail_open_no_fallback",
         )
 
-    def _mongo_write(
-        self, request: NewsWriteRequest, idem_key: str
-    ) -> WriteResult:
+    def _mongo_write(self, request: NewsWriteRequest, idem_key: str) -> WriteResult:
         if self._mongo is None:
             fake_id = f"mock_{idem_key[:12]}"
             self._idempotency.mark_processed(idem_key, fake_id)
@@ -106,35 +107,66 @@ class NewsWriteService:
                 idempotency_key=idem_key,
             )
 
-        collection = self._mongo[self._cfg.mongo_db]["haberler"]
+        database = self._mongo[self._cfg.mongo_db]
+        source_doc = self._get_source_document(database, request.source)
+        crawl_session_id = self._resolve_crawl_session_id(database, request, source_doc)
 
-        doc = {
-            "baslik": request.title,
-            "url": request.url,
-            "kaynak_site": request.source,
-            "kaynak_listesi": [request.source],
-            "icerik": request.content,
-            "ozet": request.summary,
-            "gorsel_url": request.image_url,
-            "yayin_tarihi": request.published_at,
-            "idempotency_key": idem_key,
+        raw_documents = database["raw_documents"]
+        raw_document = self._build_raw_document(
+            request=request,
+            source_doc=source_doc,
+            crawl_session_id=crawl_session_id,
+        )
+        raw_document_update = {
+            key: value for key, value in raw_document.items() if key != "created_at"
         }
-
-        result = collection.update_one(
-            {"url": request.url},
+        raw_filter = {
+            "source_id": source_doc["_id"],
+            "canonical_url": request.url,
+        }
+        raw_result = raw_documents.update_one(
+            raw_filter,
             {
-                "$setOnInsert": doc,
-                "$addToSet": {"kaynak_listesi": request.source},
+                "$set": raw_document_update,
+                "$setOnInsert": {
+                    "created_at": raw_document["created_at"],
+                },
             },
             upsert=True,
         )
 
-        saved = collection.find_one({"url": request.url})
-        news_id = str(saved["_id"])
+        saved_raw_document = raw_documents.find_one(raw_filter)
+        if saved_raw_document is None:
+            raise RuntimeError("raw_document_write_failed")
 
+        source_record = self._materializer.materialize(
+            raw_document=saved_raw_document,
+            source_document=source_doc,
+        )
+        source_record_update = {
+            key: value for key, value in source_record.items() if key != "created_at"
+        }
+        source_records = database["source_records"]
+        source_record_filter = {"raw_document_id": saved_raw_document["_id"]}
+        source_record_result = source_records.update_one(
+            source_record_filter,
+            {
+                "$set": source_record_update,
+                "$setOnInsert": {
+                    "created_at": source_record["updated_at"],
+                },
+            },
+            upsert=True,
+        )
+
+        saved_source_record = source_records.find_one(source_record_filter)
+        if saved_source_record is None:
+            raise RuntimeError("source_record_write_failed")
+
+        news_id = str(saved_source_record["_id"])
         self._idempotency.mark_processed(idem_key, news_id)
 
-        if result.upserted_id is not None:
+        if raw_result.upserted_id is not None or source_record_result.upserted_id is not None:
             return WriteResult(
                 status=WriteStatus.INSERTED,
                 news_id=news_id,
@@ -148,10 +180,82 @@ class NewsWriteService:
             was_duplicate=True,
             idempotency_key=idem_key,
         )
+
+    def _get_source_document(self, database, domain: str) -> dict:
+        source_doc = database["sources"].find_one({"domain": domain})
+        if source_doc is None:
+            raise ValueError(f"unknown_source_domain: {domain}")
+        return source_doc
+
+    def _resolve_crawl_session_id(self, database, request: NewsWriteRequest, source_doc: dict) -> ObjectId:
+        if request.crawl_session_id:
+            try:
+                return ObjectId(request.crawl_session_id)
+            except InvalidId as exc:
+                raise ValueError("invalid_crawl_session_id") from exc
+
+        now = datetime.now(timezone.utc)
+        crawl_session = {
+            "source_id": source_doc["_id"],
+            "trigger_type": "manual",
+            "scope": "single_source",
+            "lookback_days": 1,
+            "started_at": now,
+            "ended_at": now,
+            "status": "success",
+            "fetched_count": 1,
+            "parsed_count": 1,
+            "failed_count": 0,
+            "error_summary": [],
+            "worker_version": "mcp_write_service",
+            "trace_id": request.idempotency_key()[:16],
+            "created_at": now,
+            "updated_at": now,
+        }
+        result = database["crawl_sessions"].insert_one(crawl_session)
+        return result.inserted_id
+
+    def _build_raw_document(
+        self,
+        *,
+        request: NewsWriteRequest,
+        source_doc: dict,
+        crawl_session_id: ObjectId,
+    ) -> dict:
+        now = datetime.now(timezone.utc)
+        published_at = parse_published_at_raw(request.published_at)
+        scraped_at = parse_published_at_raw(request.scraped_at) or now
+        text_raw = request.content or request.summary or request.title
+        content_hash = self._content_hash(request.url, text_raw)
+
+        return {
+            "source_id": source_doc["_id"],
+            "crawl_session_id": crawl_session_id,
+            "canonical_url": request.url,
+            "resolved_url": request.resolved_url or request.url,
+            "domain": request.source,
+            "title_raw": request.title,
+            "text_raw": text_raw,
+            "content_raw": request.content or "",
+            "published_at_raw": published_at,
+            "image_urls_raw": [request.image_url] if request.image_url else [],
+            "language": "tr",
+            "content_hash": content_hash,
+            "fetch_status": "success",
+            "parser_version": request.parser_version,
+            "schema_version": "1.0",
+            "scraped_at": scraped_at,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    def _content_hash(self, url: str, text_raw: str) -> str:
+        payload = f"{url}\n{text_raw}".encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
     def _handle_failure(
         self, request: NewsWriteRequest, idem_key: str, error: str
     ) -> WriteResult:
-        """Queue → dead-letter failure cascade."""
         queued = self._queue.enqueue(request)
 
         if queued:
@@ -163,7 +267,6 @@ class NewsWriteService:
                 reason=f"mongo_down_queued: {error[:60]}",
             )
 
-        # Queue da dolu → dead-letter
         self._dead_letter.add(request, error, attempt_count=0)
         return WriteResult(
             status=WriteStatus.DEAD_LETTERED,

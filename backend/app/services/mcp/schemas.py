@@ -23,6 +23,10 @@ class NewsWriteRequest:
     image_url: Optional[str] = None
     published_at: Optional[str] = None
     raw_html: Optional[str] = None
+    crawl_session_id: Optional[str] = None
+    resolved_url: Optional[str] = None
+    scraped_at: Optional[str] = None
+    parser_version: str = "mcp_write_v1"
 
     def idempotency_key(self) -> str:
         

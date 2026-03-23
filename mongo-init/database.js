@@ -303,13 +303,13 @@ ensureCollection("source_records", {
           maximum: 1,
         },
         category_model_version: { bsonType: "string" },
-        district_predicted: { bsonType: "string" },
+        district_predicted: { bsonType: ["string", "null"] },
         district_confidence: {
           bsonType: ["double", "int", "decimal"],
           minimum: 0,
           maximum: 1,
         },
-        location_text_extracted: { bsonType: "string" },
+        location_text_extracted: { bsonType: ["string", "null"] },
         geocode_status: {
           enum: ["pending", "resolved", "failed", "approximate", "not_needed"],
         },

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "m001",
+    "title": "Kocaeli sahilinde gun batimi manzarasi",
+    "source": "source-a.com",
+    "content": "Sahil boyunca yuruyus yapan vatandaslar gun batimini izledi.",
+    "image_url": "https://picsum.photos/id/1018/320/224",
+    "label": "duplicate_of_grp_m01"
+  },
+  {
+    "id": "m002",
+    "title": "Kocaeli sahilinde gun batimi manzarasi",
+    "source": "source-b.com",
+    "content": "Sahil boyunca yuruyus yapan vatandaslar gun batimini izledi.",
+    "image_url": "https://picsum.photos/id/1018/320/224",
+    "label": "duplicate_of_grp_m01"
+  },
+  {
+    "id": "m003",
+    "title": "Gebze de trafik yogunlugu artti",
+    "source": "source-c.com",
+    "content": "Aksam saatlerinde TEM baglanti yolunda trafik yogunlugu olustu.",
+    "image_url": "https://picsum.photos/id/1025/320/224",
+    "label": "unique"
+  },
+  {
+    "id": "m004",
+    "title": "Kartepe de kar yagisi basladi",
+    "source": "source-d.com",
+    "content": "Yuksek kesimlerde kar yagisi etkisini artirdi.",
+    "image_url": "https://picsum.photos/id/1035/320/224",
+    "label": "duplicate_of_grp_m02"
+  },
+  {
+    "id": "m005",
+    "title": "Kartepe de kar yagisi basladi",
+    "source": "source-e.com",
+    "content": "Yuksek kesimlerde kar yagisi etkisini artirdi.",
+    "image_url": "https://picsum.photos/id/1035/320/224",
+    "label": "duplicate_of_grp_m02"
+  },
+  {
+    "id": "m006",
+    "title": "Izmit merkezde kitap fuari acildi",
+    "source": "source-f.com",
+    "content": "Fuar alaninda yazar soylesileri ve imza etkinlikleri duzenlendi.",
+    "image_url": "https://picsum.photos/id/1043/320/224",
+    "label": "unique"
+  }
+]

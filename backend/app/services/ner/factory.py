@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from .providers.gliner_tagger import GLiNERTagger
 from .config import NERConfig, load_ner_config
 from .providers.bertturk import BERTTurkNERProvider
 from .providers.mock import MockNERProvider
@@ -12,10 +12,16 @@ def build_ner_service(
     cfg = config or load_ner_config()
 
     match cfg.provider:
+
         case "mock":
             provider = MockNERProvider()
         case "bertturk":
             provider = BERTTurkNERProvider(model_name=cfg.model_name)
+        case "gliner":
+            provider = GLiNERTagger(
+                model_name=cfg.model_name or "urchade/gliner_multi-v2.1",
+                threshold=cfg.gliner_threshold,
+            )
         case _:
             raise ValueError(f"Bilinmeyen NER provider: {cfg.provider!r}")
 

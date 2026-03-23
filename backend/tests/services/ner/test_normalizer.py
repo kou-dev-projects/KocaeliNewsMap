@@ -10,16 +10,20 @@ def test_removes_ablative_suffix():
 
 
 def test_removes_dative_suffix():
-    assert normalize_location_text("Başiskele'ye") == "Başiskele"
+    assert normalize_location_text("Darıca'ya") == "Darıca"
 
 
 def test_removes_genitive_suffix():
-    assert normalize_location_text("Kartepe'nin") == "Kartepe"
+    assert normalize_location_text("Kocaeli'nin") == "Kocaeli"
 
 
-def test_preserves_plain_location():
-    assert normalize_location_text("Derince") == "Derince"
+def test_empty_string():
+    assert normalize_location_text("") == ""
 
 
-def test_returns_empty_for_blank_input():
-    assert normalize_location_text("   ") == ""
+def test_no_suffix():
+    assert normalize_location_text("İzmit") == "İzmit"
+
+
+def test_removes_trailing_punctuation():
+    assert normalize_location_text("Gebze,") == "Gebze"

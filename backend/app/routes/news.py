@@ -9,7 +9,10 @@ from app.schemas import NewsListItem, NewsListResponse, NewsResponse
 from bson import ObjectId
 from bson.errors import InvalidId
 
-from app.domain.enums import KocaeliDistrict, NewsCategory
+from app.domain.enums import (
+    normalize_kocaeli_district,
+    normalize_news_category,
+)
 
 
 router = APIRouter(prefix="/news", tags=["news"])
@@ -59,8 +62,8 @@ def map_doc_to_news_response(doc: dict[str, Any]) -> NewsResponse:
 @router.get("", response_model=NewsListResponse)
 def list_news(
     source: Optional[str] = Query(default=None),
-    category: Optional[NewsCategory] = Query(default=None),
-    district: Optional[KocaeliDistrict] = Query(default=None),
+    category: Optional[str] = Query(default=None),
+    district: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
@@ -69,9 +72,15 @@ def list_news(
     if source:
         query["source_name_snapshot"] = source
     if category:
-        query["category_predicted"] = category.value
+        category_enum = normalize_news_category(category)
+        if category_enum is None:
+            raise HTTPException(status_code=422, detail="Invalid category value")
+        query["category_predicted"] = category_enum.value
     if district:
-        query["district_predicted"] = district.value
+        district_enum = normalize_kocaeli_district(district)
+        if district_enum is None:
+            raise HTTPException(status_code=422, detail="Invalid district value")
+        query["district_predicted"] = district_enum.value
 
     collection = db["source_records"]
     total = collection.count_documents(query)

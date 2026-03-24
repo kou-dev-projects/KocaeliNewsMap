@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     scheduler_timezone: str = "Europe/Istanbul"
     scheduler_interval_hours: int = 3
+    scheduler_lookback_days: int = 1
+    scheduler_max_urls_per_source: int = 10
 
 
 settings = Settings()

@@ -3,7 +3,7 @@ import logging
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from .config import load_scheduler_config
-from .jobs import run_healthcheck_job
+from .jobs import run_scheduled_crawl
 
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,10 @@ class SchedulerService:
             return
 
         self._scheduler.add_job(
-            run_healthcheck_job,
+            run_scheduled_crawl,
             trigger="interval",
             hours=self._config.interval_hours,
-            id="healthcheck_job",
+            id="scheduled_crawl_job",
             replace_existing=True,
         )
         self._configured = True

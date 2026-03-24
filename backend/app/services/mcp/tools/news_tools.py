@@ -16,6 +16,10 @@ def make_news_tools(write_service, lease_service):
         summary: str = "",
         image_url: str = "",
         published_at: str = "",
+        crawl_session_id: str = "",
+        resolved_url: str = "",
+        scraped_at: str = "",
+        parser_version: str = "mcp_write_v1",
     ) -> dict[str, Any]:
       
         from app.services.mcp.schemas import NewsWriteRequest
@@ -28,6 +32,10 @@ def make_news_tools(write_service, lease_service):
             summary=summary or None,
             image_url=image_url or None,
             published_at=published_at or None,
+            crawl_session_id=crawl_session_id or None,
+            resolved_url=resolved_url or None,
+            scraped_at=scraped_at or None,
+            parser_version=parser_version,
         )
 
         result = write_service.write(request)

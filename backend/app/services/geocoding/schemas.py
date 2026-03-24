@@ -18,6 +18,7 @@ def _normalize_for_compare(value: str) -> str:
 class GeocodingInput:
     address: str
     district_hint: Optional[str] = None
+    neighborhood: Optional[str] = None
     news_id: Optional[str] = None
 
     def normalized(self) -> str:
@@ -31,7 +32,11 @@ class GeocodingInput:
         return base
 
     def query_string(self) -> str:
-        parts = [self.address.strip()]
+        parts = []
+        if self.neighborhood:
+            parts.append(self.neighborhood.strip())
+        parts.append(self.address.strip())
+
         address_norm = _normalize_for_compare(self.address)
         hint_norm = _normalize_for_compare(self.district_hint) if self.district_hint else None
 
@@ -40,7 +45,6 @@ class GeocodingInput:
         if "kocaeli" not in address_norm:
             parts.append("Kocaeli")
         return ", ".join(parts)
-
 
 @dataclass(frozen=True)
 class GeocodingResult:

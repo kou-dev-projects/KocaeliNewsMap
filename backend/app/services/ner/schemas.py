@@ -38,6 +38,7 @@ class LocationCandidate:
     score: float
     is_kocaeli_district: bool
     district: Optional[str] = None
+    neighborhood: Optional[str] = None
 
 
 @dataclass(frozen=True)

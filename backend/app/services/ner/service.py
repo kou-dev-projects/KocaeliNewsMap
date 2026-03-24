@@ -121,16 +121,19 @@ class NERService:
                     )
                 )
             elif not district:
-                # Kocaeli ilçesi değil ama NER bulduysa yine ekle
+                neighborhood = self._extract_neighborhood(entity.text)
+                parent_district = validated[-1] if validated else None
                 all_candidates.append(
                     LocationCandidate(
                         original_text=entity.text,
                         normalized_text=normalized,
                         score=entity.score,
                         is_kocaeli_district=False,
-                        district=None,
+                        district=parent_district,
+                        neighborhood=neighborhood,
                     )
                 )
+
 
         return all_candidates, validated
 
@@ -142,3 +145,18 @@ class NERService:
             "İL", "İLÇE", "MAHALLE", "MEKAN",
             "IL", "ILCE", "MAHALLE", "MEKAN",
         }
+
+
+    @staticmethod
+    def _extract_neighborhood(text: str) -> str | None:
+        """Metinde mahalle/sokak/cadde ifadesi varsa temizleyip döndürür."""
+
+        lower = text.lower().strip()
+        keywords = ["mahallesi", "mahalle", "mah.", "mah",
+                     "sokak", "sok.", "cadde", "caddesi", "cad.",
+                     "bulvarı", "bulvar", "blv."]
+        for kw in keywords:
+            if kw in lower:
+                return text.strip()
+        return None
+    

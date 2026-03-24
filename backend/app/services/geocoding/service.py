@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-
+from ..ner.schemas import NERResult
 from .cache import RedisGeoCache
 from .config import GeocodingConfig
 from .exceptions import ProviderRateLimitError, ProviderUnavailableError
@@ -184,3 +184,28 @@ class GeocodingService:
         if _LAT_MIN <= result.lat <= _LAT_MAX and _LNG_MIN <= result.lng <= _LNG_MAX:
             return True
         return False
+    
+    
+def build_geocoding_input_from_ner(
+    ner_result: NERResult,
+    news_id: str | None = None,
+) -> GeocodingInput | None:
+    if not ner_result.validated_districts:
+        return None
+
+    district = ner_result.validated_districts[0]
+    neighborhood = None
+
+    for candidate in ner_result.location_candidates:
+        if candidate.neighborhood:
+            neighborhood = candidate.neighborhood
+            if candidate.district:
+                district = candidate.district
+            break
+
+    return GeocodingInput(
+        address=district,
+        district_hint=district,
+        neighborhood=neighborhood,
+        news_id=news_id,
+    )

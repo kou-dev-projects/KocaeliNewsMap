@@ -205,6 +205,60 @@ def test_fail_closed_dead_letters_when_queue_full():
     assert result.status == WriteStatus.DEAD_LETTERED
     assert queue.size == 0
     assert dead.size == 1
+
+
+def test_relative_image_url_is_normalized_for_raw_document():
+    idem = DummyIdempotency()
+    mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=DummyMaterializer(),
+    )
+
+    request = NewsWriteRequest(
+        title="Test haber",
+        url="https://example.com/haber/1",
+        source="example.com",
+        content="icerik",
+        image_url="/images/test.jpg",
+    )
+
+    svc.write(request)
+
+    assert mongo.raw_documents.last_update["$set"]["image_urls_raw"] == [
+        "https://example.com/images/test.jpg"
+    ]
+
+
+def test_invalid_image_url_is_dropped_from_raw_document():
+    idem = DummyIdempotency()
+    mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=DummyMaterializer(),
+    )
+
+    request = NewsWriteRequest(
+        title="Test haber",
+        url="https://example.com/haber/1",
+        source="example.com",
+        content="icerik",
+        image_url="javascript:alert(1)",
+    )
+
+    svc.write(request)
+
+    assert mongo.raw_documents.last_update["$set"]["image_urls_raw"] == []
+
+
 class FakeUpdateResult:
     def __init__(self, upserted_id=None):
         self.upserted_id = upserted_id

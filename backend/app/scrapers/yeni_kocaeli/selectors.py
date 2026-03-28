@@ -3,7 +3,7 @@ from __future__ import annotations
 BASE_URL = "https://www.yenikocaeli.com"
 
 # Listing
-LISTING_NEWS_LINK_SELECTOR = "a[href]"
+LISTING_NEWS_LINK_SELECTOR = "main a[href*='/haber/'], article a[href*='/haber/'], .news a[href*='/haber/']"
 LISTING_NEWS_URL_KEYWORD = "/haber/"
 
 # Detail

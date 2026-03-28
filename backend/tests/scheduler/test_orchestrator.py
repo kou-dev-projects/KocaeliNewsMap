@@ -1,5 +1,9 @@
 from app.scheduler.config import SchedulerConfig
-from app.scheduler.orchestrator import ScrapeOrchestrator, StaticSourceDefinition
+from app.scheduler.orchestrator import (
+    DynamicSourceDefinition,
+    ScrapeOrchestrator,
+    StaticSourceDefinition,
+)
 
 
 class FakeSourcesCollection:
@@ -98,6 +102,48 @@ class FakeParser:
         }
 
 
+class FakeDynamicListingScraper:
+    closed = False
+
+    def __init__(self, client, listing_url):
+        self.client = client
+
+    async def fetch_links(self):
+        return ["https://example.com/news-dynamic"]
+
+    def close(self):
+        type(self).closed = True
+
+
+class FakeDynamicDetailScraper:
+    closed = False
+
+    def __init__(self, client):
+        self.client = client
+
+    async def fetch_detail(self, url):
+        return {
+            "title": "Dynamic baslik",
+            "content": "Dynamic icerik",
+            "summary": "",
+            "published_at_raw": "",
+            "image_url": "",
+        }
+
+    def close(self):
+        type(self).closed = True
+
+
+class FakePlaywrightClient:
+    stopped = False
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def stop(self):
+        type(self).stopped = True
+
+
 def test_crawl_active_sources_processes_supported_sources(monkeypatch):
     monkeypatch.setattr(
         "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
@@ -109,6 +155,7 @@ def test_crawl_active_sources_processes_supported_sources(monkeypatch):
             )
         },
     )
+    monkeypatch.setattr("app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY", {})
 
     source_docs = [
         {
@@ -156,8 +203,91 @@ def test_crawl_source_returns_skipped_for_unsupported_source():
     source_docs = [
         {
             "_id": "source_2",
-            "domain": "seskocaeli.com",
-            "base_url": "https://www.seskocaeli.com",
+            "domain": "unsupported.example.com",
+            "base_url": "https://unsupported.example.com",
+            "scraper_type": "static",
+        }
+    ]
+
+    orchestrator = ScrapeOrchestrator(
+        config=SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=1,
+            max_urls_per_source=1,
+        ),
+        database=FakeDatabase(source_docs),
+        mcp_server=FakeMCPServer(),
+        session_store=FakeSessionStore(),
+    )
+
+    result = orchestrator.crawl_source("unsupported.example.com", trigger_type="manual")
+
+    assert result == {
+        "domain": "unsupported.example.com",
+        "status": "skipped",
+        "reason": "unsupported_source",
+    }
+
+
+def test_crawl_source_returns_skipped_for_configured_domain():
+    source_docs = [
+        {
+            "_id": "source_3",
+            "domain": "yenikocaeli.com",
+            "base_url": "https://www.yenikocaeli.com",
+            "scraper_type": "static",
+        }
+    ]
+
+    fake_mcp = FakeMCPServer()
+    orchestrator = ScrapeOrchestrator(
+        config=SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=1,
+            max_urls_per_source=1,
+            skipped_domains=("yenikocaeli.com",),
+        ),
+        database=FakeDatabase(source_docs),
+        mcp_server=fake_mcp,
+        session_store=FakeSessionStore(),
+    )
+
+    result = orchestrator.crawl_source("yenikocaeli.com", trigger_type="manual")
+
+    assert result == {
+        "domain": "yenikocaeli.com",
+        "status": "skipped",
+        "reason": "skipped_by_config",
+    }
+    assert fake_mcp.calls == []
+
+
+def test_crawl_source_dynamic_closes_scrapers(monkeypatch):
+    FakeDynamicListingScraper.closed = False
+    FakeDynamicDetailScraper.closed = False
+    FakePlaywrightClient.stopped = False
+
+    monkeypatch.setattr("app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY", {})
+    monkeypatch.setattr(
+        "app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY",
+        {
+            "dynamic.example.com": DynamicSourceDefinition(
+                listing_scraper_factory=lambda client, base_url: FakeDynamicListingScraper(client, base_url),
+                detail_scraper_factory=lambda client: FakeDynamicDetailScraper(client),
+            )
+        },
+    )
+    monkeypatch.setattr("app.scheduler.orchestrator.PlaywrightClient", FakePlaywrightClient)
+
+    source_docs = [
+        {
+            "_id": "source_dynamic",
+            "domain": "dynamic.example.com",
+            "base_url": "https://dynamic.example.com",
             "scraper_type": "dynamic",
         }
     ]
@@ -175,10 +305,9 @@ def test_crawl_source_returns_skipped_for_unsupported_source():
         session_store=FakeSessionStore(),
     )
 
-    result = orchestrator.crawl_source("seskocaeli.com", trigger_type="manual")
+    result = orchestrator.crawl_source("dynamic.example.com", trigger_type="manual")
 
-    assert result == {
-        "domain": "seskocaeli.com",
-        "status": "skipped",
-        "reason": "unsupported_source",
-    }
+    assert result["status"] == "success"
+    assert FakeDynamicListingScraper.closed is True
+    assert FakeDynamicDetailScraper.closed is True
+    assert FakePlaywrightClient.stopped is True

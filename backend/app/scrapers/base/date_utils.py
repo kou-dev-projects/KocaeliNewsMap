@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 
 TURKISH_MONTHS = {
@@ -25,21 +26,16 @@ TURKISH_MONTHS = {
     "aralik": 12,
 }
 
+ISTANBUL_TZ = ZoneInfo("Europe/Istanbul")
+
 
 def clamp_days(days: int) -> int:
-    """
-    Yalnızca 1-3 gün aralığını kabul eder.
-    Daha küçükse 1'e, daha büyükse 3'e sabitler.
-    """
+ 
     return max(1, min(days, 3))
 
 
 def parse_iso_datetime(value: str | None) -> datetime | None:
-    """
-    ISO benzeri tarihleri parse eder.
-    Örnek:
-    2026-03-21T17:30:00+03:00
-    """
+   
     if not value:
         return None
 
@@ -55,13 +51,7 @@ def parse_iso_datetime(value: str | None) -> datetime | None:
 
 
 def parse_turkish_date_text(value: str | None) -> datetime | None:
-    """
-    Türkçe tarih metinlerini parse eder.
-    Örnek:
-    Güncel 21 Mart 2026 15:07
-    21 Mart 2026 15:07
-    21 Mart 2026
-    """
+   
     if not value:
         return None
 
@@ -84,14 +74,12 @@ def parse_turkish_date_text(value: str | None) -> datetime | None:
     if not month:
         return None
 
-    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+    local_dt = datetime(year, month, day, hour, minute, tzinfo=ISTANBUL_TZ)
+    return local_dt.astimezone(timezone.utc)
 
 
 def parse_published_at_raw(value: str | None) -> datetime | None:
-    """
-    Farklı kaynaklardan gelen ham tarih metnini datetime nesnesine çevirir.
-    Önce ISO formatı dener, olmazsa Türkçe tarih parse eder.
-    """
+  
     iso_dt = parse_iso_datetime(value)
     if iso_dt:
         return iso_dt
@@ -104,10 +92,7 @@ def parse_published_at_raw(value: str | None) -> datetime | None:
 
 
 def is_within_last_n_days(value: str | None, days: int = 3) -> bool:
-    """
-    Haber tarihi son N gün içinde mi kontrol eder.
-    days yalnızca 1-3 aralığında değerlendirilir.
-    """
+  
     parsed = parse_published_at_raw(value)
     if not parsed:
         return False

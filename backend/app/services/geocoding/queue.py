@@ -21,11 +21,7 @@ class PendingGeocodingItem:
 
 
 class GeocodingQueue:
-    """
-    Thread-safe in-memory queue.
-    
-    max_size: bellek koruması — dolunca yeni item eklenmez, log yazılır.
-    """
+ 
     _MAX_SIZE = 500
     _MAX_RETRIES = 3
 
@@ -34,10 +30,7 @@ class GeocodingQueue:
         self._lock = threading.Lock()
 
     def enqueue(self, input_data: GeocodingInput, reason: str) -> bool:
-        """
-        Adres queue'ya alınır.
-        Dolu ise False döner — caller log yazabilir.
-        """
+       
         with self._lock:
             if len(self._queue) >= self._MAX_SIZE:
                 logger.error(
@@ -61,14 +54,12 @@ class GeocodingQueue:
             return True
 
     def dequeue_batch(self, size: int = 10) -> list[PendingGeocodingItem]:
-        """Background worker için batch çeker."""
         with self._lock:
             batch = self._queue[:size]
             self._queue = self._queue[size:]
             return batch
 
     def requeue(self, item: PendingGeocodingItem, error: str) -> None:
-        """Başarısız item'ı retry sayısı kontrollü olarak geri ekler."""
         if item.attempt_count >= self._MAX_RETRIES:
             logger.warning(
                 "geocoding.queue.max_retries_exceeded",

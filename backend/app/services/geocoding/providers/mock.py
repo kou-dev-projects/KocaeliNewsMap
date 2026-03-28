@@ -9,6 +9,7 @@ _RAW_KOCAELI_COORDS: dict[str, tuple[float, float]] = {
     "Gebze": (40.8021, 29.4313),
     "Darıca": (40.7611, 29.3722),
     "Gölcük": (40.6526, 29.8254),
+    "Hereke": (40.7855, 29.6153),
     "Körfez": (40.7693, 29.7780),
     "Kartepe": (40.6931, 30.0736),
     "Başiskele": (40.7362, 29.8954),

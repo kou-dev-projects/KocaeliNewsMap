@@ -44,6 +44,7 @@ class KocaeliDistrict(str, Enum):
     GEBZE = "gebze"
     DARICA = "darica"
     GOLCUK = "golcuk"
+    HEREKE = "hereke"
     KORFEZ = "korfez"
     KARTEPE = "kartepe"
     BASISKELE = "basiskele"

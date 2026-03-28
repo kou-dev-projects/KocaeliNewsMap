@@ -28,15 +28,7 @@ _APOSTROPHES = ("'", "'", "`", "\u02bc")
 
 
 def strip_suffixes(text: str) -> str:
-    """
-    Tek token'dan Türkçe hal eklerini ayırır.
-    "Çayırova'daki" → "Çayırova"
-    "İzmit'te" → "İzmit"
-    "Gebze'den" → "Gebze"
 
-    Apostrof olmayan ekleri de dener:
-    "Izmitte" → "İzmit" (gazetteer fuzzy ile birlikte çalışır)
-    """
     result = text.strip()
 
     # Apostrof varsa — önce onu böl
@@ -58,12 +50,7 @@ def strip_suffixes(text: str) -> str:
 
 
 def generate_candidates(text: str) -> list[str]:
-    """
-    Bir token için olası kök adayları üretir.
-    Gazetteer matcher bu adayları dener.
-
-    "Çayırova'daki" → ["Çayırova'daki", "Çayırova", "Çayırov"]
-    """
+   
     candidates = [text]
 
     stripped = strip_suffixes(text)

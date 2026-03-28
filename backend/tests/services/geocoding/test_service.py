@@ -7,7 +7,8 @@ from app.services.geocoding.metrics import GeocodingMetrics
 from app.services.geocoding.cache import RedisGeoCache
 from app.services.geocoding.queue import GeocodingQueue
 from app.services.geocoding.providers.mock import MockGeocodingProvider
-from app.services.geocoding.service import GeocodingService
+from app.services.geocoding.service import GeocodingService, build_geocoding_input_from_ner
+from app.services.ner.schemas import NERResult, LocationCandidate
 
 
 @pytest.fixture
@@ -55,8 +56,8 @@ def test_known_district_returns_result(svc):
     assert isinstance(r, GeocodingResult)
     assert r.lat == pytest.approx(40.7654, abs=0.001)
 
-def test_all_12_districts(svc):
-    for d in ["İzmit","Gebze","Darıca","Gölcük","Körfez",
+def test_all_13_districts(svc):
+    for d in ["İzmit","Gebze","Darıca","Gölcük","Hereke","Körfez",
               "Kartepe","Başiskele","Çayırova","Dilovası",
               "Kandıra","Karamürsel","Derince"]:
         r = svc.geocode(GeocodingInput(address=d))
@@ -120,3 +121,53 @@ def test_rate_limit_queue_full_returns_queue_full_failure(cfg):
     result = svc.geocode(GeocodingInput(address="Bu Adres Kesinlikle Yok 12345"))
     assert isinstance(result, GeocodingFailure)
     assert result.failure_type == "queue_full"
+
+
+def test_build_geocoding_input_prefers_neighborhood_and_district():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Cumhuriyet Mahallesi",
+                normalized_text="Cumhuriyet Mahallesi",
+                score=0.9,
+                is_kocaeli_district=False,
+                district="İzmit",
+                neighborhood="Cumhuriyet Mahallesi",
+            )
+        ],
+        validated_districts=["İzmit"],
+        provider="stub",
+    )
+
+    result = build_geocoding_input_from_ner(ner_result, news_id="n1")
+
+    assert result is not None
+    assert result.address == "Cumhuriyet Mahallesi, İzmit"
+    assert result.district_hint == "İzmit"
+    assert result.neighborhood == "Cumhuriyet Mahallesi"
+    assert result.news_id == "n1"
+
+
+def test_build_geocoding_input_uses_original_text_when_only_candidate_exists():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Yuvacık Barajı",
+                normalized_text="Yuvacık Barajı",
+                score=0.9,
+                is_kocaeli_district=False,
+                district=None,
+                neighborhood=None,
+            )
+        ],
+        validated_districts=[],
+        provider="stub",
+    )
+
+    result = build_geocoding_input_from_ner(ner_result)
+
+    assert result is not None
+    assert result.address == "Yuvacık Barajı"
+    assert result.district_hint is None

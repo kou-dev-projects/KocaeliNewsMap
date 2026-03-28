@@ -1,7 +1,8 @@
 import pytest
 from app.services.ner import build_ner_service
 from app.services.ner.config import NERConfig
-from app.services.ner.schemas import NERInput
+from app.services.ner.schemas import NERInput, RawEntity
+from app.services.ner.service import NERService
 
 
 @pytest.fixture
@@ -51,3 +52,31 @@ def test_result_has_provider(svc):
 def test_location_candidates_populated(svc):
     result = svc.extract_locations(NERInput(title="Körfez'de yangın"))
     assert len(result.location_candidates) > 0
+
+
+class StubProvider:
+    @property
+    def name(self):
+        return "stub-ner"
+
+    def extract_entities(self, text: str):
+        return [
+            RawEntity(text="İzmit", label="LOC", score=0.9),
+            RawEntity(text="Cumhuriyet Mahallesi", label="LOC", score=0.9),
+        ]
+
+
+def test_neighborhood_does_not_inherit_previous_district():
+    service = NERService(provider=StubProvider(), min_score=0.5)
+
+    result = service.extract_locations(
+        NERInput(title="İzmit'te olay yaşandı. Cumhuriyet Mahallesi etkilendi.")
+    )
+
+    neighborhood_candidate = next(
+        candidate
+        for candidate in result.location_candidates
+        if candidate.neighborhood == "Cumhuriyet Mahallesi"
+    )
+
+    assert neighborhood_candidate.district is None

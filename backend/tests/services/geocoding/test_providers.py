@@ -85,9 +85,9 @@ def test_nominatim_query_includes_kocaeli(provider):
 
 # --- Mock ---
 
-def test_mock_returns_all_12_districts():
+def test_mock_returns_all_13_districts():
     p = MockGeocodingProvider()
-    for d in ["İzmit","Gebze","Darıca","Gölcük","Körfez",
+    for d in ["İzmit","Gebze","Darıca","Gölcük","Hereke","Körfez",
               "Kartepe","Başiskele","Çayırova","Dilovası",
               "Kandıra","Karamürsel","Derince"]:
         r = p.geocode(GeocodingInput(address=d))

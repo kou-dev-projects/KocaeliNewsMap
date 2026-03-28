@@ -2,17 +2,11 @@ from __future__ import annotations
 
 import re
 
+from .morphology import strip_suffixes
 
-_SUFFIX_PATTERNS = (
-    r"(?:'|’)(de|da|te|ta)$",
-    r"(?:'|’)(den|dan|ten|tan)$",
-    r"(?:'|’)(ye|ya)$",
-    r"(?:'|’)(yi|yı|yu|yü)$",
-    r"(?:'|’)(nin|nın|nun|nün)$",
-    r"(?:'|’)(in|ın|un|ün)$",
-    r"(?:'|’)(e|a)$",
-    r"(?:'|’)(i|ı|u|ü)$",
-)
+
+_TRAILING_PUNCTUATION = r'["“”()\[\],.;:!?]+$'
+_LEADING_PUNCTUATION = r'^["“”(]+'
 
 
 def normalize_location_text(text: str) -> str:
@@ -21,10 +15,9 @@ def normalize_location_text(text: str) -> str:
     if not value:
         return ""
 
-    for pattern in _SUFFIX_PATTERNS:
-        value = re.sub(pattern, "", value, flags=re.IGNORECASE)
-
-    value = re.sub(r"[\"“”()\[\],.;:!?]+$", "", value)
-    value = re.sub(r"^[\"“”(]+", "", value)
+    value = value.replace("\u2019", "'")
+    value = re.sub(_TRAILING_PUNCTUATION, "", value)
+    value = re.sub(_LEADING_PUNCTUATION, "", value)
+    value = strip_suffixes(value)
 
     return value.strip()

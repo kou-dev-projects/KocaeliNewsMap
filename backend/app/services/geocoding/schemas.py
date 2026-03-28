@@ -3,15 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
+import unicodedata
 
 
 def _normalize_for_compare(value: str) -> str:
-    return (
-        value.strip()
-        .translate(str.maketrans({"İ": "i", "I": "ı"}))
-        .lower()
-        .replace("\u0307", "")
-    )
+    normalized = value.strip().replace("İ", "I").replace("ı", "i").lower()
+    normalized = unicodedata.normalize("NFKD", normalized)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return normalized
 
 
 @dataclass(frozen=True)

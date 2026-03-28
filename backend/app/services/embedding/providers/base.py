@@ -7,12 +7,10 @@ class TextProvider(Protocol):
     
     @property
     def name(self) -> str:
-        """Provider kimliği — log ve metrik için."""
         ...
 
     @property
     def dimension(self) -> int:
-        """Üretilen vektör boyutu."""
         ...
 
     def embed_text(self, text: str) -> np.ndarray:

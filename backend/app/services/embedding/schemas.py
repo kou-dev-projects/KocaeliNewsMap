@@ -5,11 +5,7 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class EmbeddingInput:
-    """
-    Immutable input. frozen=True:
-    - Embedding sırasında değiştirilemez
-    - Hash'lenebilir → ileride cache key olarak kullanılabilir
-    """
+  
     title: str
     source: str                   # kaynak domain — zorunlu, log'da görünür
     summary: Optional[str] = None
@@ -17,7 +13,7 @@ class EmbeddingInput:
     image_url: Optional[str] = None   # str — HttpUrl değil (Kocaeli URL'leri sorunlu)
 
     def build_text_payload(self) -> str:
-        """Embedding'e girecek ham metin. BGE-M3 8192 token destekler."""
+        
         parts = [self.title]
         if self.summary:
             parts.append(self.summary)
@@ -26,7 +22,6 @@ class EmbeddingInput:
         return "\n".join(p.strip() for p in parts if p.strip())
 
     def safe_log_repr(self) -> dict:
-        """Log'a yazılacak temsil — URL veya gizli alan içermez."""
         return {
             "title_len": len(self.title),
             "has_summary": bool(self.summary),
@@ -38,7 +33,6 @@ class EmbeddingInput:
 
 @dataclass(frozen=True)
 class TextEmbedding:
-    """BGE-M3 çıktısı — 1024-dim. MongoDB'de text_embedding alanına yazılır."""
     vector: list[float]
     dimension: int
     provider: str
@@ -46,7 +40,6 @@ class TextEmbedding:
 
 @dataclass(frozen=True)
 class ImageEmbedding:
-    """SigLIP2 çıktısı — 768-dim. MongoDB'de image_embedding alanına yazılır."""
     vector: list[float]
     dimension: int
     provider: str

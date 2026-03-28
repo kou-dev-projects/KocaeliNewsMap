@@ -13,16 +13,29 @@ from .write_service import NewsWriteService
 
 logger = logging.getLogger(__name__)
 
+_MONGO_CLIENTS: dict[str, MongoClient] = {}
+
+
+def _get_shared_mongo_client(mongo_url: str) -> MongoClient:
+    client = _MONGO_CLIENTS.get(mongo_url)
+    if client is None:
+        client = MongoClient(mongo_url, serverSelectionTimeoutMS=2000)
+        _MONGO_CLIENTS[mongo_url] = client
+    return client
+
 
 class MCPServer:
 
     def __init__(self, config: MCPConfig | None = None) -> None:
         cfg = config or load_mcp_config()
 
-        self._mongo = MongoClient(
-            cfg.mongo_url,
-            serverSelectionTimeoutMS=2000,
-        )
+        if config is None:
+            self._mongo = _get_shared_mongo_client(cfg.mongo_url)
+        else:
+            self._mongo = MongoClient(
+                cfg.mongo_url,
+                serverSelectionTimeoutMS=2000,
+            )
 
         try:
             self._mongo.admin.command("ping")
@@ -40,8 +53,12 @@ class MCPServer:
             cfg.redis_url, cfg.idempotency_ttl_seconds
         )
         self._lease = SourceLease(cfg.redis_url, cfg.lease_ttl_seconds)
-        self._queue = WriteQueue(cfg.max_queue_size, cfg.max_queue_retries)
-        self._dead_letter = DeadLetterStore()
+        self._queue = WriteQueue(
+            cfg.max_queue_size,
+            cfg.max_queue_retries,
+            redis_url=cfg.redis_url,
+        )
+        self._dead_letter = DeadLetterStore(redis_url=cfg.redis_url)
         self._write_service = NewsWriteService(
             idempotency=self._idempotency,
             queue=self._queue,

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import replace
 import logging
 from typing import Optional
 
@@ -23,9 +24,7 @@ class ConflictResolver:
       
        
         if keyword_result is None:
-            return ClassificationResult(
-                **{**semantic_result.__dict__, "method": "semantic"},
-            )
+            return replace(semantic_result, method="semantic")
 
         
         if keyword_result.category == semantic_result.category:
@@ -51,9 +50,7 @@ class ConflictResolver:
                     "conf_diff": round(conf_diff, 3),
                 },
             )
-            return ClassificationResult(
-                **{**keyword_result.__dict__, "method": "resolver_keyword"},
-            )
+            return replace(keyword_result, method="resolver_keyword")
 
         kw_priority = CATEGORY_PRIORITY.get(keyword_result.category, 99)
         sem_priority = CATEGORY_PRIORITY.get(semantic_result.category, 99)
@@ -69,9 +66,7 @@ class ConflictResolver:
             },
         )
 
-        return ClassificationResult(
-            **{**winner.__dict__, "method": "resolver_priority"},
-        )
+        return replace(winner, method="resolver_priority")
 
     def _merge_scores(
         self,

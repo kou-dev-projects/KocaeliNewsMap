@@ -6,14 +6,14 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "kaza", "çarpışma", "zincirleme", "takla", "devrildi", "devrilme",
         "çarptı", "çarpıştı", "bariyere", "refüje", "hendek",
         # Araç tipleri — kazaya özgü bağlam
-        "araç", "otomobil", "kamyon", "motosiklet", "bisiklet", "tır",
+        "otomobil", "kamyon", "motosiklet", "bisiklet", "tır",
         "minibüs", "servis", "ambulans çağrıldı",
         # Sonuçlar
         "yaralı", "yaralandı", "hayatını kaybetti", "can verdi",
         "hastaneye kaldırıldı", "sedye",
         # Trafik durumu
         "trafik durdu", "yol kapandı", "kapanan yol", "tıkandı",
-        "d100", "tem", "e5", "karayolu", "kavşak",
+        "d100", "tem", "e5", "karayolu",
     ),
 
     NewsCategory.YANGIN: (
@@ -64,12 +64,12 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "konser", "festival", "sergi", "tiyatro", "sinema",
         "etkinlik", "gösteri", "performans",
         # Organizasyon
-        "açılış", "tören", "kutlama", "anma", "anma töreni",
+        "kutlama", "anma", "anma töreni",
         "mezuniyet", "diploma",
         # Kültür
         "müze", "kültür merkezi", "sanat galerisi",
         "resital", "sempozyum", "kongre", "konferans",
         # Spor etkinliği
-        "maç", "turnuva", "şampiyona", "yarışma",
+        "turnuva", "şampiyona", "yarışma",
     ),
 }

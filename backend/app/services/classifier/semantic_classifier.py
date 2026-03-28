@@ -40,14 +40,14 @@ CATEGORY_PROTOTYPES: dict[NewsCategory, str] = {
 
 
 class SemanticClassifier:
-
     def __init__(
         self,
-        embedding_service: Optional["EmbeddingService"] = None,
+        embedding_service=None,
+        threshold: float = 0.3,
     ) -> None:
-        
         self._embedding_service = embedding_service
-        self._prototype_vectors: dict[NewsCategory, list[float]] = {}
+        self._threshold = threshold
+        self._prototype_vectors = {}
 
     def classify(self, input_data: ClassificationInput) -> ClassificationResult:
         
@@ -89,7 +89,7 @@ class SemanticClassifier:
         )
 
         return ClassificationResult(
-            category=best_category if best_score > 0.3 else NewsCategory.UNKNOWN,
+            category=best_category if best_score > self._threshold else NewsCategory.UNKNOWN,
             confidence=round(best_score, 4),
             method="semantic",
             news_id=input_data.news_id,

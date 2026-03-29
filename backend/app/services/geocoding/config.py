@@ -1,10 +1,8 @@
 from __future__ import annotations
-import os
 from dataclasses import dataclass
 from typing import Optional
-from dotenv import load_dotenv
 
-load_dotenv()
+from app.settings import settings
 
 
 @dataclass(frozen=True)
@@ -22,17 +20,13 @@ class GeocodingConfig:
 
 def load_geocoding_config() -> GeocodingConfig:
     return GeocodingConfig(
-        provider=os.getenv("GEOCODING_PROVIDER", "mock"),
-        nominatim_url=os.getenv(
-            "NOMINATIM_URL", "https://nominatim.openstreetmap.org"
-        ),
-        user_agent=os.getenv(
-            "NOMINATIM_USER_AGENT", "PULSE/1.0 kocaeli-news-platform"
-        ),
-        timeout=int(os.getenv("GEOCODING_TIMEOUT", "10")),
-        cache_ttl_seconds=int(os.getenv("GEOCODING_CACHE_TTL", "86400")),
-        redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
-        max_retries=int(os.getenv("GEOCODING_MAX_RETRIES", "2")),
-        min_confidence=float(os.getenv("GEOCODING_MIN_CONFIDENCE", "0.3")),
-        opencage_api_key=os.getenv("OPENCAGE_API_KEY"),
+        provider=settings.geocoding_provider,
+        nominatim_url=settings.nominatim_url,
+        user_agent=settings.nominatim_user_agent,
+        timeout=settings.geocoding_timeout,
+        cache_ttl_seconds=settings.geocoding_cache_ttl,
+        redis_url=settings.redis_url,
+        max_retries=settings.geocoding_max_retries,
+        min_confidence=settings.geocoding_min_confidence,
+        opencage_api_key=settings.opencage_api_key,
     )

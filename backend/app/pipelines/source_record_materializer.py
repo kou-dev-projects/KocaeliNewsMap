@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from app.domain.enums import normalize_kocaeli_district, normalize_news_category
+from app.domain.enums import NewsCategory, normalize_kocaeli_district, normalize_news_category
 from app.scrapers.base.date_utils import parse_published_at_raw
 from app.services.classifier.factory import build_classifier_service
-from app.services.classifier.schemas import ClassificationInput
+from app.services.classifier.schemas import ClassificationInput, ClassificationResult
 from app.services.ner.factory import build_ner_service
-from app.services.ner.schemas import NERInput
+from app.services.ner.schemas import NERInput, NERResult
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,9 +24,23 @@ class SourceRecordMaterializer:
 
     def __post_init__(self) -> None:
         if self.classifier_service is None:
-            self.classifier_service = build_classifier_service()
+            try:
+                self.classifier_service = build_classifier_service()
+            except Exception as exc:
+                logger.warning(
+                    "pipeline.materializer.classifier_unavailable",
+                    extra={"error": f"{type(exc).__name__}: {exc}"},
+                )
+                self.classifier_service = None
         if self.ner_service is None:
-            self.ner_service = build_ner_service()
+            try:
+                self.ner_service = build_ner_service()
+            except Exception as exc:
+                logger.warning(
+                    "pipeline.materializer.ner_unavailable",
+                    extra={"error": f"{type(exc).__name__}: {exc}"},
+                )
+                self.ner_service = None
 
     def materialize(
         self,
@@ -36,19 +54,15 @@ class SourceRecordMaterializer:
         body = raw_document.get("content_raw") or raw_document.get("text_raw") or ""
         summary = self._build_summary(body)
 
-        classification = self.classifier_service.classify(
-            ClassificationInput(
-                title=title,
-                summary=summary,
-                content=body,
-            )
+        classification = self._classify(
+            title=title,
+            summary=summary,
+            body=body,
         )
-        ner_result = self.ner_service.extract_locations(
-            NERInput(
-                title=title,
-                summary=summary,
-                content=body,
-            )
+        ner_result = self._extract_locations(
+            title=title,
+            summary=summary,
+            body=body,
         )
 
         district, district_confidence, location_text = self._extract_location_fields(ner_result)
@@ -67,7 +81,6 @@ class SourceRecordMaterializer:
             "category_confidence": classification.confidence,
             "category_model_version": classification.method,
             "district_predicted": district,
-            "district_confidence": district_confidence,
             "location_text_extracted": location_text,
             "geocode_status": geocode_status,
             "text_hash": self._text_hash(title=title, body=body),
@@ -82,8 +95,48 @@ class SourceRecordMaterializer:
 
         if summary:
             record["summary"] = summary
+        if district_confidence is not None:
+            record["district_confidence"] = district_confidence
 
         return record
+
+    def _classify(self, *, title: str, summary: Optional[str], body: str) -> ClassificationResult:
+        if self.classifier_service is None:
+            return self._fallback_classification()
+
+        try:
+            return self.classifier_service.classify(
+                ClassificationInput(
+                    title=title,
+                    summary=summary,
+                    content=body,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "pipeline.materializer.classification_failed",
+                extra={"error": f"{type(exc).__name__}: {exc}"},
+            )
+            return self._fallback_classification()
+
+    def _extract_locations(self, *, title: str, summary: Optional[str], body: str) -> NERResult:
+        if self.ner_service is None:
+            return self._fallback_ner_result()
+
+        try:
+            return self.ner_service.extract_locations(
+                NERInput(
+                    title=title,
+                    summary=summary,
+                    content=body,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "pipeline.materializer.ner_failed",
+                extra={"error": f"{type(exc).__name__}: {exc}"},
+            )
+            return self._fallback_ner_result()
 
     def _extract_location_fields(self, ner_result: Any) -> tuple[Optional[str], Optional[float], Optional[str]]:
         district = None
@@ -112,3 +165,18 @@ class SourceRecordMaterializer:
     def _text_hash(self, *, title: str, body: str) -> str:
         payload = f"{title}\n{body}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
+
+    def _fallback_classification(self) -> ClassificationResult:
+        return ClassificationResult(
+            category=NewsCategory.UNKNOWN,
+            confidence=0.0,
+            method="fallback_unknown",
+        )
+
+    def _fallback_ner_result(self) -> NERResult:
+        return NERResult(
+            raw_entities=[],
+            location_candidates=[],
+            validated_districts=[],
+            provider="fallback_none",
+        )

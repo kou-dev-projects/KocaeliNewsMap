@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urljoin, urlparse
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -227,6 +228,11 @@ class NewsWriteService:
         scraped_at = parse_published_at_raw(request.scraped_at) or now
         text_raw = request.content or request.summary or request.title
         content_hash = self._content_hash(request.url, text_raw)
+        image_urls_raw = self._build_image_urls_raw(
+            image_url=request.image_url,
+            source_base_url=source_doc.get("base_url", ""),
+            resolved_url=request.resolved_url or request.url,
+        )
 
         return {
             "source_id": source_doc["_id"],
@@ -238,7 +244,7 @@ class NewsWriteService:
             "text_raw": text_raw,
             "content_raw": request.content or "",
             "published_at_raw": published_at,
-            "image_urls_raw": [request.image_url] if request.image_url else [],
+            "image_urls_raw": image_urls_raw,
             "language": "tr",
             "content_hash": content_hash,
             "fetch_status": "success",
@@ -252,6 +258,33 @@ class NewsWriteService:
     def _content_hash(self, url: str, text_raw: str) -> str:
         payload = f"{url}\n{text_raw}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
+
+    def _build_image_urls_raw(
+        self,
+        *,
+        image_url: str | None,
+        source_base_url: str,
+        resolved_url: str,
+    ) -> list[str]:
+        if not image_url:
+            return []
+
+        normalized = image_url.strip()
+        if not normalized:
+            return []
+
+        base_url = resolved_url or source_base_url
+        normalized = urljoin(base_url, normalized)
+
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            logger.info(
+                "mcp.write.invalid_image_url_skipped",
+                extra={"image_url": image_url},
+            )
+            return []
+
+        return [normalized]
 
     def _handle_failure(
         self, request: NewsWriteRequest, idem_key: str, error: str

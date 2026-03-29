@@ -1,14 +1,13 @@
 
 class GeocodingError(Exception):
-    """Base — tüm geocoding hataları buradan türer."""
-
+    pass
 
 class ProviderError(GeocodingError):
-    """Provider yanıt vermedi, timeout, HTTP hatası."""
+    pass
 
 
 class ProviderRateLimitError(ProviderError):
-   
+
     def __init__(self, provider: str, retry_after: float = 1.0) -> None:
         super().__init__(f"{provider} rate limit — {retry_after}s sonra dene")
         self.provider = provider
@@ -16,14 +15,11 @@ class ProviderRateLimitError(ProviderError):
 
 
 class ProviderUnavailableError(ProviderError):
-    """
-    Provider tamamen yanıtsız.
-    Fallback zinciri devreye girer.
-    """
+    pass
 
 
 class OutOfBoundsError(GeocodingError):
-    
+
     def __init__(self, address: str, lat: float, lng: float, display: str) -> None:
         super().__init__(
             f"Kocaeli dışı koordinat: '{address}' → ({lat:.4f}, {lng:.4f}) — {display[:60]}"
@@ -35,7 +31,7 @@ class OutOfBoundsError(GeocodingError):
 
 
 class LowConfidenceError(GeocodingError):
-  
+
     def __init__(self, address: str, confidence: float, minimum: float) -> None:
         super().__init__(
             f"Düşük confidence: '{address}' → {confidence:.3f} < {minimum:.3f}"

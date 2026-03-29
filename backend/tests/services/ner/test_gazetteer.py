@@ -33,9 +33,9 @@ def test_no_match_unknown(matcher):
     assert result is None
 
 
-def test_all_12_districts(matcher):
+def test_all_13_districts(matcher):
     districts = [
-        "İzmit", "Gebze", "Darıca", "Gölcük", "Körfez",
+        "İzmit", "Gebze", "Darıca", "Gölcük", "Hereke", "Körfez",
         "Kartepe", "Başiskele", "Çayırova", "Dilovası",
         "Kandıra", "Karamürsel", "Derince",
     ]

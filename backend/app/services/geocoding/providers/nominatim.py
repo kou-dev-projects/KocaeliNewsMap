@@ -118,10 +118,7 @@ class NominatimProvider:
         )
 
     def _rate_limit(self) -> None:
-        """
-        Public Nominatim: 1 req/s.
-        Self-host'ta bu limit kaldırılabilir — config'e taşınabilir.
-        """
+       
         elapsed = time.monotonic() - self._last_request_at
         if elapsed < _RATE_LIMIT_INTERVAL:
             time.sleep(_RATE_LIMIT_INTERVAL - elapsed)

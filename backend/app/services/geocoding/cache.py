@@ -100,12 +100,7 @@ class RedisGeoCache:
             )
 
     def invalidate_provider(self, provider_prefix: str) -> int:
-        """
-        Provider değiştiğinde eski cache kayıtlarını temizler.
-        Tüm 'pulse:geo:v1:*' key'lerini tarar — production'da SCAN kullanır.
-        
-        Dönüş: silinen key sayısı
-        """
+       
         if not self._client:
             return 0
         count = 0

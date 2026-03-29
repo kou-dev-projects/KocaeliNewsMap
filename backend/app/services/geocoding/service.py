@@ -27,6 +27,7 @@ KOCAELI_DISTRICTS = frozenset(
         "Gebze",
         "Darıca",
         "Gölcük",
+        "Hereke",
         "Körfez",
         "Kartepe",
         "Başiskele",
@@ -190,21 +191,36 @@ def build_geocoding_input_from_ner(
     ner_result: NERResult,
     news_id: str | None = None,
 ) -> GeocodingInput | None:
-    if not ner_result.validated_districts:
+    if not ner_result.location_candidates and not ner_result.validated_districts:
         return None
 
-    district = ner_result.validated_districts[0]
-    neighborhood = None
-
+    primary_candidate = None
     for candidate in ner_result.location_candidates:
-        if candidate.neighborhood:
-            neighborhood = candidate.neighborhood
-            if candidate.district:
-                district = candidate.district
+        if candidate.neighborhood or candidate.original_text:
+            primary_candidate = candidate
             break
 
+    district = None
+    if primary_candidate and primary_candidate.district:
+        district = primary_candidate.district
+    elif ner_result.validated_districts:
+        district = ner_result.validated_districts[0]
+
+    neighborhood = primary_candidate.neighborhood if primary_candidate else None
+
+    if neighborhood and district:
+        address = f"{neighborhood}, {district}"
+    elif neighborhood:
+        address = neighborhood
+    elif primary_candidate and primary_candidate.original_text:
+        address = primary_candidate.original_text
+    elif district:
+        address = district
+    else:
+        return None
+
     return GeocodingInput(
-        address=district,
+        address=address,
         district_hint=district,
         neighborhood=neighborhood,
         news_id=news_id,

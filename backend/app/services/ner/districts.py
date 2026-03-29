@@ -63,6 +63,49 @@ KOCAELI_PLACE_ALIASES = {
     "yenikent": "Gebze",
 }
 
+_ALIAS_SUFFIXES = frozenset(
+    {
+        "de",
+        "da",
+        "te",
+        "ta",
+        "den",
+        "dan",
+        "ten",
+        "tan",
+        "deki",
+        "daki",
+        "teki",
+        "taki",
+        "mahallesi",
+        "mahallesinde",
+        "mahallesindeki",
+        "sahilinde",
+        "yolunda",
+    }
+)
+
+_DISTRICT_SUFFIXES = frozenset(
+    {
+        "de",
+        "da",
+        "te",
+        "ta",
+        "den",
+        "dan",
+        "ten",
+        "tan",
+        "deki",
+        "daki",
+        "teki",
+        "taki",
+        "il",
+        "ilce",
+        "ilcesi",
+        "ilcesinde",
+    }
+)
+
 
 def normalize_for_compare(text: str) -> str:
     value = text.strip()
@@ -104,6 +147,24 @@ def canonical_district_name(text: str) -> str | None:
     return KOCAELI_DISTRICTS.get(normalized)
 
 
+def _matches_name_with_suffix(
+    normalized: str,
+    key: str,
+    allowed_suffixes: frozenset[str],
+) -> bool:
+    if normalized == key:
+        return True
+
+    if normalized.startswith(key + " "):
+        return True
+
+    if not normalized.startswith(key):
+        return False
+
+    suffix = normalized[len(key):]
+    return suffix in allowed_suffixes
+
+
 def recover_alias_district_name(text: str) -> str | None:
     normalized = normalize_for_compare(text)
 
@@ -116,17 +177,7 @@ def recover_alias_district_name(text: str) -> str | None:
         key=lambda item: len(item[0]),
         reverse=True,
     ):
-        if normalized.startswith(alias + " "):
-            return district
-
-        suffix = normalized[len(alias):]
-        if normalized.startswith(alias) and suffix in {
-            "de", "da", "te", "ta",
-            "den", "dan", "ten", "tan",
-            "deki", "daki", "teki", "taki",
-            "mahallesi", "mahallesinde", "mahallesindeki",
-            "sahilinde", "yolunda",
-        }:
+        if _matches_name_with_suffix(normalized, alias, _ALIAS_SUFFIXES):
             return district
 
     return None
@@ -144,39 +195,7 @@ def recover_district_name(text: str) -> str | None:
         return exact
 
     for key, canonical in KOCAELI_DISTRICTS.items():
-        if normalized.startswith(key + " "):
-            return canonical
-
-        suffix = normalized[len(key):]
-        if normalized.startswith(key) and suffix in {
-            "de",
-            "da",
-            "te",
-            "ta",
-            "den",
-            "dan",
-            "ten",
-            "tan",
-            "ye",
-            "ya",
-            "yi",
-            "yu",
-            "nin",
-            "in",
-            "un",
-            "e",
-            "a",
-            "i",
-            "u",
-            "deki",
-            "daki",
-            "teki",
-            "taki",
-            "il",
-            "ilce",
-            "ilcesi",
-            "ilcesinde",
-        }:
+        if _matches_name_with_suffix(normalized, key, _DISTRICT_SUFFIXES):
             return canonical
 
     return None

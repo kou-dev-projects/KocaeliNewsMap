@@ -61,7 +61,6 @@ class NERService:
         )
 
     def _gazetteer_pass(self, text: str) -> list[LocationCandidate]:
-        """Metni tokenize edip gazetteer ile eşleştirir."""
         import re
         text = text.replace("’", "'")
         tokens = re.split(r"[\s,;:.!?()\[\]\"\"]+", text)
@@ -90,10 +89,7 @@ class NERService:
         gazetteer_candidates: list[LocationCandidate],
         ner_entities: list[RawEntity],
     ) -> tuple[list[LocationCandidate], list[str]]:
-        """
-        Gazetteer ve NER sonuçlarını birleştirir.
-        Duplicate district'leri temizler.
-        """
+       
         all_candidates: list[LocationCandidate] = list(gazetteer_candidates)
         validated: list[str] = [c.district for c in gazetteer_candidates if c.district]
         seen = set(validated)
@@ -122,14 +118,13 @@ class NERService:
                 )
             elif not district:
                 neighborhood = self._extract_neighborhood(entity.text)
-                parent_district = validated[-1] if validated else None
                 all_candidates.append(
                     LocationCandidate(
                         original_text=entity.text,
                         normalized_text=normalized,
                         score=entity.score,
                         is_kocaeli_district=False,
-                        district=parent_district,
+                        district=None,
                         neighborhood=neighborhood,
                     )
                 )
@@ -149,7 +144,6 @@ class NERService:
 
     @staticmethod
     def _extract_neighborhood(text: str) -> str | None:
-        """Metinde mahalle/sokak/cadde ifadesi varsa temizleyip döndürür."""
 
         lower = text.lower().strip()
         keywords = ["mahallesi", "mahalle", "mah.", "mah",

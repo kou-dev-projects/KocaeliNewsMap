@@ -8,3 +8,11 @@ def test_recover_district_name_from_extended_span():
 def test_recover_district_name_from_suffixless_form():
     assert recover_district_name("Derincede") == "Derince"
     assert recover_district_name("Başiskeledeki") == "Başiskele"
+
+
+def test_hereke_maps_to_hereke():
+    assert recover_district_name("Hereke sahilinde") == "Hereke"
+
+
+def test_single_letter_suffixes_do_not_match():
+    assert recover_district_name("Gebzei") is None

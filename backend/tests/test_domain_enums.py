@@ -16,3 +16,4 @@ def test_normalize_kocaeli_district_accepts_multiple_spellings():
     assert normalize_kocaeli_district("izmit") == KocaeliDistrict.IZMIT
     assert normalize_kocaeli_district("Izmit") == KocaeliDistrict.IZMIT
     assert normalize_kocaeli_district("İzmit") == KocaeliDistrict.IZMIT
+    assert normalize_kocaeli_district("Hereke") == KocaeliDistrict.HEREKE

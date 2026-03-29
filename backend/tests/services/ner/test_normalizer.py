@@ -17,6 +17,14 @@ def test_removes_genitive_suffix():
     assert normalize_location_text("Kocaeli'nin") == "Kocaeli"
 
 
+def test_removes_suffix_without_apostrophe():
+    assert normalize_location_text("İzmitde") == "İzmit"
+
+
+def test_removes_suffix_without_apostrophe_ablative():
+    assert normalize_location_text("Gebzeden") == "Gebze"
+
+
 def test_empty_string():
     assert normalize_location_text("") == ""
 

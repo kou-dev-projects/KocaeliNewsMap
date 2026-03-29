@@ -14,5 +14,10 @@ def _get_orchestrator() -> ScrapeOrchestrator:
 
 
 def run_scheduled_crawl() -> None:
-    summary = _get_orchestrator().crawl_active_sources(trigger_type="scheduled")
+    orchestrator = _get_orchestrator()
+    queue_summary = orchestrator.drain_pending_writes(batch_size=50)
+    if queue_summary.get("dequeued", 0) > 0:
+        logger.info("scheduler.job.queue_drain_finished", extra=queue_summary)
+
+    summary = orchestrator.crawl_active_sources(trigger_type="scheduled")
     logger.info("scheduler.job.crawl_finished", extra=summary)

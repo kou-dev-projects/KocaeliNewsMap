@@ -93,6 +93,44 @@ class NewsWriteService:
             reason="fail_open_no_fallback",
         )
 
+    def process_queue_batch(self, *, batch_size: int = 20) -> dict[str, int]:
+        items = self._queue.dequeue_batch(size=max(batch_size, 1))
+        summary = {
+            "dequeued": len(items),
+            "processed": 0,
+            "requeued": 0,
+            "dead_lettered": 0,
+        }
+
+        for item in items:
+            request = item.request
+            idem_key = request.idempotency_key()
+
+            if self._idempotency.is_duplicate(idem_key):
+                summary["processed"] += 1
+                continue
+
+            try:
+                self._mongo_write(request, idem_key)
+                summary["processed"] += 1
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                if self._queue.requeue(item, error):
+                    summary["requeued"] += 1
+                    continue
+
+                self._dead_letter.add(
+                    request,
+                    error,
+                    attempt_count=item.attempt_count,
+                )
+                summary["dead_lettered"] += 1
+
+        if summary["dequeued"] > 0:
+            logger.info("mcp.write.queue_batch_processed", extra=summary)
+
+        return summary
+
     def _mongo_write(self, request: NewsWriteRequest, idem_key: str) -> WriteResult:
         if self._mongo is None:
             fake_id = f"mock_{idem_key[:12]}"

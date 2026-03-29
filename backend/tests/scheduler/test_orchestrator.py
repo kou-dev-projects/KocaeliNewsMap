@@ -65,6 +65,14 @@ class FakeSessionStore:
         return "success"
 
 
+class StatusAwareSessionStore(FakeSessionStore):
+    def finalize(self, **kwargs):
+        self.finalized.append(kwargs)
+        if kwargs["failed_count"] > 0:
+            return "failed"
+        return "success"
+
+
 class FakeListingScraper:
     def fetch_listing_html(self, url):
         return "<html></html>"
@@ -199,6 +207,61 @@ def test_crawl_active_sources_processes_supported_sources(monkeypatch):
     assert write_kwargs["parser_version"] == "FakeParser"
 
 
+def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "broken.example.com",
+            "base_url": "https://broken.example.com",
+            "scraper_type": "static",
+        },
+        {
+            "_id": "source_2",
+            "domain": "ok.example.com",
+            "base_url": "https://ok.example.com",
+            "scraper_type": "static",
+        },
+    ]
+
+    orchestrator = ScrapeOrchestrator(
+        config=SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=1,
+            max_urls_per_source=1,
+        ),
+        database=FakeDatabase(source_docs),
+        mcp_server=FakeMCPServer(),
+        session_store=FakeSessionStore(),
+    )
+
+    def fake_crawl_single_source(*, source_document, trigger_type):
+        assert trigger_type == "scheduled"
+        if source_document["domain"] == "broken.example.com":
+            raise RuntimeError("boom")
+        return {
+            "domain": "ok.example.com",
+            "status": "success",
+            "session_id": "session_ok",
+            "fetched_count": 1,
+            "parsed_count": 1,
+            "failed_count": 0,
+        }
+
+    monkeypatch.setattr(orchestrator, "_crawl_single_source", fake_crawl_single_source)
+
+    summary = orchestrator.crawl_active_sources(trigger_type="scheduled")
+
+    assert summary["active_sources"] == 2
+    assert summary["processed_sources"] == 2
+    assert summary["skipped_sources"] == 0
+    assert len(summary["sessions"]) == 2
+    failed_session = next(item for item in summary["sessions"] if item["domain"] == "broken.example.com")
+    assert failed_session["status"] == "failed"
+    assert failed_session["reason"] == "unhandled_source_exception"
+
+
 def test_crawl_source_returns_skipped_for_unsupported_source():
     source_docs = [
         {
@@ -229,6 +292,53 @@ def test_crawl_source_returns_skipped_for_unsupported_source():
         "status": "skipped",
         "reason": "unsupported_source",
     }
+
+
+def test_crawl_source_static_bootstrap_failure_releases_lease(monkeypatch):
+    monkeypatch.setattr(
+        "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
+        {
+            "cagdaskocaeli.com.tr": StaticSourceDefinition(
+                listing_scraper_factory=lambda: (_ for _ in ()).throw(RuntimeError("factory_error")),
+                detail_scraper_factory=FakeDetailScraper,
+                parser_factory=FakeParser,
+            )
+        },
+    )
+    monkeypatch.setattr("app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY", {})
+
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "cagdaskocaeli.com.tr",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+            "scraper_type": "static",
+        }
+    ]
+
+    fake_mcp = FakeMCPServer()
+    session_store = StatusAwareSessionStore()
+    orchestrator = ScrapeOrchestrator(
+        config=SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=1,
+            max_urls_per_source=1,
+        ),
+        database=FakeDatabase(source_docs),
+        mcp_server=fake_mcp,
+        session_store=session_store,
+    )
+
+    result = orchestrator.crawl_source("cagdaskocaeli.com.tr", trigger_type="manual")
+
+    assert result["status"] == "failed"
+    assert result["failed_count"] == 1
+    assert session_store.finalized[0]["failed_count"] == 1
+    assert session_store.finalized[0]["error_summary"][0]["code"] == "source_bootstrap_error"
+    tool_names = [name for name, _ in fake_mcp.calls]
+    assert tool_names == ["acquire_lease", "release_lease"]
 
 
 def test_crawl_source_returns_skipped_for_configured_domain():

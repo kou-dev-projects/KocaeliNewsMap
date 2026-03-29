@@ -1,5 +1,5 @@
 class EmbeddingError(Exception):
-    """Tüm embedding hataları buradan türer."""
+    pass
 
 
 class VectorDimensionError(EmbeddingError):
@@ -12,8 +12,8 @@ class VectorDimensionError(EmbeddingError):
 
 
 class ImageFetchError(EmbeddingError):
-    """Görsel indirilemedi. Non-fatal — metin embedding devam eder."""
+    pass
 
 
 class ProviderUnavailableError(EmbeddingError):
-    """Model yüklenemedi veya yanıt vermedi."""
+    pass

@@ -13,7 +13,6 @@ Write flow:
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
@@ -23,6 +22,7 @@ from bson.errors import InvalidId
 
 from app.pipelines import SourceRecordMaterializer
 from app.scrapers.base.date_utils import parse_published_at_raw
+from app.utils.content_hash import compute_content_hash
 
 from .config import MCPConfig
 from .dead_letter import DeadLetterStore
@@ -227,7 +227,7 @@ class NewsWriteService:
         published_at = parse_published_at_raw(request.published_at)
         scraped_at = parse_published_at_raw(request.scraped_at) or now
         text_raw = request.content or request.summary or request.title
-        content_hash = self._content_hash(request.url, text_raw)
+        content_hash = self._content_hash(request.title, text_raw)
         image_urls_raw = self._build_image_urls_raw(
             image_url=request.image_url,
             source_base_url=source_doc.get("base_url", ""),
@@ -255,9 +255,8 @@ class NewsWriteService:
             "updated_at": now,
         }
 
-    def _content_hash(self, url: str, text_raw: str) -> str:
-        payload = f"{url}\n{text_raw}".encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
+    def _content_hash(self, title: str, text_raw: str) -> str:
+        return compute_content_hash(title=title, body=text_raw)
 
     def _build_image_urls_raw(
         self,

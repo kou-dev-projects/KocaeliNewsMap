@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,6 +11,7 @@ from app.services.classifier.factory import build_classifier_service
 from app.services.classifier.schemas import ClassificationInput, ClassificationResult
 from app.services.ner.factory import build_ner_service
 from app.services.ner.schemas import NERInput, NERResult
+from app.utils.content_hash import compute_content_hash
 
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,11 @@ class SourceRecordMaterializer:
             "canonical_url": raw_document["canonical_url"],
             "title": title,
             "body": body,
-            "published_at": raw_document.get("published_at_raw") or raw_document.get("scraped_at") or current_time,
+            "published_at": self._normalize_published_at(
+                raw_document.get("published_at_raw"),
+                raw_document.get("scraped_at"),
+                current_time,
+            ),
             "detected_language": raw_document.get("language") or "tr",
             "category_predicted": (category or classification.category).value,
             "category_confidence": classification.confidence,
@@ -163,8 +167,29 @@ class SourceRecordMaterializer:
         return summary if summary else None
 
     def _text_hash(self, *, title: str, body: str) -> str:
-        payload = f"{title}\n{body}".encode("utf-8")
-        return hashlib.sha256(payload).hexdigest()
+        return compute_content_hash(title=title, body=body)
+
+    def _normalize_published_at(
+        self,
+        published_at_raw: Any,
+        scraped_at: Any,
+        fallback: datetime,
+    ) -> datetime:
+        if isinstance(published_at_raw, datetime):
+            return published_at_raw
+        if isinstance(published_at_raw, str):
+            parsed = parse_published_at_raw(published_at_raw)
+            if parsed:
+                return parsed
+
+        if isinstance(scraped_at, datetime):
+            return scraped_at
+        if isinstance(scraped_at, str):
+            parsed = parse_published_at_raw(scraped_at)
+            if parsed:
+                return parsed
+
+        return fallback
 
     def _fallback_classification(self) -> ClassificationResult:
         return ClassificationResult(

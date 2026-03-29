@@ -4,11 +4,7 @@ import numpy as np
 
 
 def _hash_to_vector(seed: str, dim: int) -> np.ndarray:
-    """
-    SHA256 ile deterministik vektör üretir.
-    Aynı seed → her zaman aynı vektör.
-    Farklı seed → gerçekten farklı vektörler (cosine test edilebilir).
-    """
+    
     values: list[float] = []
     digest = hashlib.sha256(seed.encode("utf-8")).digest()
 
@@ -25,7 +21,6 @@ def _hash_to_vector(seed: str, dim: int) -> np.ndarray:
 
 
 class MockTextProvider:
-    """BGE-M3'ü taklit eder — 1024-dim."""
     name = "mock-text"
     dimension = 1024
 
@@ -34,7 +29,6 @@ class MockTextProvider:
 
 
 class MockImageProvider:
-    """SigLIP2'yi taklit eder — 768-dim."""
     name = "mock-image"
     dimension = 768
 

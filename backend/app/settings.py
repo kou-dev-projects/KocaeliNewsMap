@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     scheduler_lookback_days: int = 1
     scheduler_max_urls_per_source: int = 10
     scheduler_skip_domains: str = ""
+    scrape_trigger_api_key: str | None = None
+    scrape_trigger_rate_limit_enabled: bool = True
+    scrape_trigger_rate_limit_requests: int = 5
+    scrape_trigger_rate_limit_window_seconds: int = 60
 
     classifier_semantic_enabled: bool = False
     classifier_semantic_threshold: float = 0.3

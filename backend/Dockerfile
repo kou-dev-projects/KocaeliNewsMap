@@ -1,18 +1,22 @@
+# ---- builder stage ----
+FROM python:3.13-slim-bookworm AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---- runtime stage ----
 FROM python:3.13-slim-bookworm
+
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
 
-# Copy and install dependencies
-RUN apt-get update \
-	&& apt-get upgrade -y \
-	&& rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN python -m pip install --upgrade pip
-RUN python -m pip install --no-cache-dir -r requirements.txt
-
-
-# Copy source code
+COPY --from=builder /install /usr/local
 COPY . .
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+USER appuser
+
+EXPOSE 8000
+
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -32,13 +32,17 @@ This means:
 
 ### Start Services
 
-For backend development, the minimal useful stack is:
+For the refactored backend flow, the useful local stack is:
 
 ```powershell
-docker compose up -d mongodb redis backend
+docker compose up -d mongodb redis backend worker scheduler
 ```
 
-Frontend is optional for backend-only work.
+Notes:
+- `backend` serves the API.
+- `worker` consumes queued scrape jobs.
+- `scheduler` submits scheduled crawl jobs.
+- Frontend is optional for backend-only work.
 
 ### Verify Local Mongo Mode
 
@@ -56,11 +60,12 @@ mongodb://mongodb:27017
 
 Then verify the API:
 
-- `http://localhost:8000/db-test`
+- `http://localhost:8000/livez`
+- `http://localhost:8000/readyz`
 
 Expected:
-- database name should be `kocaeli_news`
-- collections should be present
+- `/livez` should return `{"status": "ok"}`
+- `/readyz` should report both Mongo and Redis as available
 
 ## Manual Fallback
 
@@ -72,7 +77,7 @@ If the Mongo volume already exists, the init script will not rerun automatically
 docker compose down
 docker volume ls
 docker volume rm kocaelinewsmap_mongo_data
-docker compose up -d mongodb redis backend
+docker compose up -d mongodb redis backend worker scheduler
 ```
 
 Note:
@@ -103,8 +108,8 @@ MONGO_URL=mongodb+srv://...
 MONGO_DB=kocaeli_news
 ```
 
-Then restart the backend container:
+Then restart the containers that use the backend settings:
 
 ```powershell
-docker compose up -d --build backend
+docker compose up -d --build backend worker scheduler
 ```

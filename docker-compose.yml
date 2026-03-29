@@ -22,6 +22,7 @@ services:
   backend:
     build: ./backend
     container_name: kocaeli-news_map_backend
+    command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "8000:8000"
     depends_on:
@@ -31,10 +32,46 @@ services:
       - MONGO_URL=${MONGO_URL}
       - MONGO_DB=kocaeli_news
       - REDIS_URL=redis://redis:6379
-    volumes:
-      - ./backend:/app
+      - WORKER_ID=api
     env_file:
       - .env
+    volumes:
+      - ./backend:/app
+
+  worker:
+    build: ./backend
+    container_name: kocaeli-news_map_worker
+    depends_on:
+      - redis
+      - mongodb
+    command: ["python", "-m", "app.workers.job_worker"]
+    environment:
+      - MONGO_URL=${MONGO_URL}
+      - MONGO_DB=kocaeli_news
+      - REDIS_URL=redis://redis:6379
+      - WORKER_ID=worker
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+
+  scheduler:
+    build: ./backend
+    container_name: kocaeli-news_map_scheduler
+    depends_on:
+      - redis
+    command: ["python", "-m", "app.workers.run_scheduler"]
+    environment:
+      - MONGO_URL=${MONGO_URL}
+      - MONGO_DB=kocaeli_news
+      - REDIS_URL=redis://redis:6379
+      - WORKER_ID=scheduler
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
 
   frontend:
     build: ./frontend

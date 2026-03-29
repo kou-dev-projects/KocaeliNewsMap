@@ -16,10 +16,14 @@ class ClassifierService:
         keyword_classifier: KeywordClassifier,
         semantic_classifier: SemanticClassifier,
         resolver: ConflictResolver,
+        semantic_enabled: bool = True,
+        keyword_only_mode: bool = False,
     ) -> None:
         self._keyword = keyword_classifier
         self._semantic = semantic_classifier
         self._resolver = resolver
+        self._semantic_enabled = semantic_enabled
+        self._keyword_only_mode = keyword_only_mode
 
     def classify(self, input_data: ClassificationInput) -> ClassificationResult:
       
@@ -35,6 +39,23 @@ class ClassifierService:
                 },
             )
             return keyword_result
+
+        if self._keyword_only_mode or not self._semantic_enabled:
+            logger.debug(
+                "classifier.service.semantic_skipped",
+                extra={
+                    "keyword_only_mode": self._keyword_only_mode,
+                    "semantic_enabled": self._semantic_enabled,
+                },
+            )
+            if keyword_result is not None:
+                return keyword_result
+            return ClassificationResult(
+                category=NewsCategory.UNKNOWN,
+                confidence=0.0,
+                method="keyword_only",
+                news_id=input_data.news_id,
+            )
 
         # Aşama 2: Semantic
         semantic_result = self._semantic.classify(input_data)

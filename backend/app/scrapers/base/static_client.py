@@ -4,6 +4,8 @@ import time
 from typing import Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 
 DEFAULT_HEADERS = {
@@ -27,6 +29,19 @@ class StaticHttpClient:
         self.delay_seconds = delay_seconds
         self.session = requests.Session()
         self.session.headers.update(headers or DEFAULT_HEADERS)
+        retry_strategy = Retry(
+            total=3,
+            connect=3,
+            read=3,
+            status=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=frozenset(["GET", "HEAD"]),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
 
     def get(self, url: str) -> requests.Response:
         response = self.session.get(url, timeout=self.timeout)

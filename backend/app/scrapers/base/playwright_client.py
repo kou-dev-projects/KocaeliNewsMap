@@ -46,7 +46,12 @@ class PlaywrightClient:
         self._browser: Browser | None = None
 
     async def start(self) -> None:
-        self._playwright = await async_playwright().start()
+        if self._browser is not None:
+            return
+
+        if self._playwright is None:
+            self._playwright = await async_playwright().start()
+
         self._browser = await self._playwright.chromium.launch(
             headless=self.headless
         )
@@ -66,7 +71,7 @@ class PlaywrightClient:
     @asynccontextmanager
     async def page(self):
         if self._browser is None:
-            raise RuntimeError("Browser not started. Call start() first.")
+            await self.start()
 
         context: BrowserContext = await self._browser.new_context(
             user_agent=random.choice(USER_AGENTS)

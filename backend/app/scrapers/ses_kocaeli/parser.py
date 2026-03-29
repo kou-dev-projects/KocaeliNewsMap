@@ -2,13 +2,8 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
+from . import selectors
 
-NOISE_PATTERNS = [
-    r"Daha fazlasını keşfedin",
-    r"Yerel ürün sepetleri",
-    r"Dijital Gazete Aboneliği",
-    r"Şehir rehberi kitapçıkları",
-]
 
 def clean_content(text: str | None) -> str | None:
     if not text:
@@ -16,13 +11,14 @@ def clean_content(text: str | None) -> str | None:
 
     cleaned = text
 
-    for pattern in NOISE_PATTERNS:
+    for pattern in selectors.NOISE_PATTERNS:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
 
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     cleaned = cleaned.lstrip("-+ ").strip()
 
     return cleaned
+
 
 def is_valid_news_url(url: str) -> bool:
     return (
@@ -37,7 +33,7 @@ def parse_listing_links(html: str, base_url: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     urls: list[str] = []
 
-    for link in soup.select('a[href*="/haber/"]'):
+    for link in soup.select(selectors.LISTING_LINK):
         href = link.get("href")
         if not href:
             continue
@@ -53,15 +49,23 @@ def parse_listing_links(html: str, base_url: str) -> list[str]:
     return urls
 
 
-def parse_detail(html: str, url: str) -> dict:
-    from . import selectors
+def _select_first(soup: BeautifulSoup, selector_list: list[str]):
+    """Birden fazla selector'dan ilk bulunanı döndürür."""
+    for sel in selector_list:
+        node = soup.select_one(sel)
+        if node:
+            return node
+    return None
 
+
+def parse_detail(html: str, url: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
-    title_el = soup.select_one(selectors.DETAIL_TITLE)
-    content_el = soup.select_one(selectors.DETAIL_CONTENT)
+    title_el = _select_first(soup, selectors.DETAIL_TITLE_SELECTORS)
+    content_el = _select_first(soup, selectors.DETAIL_CONTENT_SELECTORS)
     date_meta = soup.select_one(selectors.DETAIL_DATE_META)
     og_image = soup.select_one(selectors.DETAIL_OG_IMAGE)
+
     content = content_el.get_text(" ", strip=True) if content_el else None
 
     result = {

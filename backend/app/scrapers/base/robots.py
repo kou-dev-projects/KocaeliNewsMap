@@ -1,4 +1,4 @@
-import httpx
+import requests
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -30,11 +30,11 @@ class RobotsChecker:
         }
 
         try:
-            response = httpx.get(
+            response = requests.get(
                 robots_url,
                 headers=headers,
                 timeout=self.timeout_s,
-                follow_redirects=True,
+                allow_redirects=True,
             )
         except Exception:
             return None

@@ -4,18 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router as api_router
-from app.db.database import db
-from app.scheduler import scheduler_service
 from app.settings import settings
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    scheduler_service.start()
-    try:
-        yield
-    finally:
-        scheduler_service.shutdown()
+    yield
 
 
 app = FastAPI(
@@ -43,14 +37,4 @@ def root():
         "name": settings.app_name,
         "version": settings.app_version,
         "env": settings.app_env,
-    }
-
-
-@app.get("/db-test")
-def db_test():
-    collections = db.list_collection_names()
-    return {
-        "message": "MongoDB connection successful",
-        "database": db.name,
-        "collections": collections,
     }

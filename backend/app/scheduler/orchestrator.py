@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import os
 import sys
 from socket import gethostname
 from typing import Any, Callable
@@ -23,7 +24,11 @@ from app.scrapers.ses_kocaeli.listing import SesKocaeliListingScraper
 from app.scrapers.yeni_kocaeli.detail import YeniKocaeliDetailScraper
 from app.scrapers.yeni_kocaeli.listing import YeniKocaeliListingScraper
 from app.scrapers.yeni_kocaeli.parser import YeniKocaeliParser
-from app.services.mcp.server import MCPServer
+from app.services.mcp.lease import SourceLease
+from app.services.mcp.schemas import NewsWriteRequest
+from app.services.mcp.server import create_write_services
+from app.services.mcp.write_service import NewsWriteService
+from app.settings import settings
 
 from .config import SchedulerConfig, load_scheduler_config
 from .sessions import CrawlSessionStore
@@ -91,7 +96,8 @@ class ScrapeOrchestrator:
         *,
         config: SchedulerConfig | None = None,
         database=None,
-        mcp_server: MCPServer | None = None,
+        write_service: NewsWriteService | None = None,
+        lease: SourceLease | None = None,
         session_store: CrawlSessionStore | None = None,
     ) -> None:
         self._config = config or load_scheduler_config()
@@ -101,13 +107,20 @@ class ScrapeOrchestrator:
             self._db = default_db
         else:
             self._db = database
-        self._mcp = mcp_server or MCPServer()
+
+        if write_service is not None and lease is not None:
+            self._write_service = write_service
+            self._lease = lease
+        else:
+            self._write_service, self._lease = create_write_services()
+
         self._sessions = session_store or CrawlSessionStore(self._db)
-        self._worker_id = f"scheduler:{gethostname()}"
+        worker_label = settings.worker_id or "worker"
+        self._worker_id = f"{worker_label}:{gethostname()}:{os.getpid()}"
 
     def drain_pending_writes(self, *, batch_size: int = 50) -> dict[str, Any]:
         try:
-            result = self._mcp.call("process_write_queue", batch_size=batch_size)
+            result = self._write_service.process_queue_batch(batch_size=batch_size)
             if result.get("dequeued", 0) > 0:
                 logger.info("scheduler.queue_drain.finished", extra=result)
             return result
@@ -198,11 +211,33 @@ class ScrapeOrchestrator:
             "reason": "unsupported_source",
         }
 
+    def _write_news_record(self, record: dict[str, Any], crawl_session_id: str, parser_version: str) -> dict[str, Any]:
+        request = NewsWriteRequest(
+            title=record["title"],
+            url=record["url"],
+            source=record["source_domain"],
+            content=record.get("content_text", ""),
+            summary=record.get("summary", ""),
+            image_url=record.get("image_url", ""),
+            published_at=record.get("published_at_raw", ""),
+            crawl_session_id=crawl_session_id,
+            resolved_url=record["url"],
+            scraped_at=record.get("scraped_at", ""),
+            parser_version=parser_version,
+        )
+        result = self._write_service.write(request)
+        return {
+            "status": result.status.value,
+            "news_id": result.news_id,
+            "was_duplicate": result.was_duplicate,
+            "reason": result.reason,
+        }
+
     def _crawl_single_source_static(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
         domain = source_document["domain"]
         trace_id = uuid4().hex[:16]
-        lease = self._mcp.call("acquire_lease", source=domain, worker_id=self._worker_id)
-        if not lease.get("acquired", False):
+
+        if not self._lease.acquire(domain, self._worker_id):
             logger.info(
                 "scheduler.source.lease_not_acquired",
                 extra={"domain": domain, "worker_id": self._worker_id},
@@ -266,18 +301,9 @@ class ScrapeOrchestrator:
                         )
                         continue
 
-                    write_result = self._mcp.call(
-                        "write_news",
-                        title=record["title"],
-                        url=record["url"],
-                        source=record["source_domain"],
-                        content=record.get("content_text", ""),
-                        summary=record.get("summary", ""),
-                        image_url=record.get("image_url", ""),
-                        published_at=record.get("published_at_raw", ""),
+                    write_result = self._write_news_record(
+                        record=record,
                         crawl_session_id=str(session_id),
-                        resolved_url=record["url"],
-                        scraped_at=record.get("scraped_at", ""),
                         parser_version=parser.__class__.__name__,
                     )
 
@@ -327,7 +353,7 @@ class ScrapeOrchestrator:
             self._close_scraper(listing_scraper)
             self._close_scraper(detail_scraper)
             try:
-                self._mcp.call("release_lease", source=domain, worker_id=self._worker_id)
+                self._lease.release(domain, self._worker_id)
             except Exception:
                 logger.exception(
                     "scheduler.source.lease_release_failed",
@@ -345,9 +371,6 @@ class ScrapeOrchestrator:
 
     def _crawl_single_source_dynamic(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
         if sys.platform == "win32":
-            # On Windows, Playwright launches browser processes. In threadpool
-            # contexts, SelectorEventLoop may be picked and subprocess APIs are
-            # not implemented there.
             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
         return asyncio.run(
@@ -365,8 +388,8 @@ class ScrapeOrchestrator:
     ) -> dict[str, Any]:
         domain = source_document["domain"]
         trace_id = uuid4().hex[:16]
-        lease = self._mcp.call("acquire_lease", source=domain, worker_id=self._worker_id)
-        if not lease.get("acquired", False):
+
+        if not self._lease.acquire(domain, self._worker_id):
             logger.info(
                 "scheduler.source.lease_not_acquired",
                 extra={"domain": domain, "worker_id": self._worker_id},
@@ -377,14 +400,7 @@ class ScrapeOrchestrator:
                 "reason": "lease_not_acquired",
             }
 
-        session_id = self._sessions.create_for_source(
-            source_id=source_document["_id"],
-            trigger_type=trigger_type,
-            lookback_days=self._config.lookback_days,
-            worker_version="scheduler_v1",
-            trace_id=trace_id,
-        )
-
+        session_id = None
         stats = {
             "fetched_count": 0,
             "parsed_count": 0,
@@ -395,8 +411,17 @@ class ScrapeOrchestrator:
         client = PlaywrightClient(headless=True, timeout_ms=30_000)
         listing_scraper = None
         detail_scraper = None
+        final_status = "failed"
 
         try:
+            session_id = self._sessions.create_for_source(
+                source_id=source_document["_id"],
+                trigger_type=trigger_type,
+                lookback_days=self._config.lookback_days,
+                worker_version="scheduler_v1",
+                trace_id=trace_id,
+            )
+
             try:
                 listing_scraper = definition.listing_scraper_factory(client, source_document["base_url"])
                 detail_scraper = definition.detail_scraper_factory(client)
@@ -447,18 +472,9 @@ class ScrapeOrchestrator:
                             )
                             continue
 
-                        write_result = self._mcp.call(
-                            "write_news",
-                            title=record["title"],
-                            url=record["url"],
-                            source=record["source_domain"],
-                            content=record.get("content_text", ""),
-                            summary=record.get("summary", ""),
-                            image_url=record.get("image_url", ""),
-                            published_at=record.get("published_at_raw", ""),
+                        write_result = self._write_news_record(
+                            record=record,
                             crawl_session_id=str(session_id),
-                            resolved_url=record["url"],
-                            scraped_at=record.get("scraped_at", ""),
                             parser_version=detail_scraper.__class__.__name__,
                         )
 
@@ -489,17 +505,25 @@ class ScrapeOrchestrator:
                     message=f"{type(exc).__name__}: {exc}",
                 )
 
-            final_status = self._sessions.finalize(
-                session_id=session_id,
-                fetched_count=stats["fetched_count"],
-                parsed_count=stats["parsed_count"],
-                failed_count=stats["failed_count"],
-                error_summary=stats["error_summary"],
-            )
+            if session_id is not None:
+                try:
+                    final_status = self._sessions.finalize(
+                        session_id=session_id,
+                        fetched_count=stats["fetched_count"],
+                        parsed_count=stats["parsed_count"],
+                        failed_count=stats["failed_count"],
+                        error_summary=stats["error_summary"],
+                    )
+                except Exception:
+                    logger.exception(
+                        "scheduler.source.session_finalize_failed",
+                        extra={"domain": domain, "session_id": str(session_id)},
+                    )
+
             return {
                 "domain": domain,
                 "status": final_status,
-                "session_id": str(session_id),
+                "session_id": str(session_id) if session_id is not None else None,
                 "fetched_count": stats["fetched_count"],
                 "parsed_count": stats["parsed_count"],
                 "failed_count": stats["failed_count"],
@@ -512,7 +536,7 @@ class ScrapeOrchestrator:
             except Exception:
                 logger.exception("scheduler.source.client_stop_failed", extra={"domain": domain})
             try:
-                self._mcp.call("release_lease", source=domain, worker_id=self._worker_id)
+                self._lease.release(domain, self._worker_id)
             except Exception:
                 logger.exception(
                     "scheduler.source.lease_release_failed",

@@ -55,3 +55,23 @@ def test_is_held(lease):
     svc, mock_client = lease
     mock_client.exists.return_value = 1
     assert svc.is_held("cagdaskocaeli.com.tr") is True
+
+
+def test_lease_reconnects_after_runtime_redis_failure(monkeypatch):
+    first_client = MagicMock()
+    first_client.ping.return_value = True
+    first_client.exists.side_effect = RuntimeError("redis down")
+
+    second_client = MagicMock()
+    second_client.ping.return_value = True
+    second_client.exists.return_value = 1
+
+    clients = iter([first_client, second_client])
+
+    monkeypatch.setattr("app.services.mcp.lease._REDIS_AVAILABLE", True)
+    monkeypatch.setattr("redis.from_url", lambda *args, **kwargs: next(clients))
+
+    svc = SourceLease("redis://localhost", 300)
+
+    assert svc.is_held("source") is False
+    assert svc.is_held("source") is True

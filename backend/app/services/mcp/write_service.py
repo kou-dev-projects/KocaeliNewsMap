@@ -1,16 +1,3 @@
-"""
-NewsWriteService - persistence boundary.
-
-All scraper writes pass through this service.
-Scrapers do not write directly to MongoDB.
-
-Write flow:
-  1) Idempotency check
-  2) Resolve source and crawl session
-  3) Upsert raw_documents
-  4) Materialize and upsert source_records
-  5) Mark idempotency key as processed
-"""
 from __future__ import annotations
 
 import logging

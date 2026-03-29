@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 from app.services.mcp.dead_letter import DeadLetterStore
 from app.services.mcp.schemas import NewsWriteRequest
 
@@ -29,3 +31,31 @@ def test_max_size_evicts_oldest():
     assert store.size == 2
     assert items[0].request.url == "https://example.com/2"
     assert items[1].request.url == "https://example.com/3"
+
+
+def test_dead_letter_store_reconnects_after_runtime_redis_failure(monkeypatch):
+    import app.services.mcp.dead_letter as dead_letter_module
+
+    first_client = MagicMock()
+    first_client.ping.return_value = True
+    first_client.llen.side_effect = RuntimeError("redis down")
+
+    second_client = MagicMock()
+    second_client.ping.return_value = True
+    second_client.llen.return_value = 7
+
+    clients = iter([first_client, second_client])
+
+    original_available = dead_letter_module._REDIS_AVAILABLE
+    dead_letter_module._REDIS_AVAILABLE = True
+    original_from_url = getattr(dead_letter_module, "redis_lib").from_url
+    getattr(dead_letter_module, "redis_lib").from_url = lambda *args, **kwargs: next(clients)
+
+    try:
+        store = DeadLetterStore(redis_url="redis://example:6379/0")
+
+        assert store.size == 0
+        assert store.size == 7
+    finally:
+        dead_letter_module._REDIS_AVAILABLE = original_available
+        getattr(dead_letter_module, "redis_lib").from_url = original_from_url

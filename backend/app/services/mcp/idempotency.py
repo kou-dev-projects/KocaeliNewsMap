@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 from typing import Optional
 
@@ -8,25 +9,31 @@ _IDEMPOTENCY_KEY_PREFIX = "pulse:idem:v1"
 
 try:
     import redis as redis_lib
+
     _REDIS_AVAILABLE = True
 except ImportError:
     _REDIS_AVAILABLE = False
 
 
 class IdempotencyStore:
-
     def __init__(self, redis_url: str, ttl_seconds: int) -> None:
+        self._redis_url = redis_url
         self._ttl = ttl_seconds
         self._client: Optional["redis_lib.Redis"] = None
+        self._connect()
 
+    def _connect(self) -> Optional["redis_lib.Redis"]:
         if not _REDIS_AVAILABLE:
             logger.warning("mcp.idempotency.unavailable")
-            return
+            self._client = None
+            return None
 
         try:
             self._client = redis_lib.from_url(
-                redis_url, decode_responses=True,
-                socket_connect_timeout=2, socket_timeout=1,
+                self._redis_url,
+                decode_responses=True,
+                socket_connect_timeout=2,
+                socket_timeout=1,
             )
             self._client.ping()
         except Exception as exc:
@@ -35,33 +42,52 @@ class IdempotencyStore:
                 extra={"reason": type(exc).__name__},
             )
             self._client = None
+        return self._client
+
+    def _get_client(self) -> Optional["redis_lib.Redis"]:
+        if self._client is None:
+            return self._connect()
+        return self._client
+
+    def _handle_error(self, exc: Exception, event: str) -> None:
+        logger.warning(event, extra={"error": type(exc).__name__})
+        self._client = None
 
     def is_duplicate(self, idempotency_key: str) -> bool:
-
-        if not self._client:
-            # Redis yoksa duplicate check yapılamaz
-            # MongoDB unique index devreye girer
+        client = self._get_client()
+        if client is None:
             return False
 
-        key = self._key(idempotency_key)
-        return bool(self._client.exists(key))
+        try:
+            return bool(client.exists(self._key(idempotency_key)))
+        except Exception as exc:
+            self._handle_error(exc, "mcp.idempotency.exists_failed")
+            return False
 
     def mark_processed(self, idempotency_key: str, news_id: str) -> None:
-       
-        if not self._client:
+        client = self._get_client()
+        if client is None:
             return
 
-        self._client.setex(
-            self._key(idempotency_key),
-            self._ttl,
-            news_id,
-        )
+        try:
+            client.setex(
+                self._key(idempotency_key),
+                self._ttl,
+                news_id,
+            )
+        except Exception as exc:
+            self._handle_error(exc, "mcp.idempotency.write_failed")
 
     def get_existing_id(self, idempotency_key: str) -> Optional[str]:
-       
-        if not self._client:
+        client = self._get_client()
+        if client is None:
             return None
-        return self._client.get(self._key(idempotency_key))
+
+        try:
+            return client.get(self._key(idempotency_key))
+        except Exception as exc:
+            self._handle_error(exc, "mcp.idempotency.get_failed")
+            return None
 
     def _key(self, idempotency_key: str) -> str:
         return f"{_IDEMPOTENCY_KEY_PREFIX}:{idempotency_key}"

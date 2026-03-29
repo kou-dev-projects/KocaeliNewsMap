@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import json
 import logging
 import threading
@@ -14,6 +15,7 @@ _DEAD_LETTER_KEY = "pulse:mcp:dead_letter"
 
 try:
     import redis as redis_lib
+
     _REDIS_AVAILABLE = True
 except ImportError:
     _REDIS_AVAILABLE = False
@@ -30,29 +32,44 @@ class DeadLetterItem:
 
 
 class DeadLetterStore:
-
     _MAX_SIZE = 200
 
     def __init__(self, redis_url: str | None = None) -> None:
         self._items: list[DeadLetterItem] = []
         self._lock = threading.Lock()
+        self._redis_url = redis_url
         self._redis = None
+        self._connect()
 
-        if redis_url and _REDIS_AVAILABLE:
-            try:
-                self._redis = redis_lib.from_url(
-                    redis_url,
-                    decode_responses=True,
-                    socket_connect_timeout=2,
-                    socket_timeout=1,
-                )
-                self._redis.ping()
-            except Exception as exc:
-                logger.warning(
-                    "mcp.dead_letter.redis_unavailable",
-                    extra={"error": type(exc).__name__},
-                )
-                self._redis = None
+    def _connect(self):
+        if not self._redis_url or not _REDIS_AVAILABLE:
+            self._redis = None
+            return None
+
+        try:
+            self._redis = redis_lib.from_url(
+                self._redis_url,
+                decode_responses=True,
+                socket_connect_timeout=2,
+                socket_timeout=1,
+            )
+            self._redis.ping()
+        except Exception as exc:
+            logger.warning(
+                "mcp.dead_letter.redis_unavailable",
+                extra={"error": type(exc).__name__},
+            )
+            self._redis = None
+        return self._redis
+
+    def _get_redis(self):
+        if self._redis is None:
+            return self._connect()
+        return self._redis
+
+    def _handle_redis_error(self, exc: Exception, event: str) -> None:
+        logger.warning(event, extra={"error": type(exc).__name__})
+        self._redis = None
 
     def add(
         self,
@@ -60,34 +77,25 @@ class DeadLetterStore:
         error: str,
         attempt_count: int,
     ) -> None:
-        if self._redis:
-            item = DeadLetterItem(
-                request=request,
-                final_error=error,
-                attempt_count=attempt_count,
-            )
+        item = DeadLetterItem(
+            request=request,
+            final_error=error,
+            attempt_count=attempt_count,
+        )
+        redis_client = self._get_redis()
+        if redis_client:
             try:
-                self._redis.rpush(
+                redis_client.rpush(
                     _DEAD_LETTER_KEY,
                     json.dumps(asdict(item), ensure_ascii=False),
                 )
-                self._redis.ltrim(_DEAD_LETTER_KEY, -self._MAX_SIZE, -1)
+                redis_client.ltrim(_DEAD_LETTER_KEY, -self._MAX_SIZE, -1)
             except Exception as exc:
-                logger.warning(
-                    "mcp.dead_letter.redis_add_failed",
-                    extra={"error": type(exc).__name__},
-                )
+                self._handle_redis_error(exc, "mcp.dead_letter.redis_add_failed")
 
         with self._lock:
             if len(self._items) >= self._MAX_SIZE:
-                # En eski item'ı çıkar — circular buffer
                 self._items.pop(0)
-
-            item = DeadLetterItem(
-                request=request,
-                final_error=error,
-                attempt_count=attempt_count,
-            )
             self._items.append(item)
 
         logger.error(
@@ -101,9 +109,10 @@ class DeadLetterStore:
         )
 
     def get_all(self) -> list[DeadLetterItem]:
-        if self._redis:
+        redis_client = self._get_redis()
+        if redis_client:
             try:
-                payloads = self._redis.lrange(_DEAD_LETTER_KEY, 0, -1)
+                payloads = redis_client.lrange(_DEAD_LETTER_KEY, 0, -1)
                 items: list[DeadLetterItem] = []
                 for payload in payloads:
                     data = json.loads(payload)
@@ -117,18 +126,20 @@ class DeadLetterStore:
                     )
                 if items:
                     return items
-            except Exception:
-                pass
+            except Exception as exc:
+                self._handle_redis_error(exc, "mcp.dead_letter.redis_get_failed")
 
         with self._lock:
             return list(self._items)
 
     @property
     def size(self) -> int:
-        if self._redis:
+        redis_client = self._get_redis()
+        if redis_client:
             try:
-                return int(self._redis.llen(_DEAD_LETTER_KEY))
-            except Exception:
-                return 0
+                return int(redis_client.llen(_DEAD_LETTER_KEY))
+            except Exception as exc:
+                self._handle_redis_error(exc, "mcp.dead_letter.redis_size_failed")
+
         with self._lock:
             return len(self._items)

@@ -4,6 +4,7 @@ from app.scheduler.orchestrator import (
     ScrapeOrchestrator,
     StaticSourceDefinition,
 )
+from app.services.mcp.schemas import WriteResult, WriteStatus
 
 
 class FakeSourcesCollection:
@@ -31,24 +32,37 @@ class FakeDatabase:
         raise KeyError(name)
 
 
-class FakeMCPServer:
+class FakeWriteService:
+
     def __init__(self):
         self.calls = []
 
-    def call(self, tool_name, **kwargs):
-        self.calls.append((tool_name, kwargs))
-        if tool_name == "acquire_lease":
-            return {"acquired": True}
-        if tool_name == "write_news":
-            return {
-                "status": "inserted",
-                "news_id": "news_1",
-                "was_duplicate": False,
-                "reason": None,
-            }
-        if tool_name == "release_lease":
-            return {"released": True}
-        raise AssertionError(f"unexpected tool: {tool_name}")
+    def write(self, request):
+        self.calls.append(request)
+        return WriteResult(
+            status=WriteStatus.INSERTED,
+            news_id="news_1",
+            was_duplicate=False,
+            idempotency_key="fake_key",
+        )
+
+    def process_queue_batch(self, *, batch_size=20):
+        return {"dequeued": 0, "processed": 0, "requeued": 0, "dead_lettered": 0}
+
+
+class FakeLease:
+
+    def __init__(self):
+        self.acquired = []
+        self.released = []
+
+    def acquire(self, source, worker_id):
+        self.acquired.append((source, worker_id))
+        return True
+
+    def release(self, source, worker_id):
+        self.released.append((source, worker_id))
+        return True
 
 
 class FakeSessionStore:
@@ -152,6 +166,22 @@ class FakePlaywrightClient:
         type(self).stopped = True
 
 
+def _make_orchestrator(source_docs, write_service=None, lease=None, session_store=None, config=None):
+    return ScrapeOrchestrator(
+        config=config or SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=1,
+            max_urls_per_source=1,
+        ),
+        database=FakeDatabase(source_docs),
+        write_service=write_service or FakeWriteService(),
+        lease=lease or FakeLease(),
+        session_store=session_store or FakeSessionStore(),
+    )
+
+
 def test_crawl_active_sources_processes_supported_sources(monkeypatch):
     monkeypatch.setattr(
         "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
@@ -180,17 +210,12 @@ def test_crawl_active_sources_processes_supported_sources(monkeypatch):
         },
     ]
 
-    orchestrator = ScrapeOrchestrator(
-        config=SchedulerConfig(
-            enabled=True,
-            timezone="Europe/Istanbul",
-            interval_hours=3,
-            lookback_days=1,
-            max_urls_per_source=1,
-        ),
-        database=FakeDatabase(source_docs),
-        mcp_server=FakeMCPServer(),
-        session_store=FakeSessionStore(),
+    write_service = FakeWriteService()
+    lease = FakeLease()
+    orchestrator = _make_orchestrator(
+        source_docs,
+        write_service=write_service,
+        lease=lease,
     )
 
     summary = orchestrator.crawl_active_sources(trigger_type="scheduled")
@@ -200,11 +225,13 @@ def test_crawl_active_sources_processes_supported_sources(monkeypatch):
     assert summary["skipped_sources"] == 1
     assert summary["sessions"][0]["status"] == "success"
     assert summary["sessions"][0]["parsed_count"] == 1
-    tool_names = [name for name, _ in orchestrator._mcp.calls]
-    assert tool_names == ["acquire_lease", "write_news", "release_lease"]
-    write_kwargs = orchestrator._mcp.calls[1][1]
-    assert write_kwargs["crawl_session_id"] == "session_1"
-    assert write_kwargs["parser_version"] == "FakeParser"
+    # Verify lease was acquired and released
+    assert len(lease.acquired) == 1
+    assert len(lease.released) == 1
+    # Verify write service was called
+    assert len(write_service.calls) == 1
+    assert write_service.calls[0].parser_version == "FakeParser"
+    assert write_service.calls[0].crawl_session_id == "session_1"
 
 
 def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
@@ -223,18 +250,7 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
         },
     ]
 
-    orchestrator = ScrapeOrchestrator(
-        config=SchedulerConfig(
-            enabled=True,
-            timezone="Europe/Istanbul",
-            interval_hours=3,
-            lookback_days=1,
-            max_urls_per_source=1,
-        ),
-        database=FakeDatabase(source_docs),
-        mcp_server=FakeMCPServer(),
-        session_store=FakeSessionStore(),
-    )
+    orchestrator = _make_orchestrator(source_docs)
 
     def fake_crawl_single_source(*, source_document, trigger_type):
         assert trigger_type == "scheduled"
@@ -272,18 +288,7 @@ def test_crawl_source_returns_skipped_for_unsupported_source():
         }
     ]
 
-    orchestrator = ScrapeOrchestrator(
-        config=SchedulerConfig(
-            enabled=True,
-            timezone="Europe/Istanbul",
-            interval_hours=3,
-            lookback_days=1,
-            max_urls_per_source=1,
-        ),
-        database=FakeDatabase(source_docs),
-        mcp_server=FakeMCPServer(),
-        session_store=FakeSessionStore(),
-    )
+    orchestrator = _make_orchestrator(source_docs)
 
     result = orchestrator.crawl_source("unsupported.example.com", trigger_type="manual")
 
@@ -316,18 +321,11 @@ def test_crawl_source_static_bootstrap_failure_releases_lease(monkeypatch):
         }
     ]
 
-    fake_mcp = FakeMCPServer()
+    lease = FakeLease()
     session_store = StatusAwareSessionStore()
-    orchestrator = ScrapeOrchestrator(
-        config=SchedulerConfig(
-            enabled=True,
-            timezone="Europe/Istanbul",
-            interval_hours=3,
-            lookback_days=1,
-            max_urls_per_source=1,
-        ),
-        database=FakeDatabase(source_docs),
-        mcp_server=fake_mcp,
+    orchestrator = _make_orchestrator(
+        source_docs,
+        lease=lease,
         session_store=session_store,
     )
 
@@ -337,8 +335,9 @@ def test_crawl_source_static_bootstrap_failure_releases_lease(monkeypatch):
     assert result["failed_count"] == 1
     assert session_store.finalized[0]["failed_count"] == 1
     assert session_store.finalized[0]["error_summary"][0]["code"] == "source_bootstrap_error"
-    tool_names = [name for name, _ in fake_mcp.calls]
-    assert tool_names == ["acquire_lease", "release_lease"]
+    # Verify lease was acquired then released
+    assert len(lease.acquired) == 1
+    assert len(lease.released) == 1
 
 
 def test_crawl_source_returns_skipped_for_configured_domain():
@@ -351,8 +350,10 @@ def test_crawl_source_returns_skipped_for_configured_domain():
         }
     ]
 
-    fake_mcp = FakeMCPServer()
-    orchestrator = ScrapeOrchestrator(
+    lease = FakeLease()
+    orchestrator = _make_orchestrator(
+        source_docs,
+        lease=lease,
         config=SchedulerConfig(
             enabled=True,
             timezone="Europe/Istanbul",
@@ -361,9 +362,6 @@ def test_crawl_source_returns_skipped_for_configured_domain():
             max_urls_per_source=1,
             skipped_domains=("yenikocaeli.com",),
         ),
-        database=FakeDatabase(source_docs),
-        mcp_server=fake_mcp,
-        session_store=FakeSessionStore(),
     )
 
     result = orchestrator.crawl_source("yenikocaeli.com", trigger_type="manual")
@@ -373,7 +371,8 @@ def test_crawl_source_returns_skipped_for_configured_domain():
         "status": "skipped",
         "reason": "skipped_by_config",
     }
-    assert fake_mcp.calls == []
+    # Lease should not be acquired for skipped domains
+    assert lease.acquired == []
 
 
 def test_crawl_source_dynamic_closes_scrapers(monkeypatch):
@@ -402,18 +401,7 @@ def test_crawl_source_dynamic_closes_scrapers(monkeypatch):
         }
     ]
 
-    orchestrator = ScrapeOrchestrator(
-        config=SchedulerConfig(
-            enabled=True,
-            timezone="Europe/Istanbul",
-            interval_hours=3,
-            lookback_days=1,
-            max_urls_per_source=1,
-        ),
-        database=FakeDatabase(source_docs),
-        mcp_server=FakeMCPServer(),
-        session_store=FakeSessionStore(),
-    )
+    orchestrator = _make_orchestrator(source_docs)
 
     result = orchestrator.crawl_source("dynamic.example.com", trigger_type="manual")
 

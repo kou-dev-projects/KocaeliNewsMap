@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     scrape_trigger_rate_limit_enabled: bool = True
     scrape_trigger_rate_limit_requests: int = 5
     scrape_trigger_rate_limit_window_seconds: int = 60
+    trusted_proxy_cidrs: str = ""
+    job_ttl_seconds: int = 86400
+    job_claim_idle_seconds: int = 14400
+    job_heartbeat_seconds: int = 30
+    job_max_attempts: int = 3
+    job_retry_backoff_seconds: float = 5.0
+    scheduled_job_lock_ttl_seconds: int = 21600
 
     classifier_semantic_enabled: bool = False
     classifier_semantic_threshold: float = 0.3
@@ -61,8 +68,6 @@ class Settings(BaseSettings):
     mcp_queue_size: int = 1000
     mcp_max_retries: int = 3
     mcp_fail_closed: bool = True
-    mcp_host: str = "0.0.0.0"
-    mcp_port: int = 8001
     worker_id: str | None = None
 
     geocoding_provider: str = "mock"

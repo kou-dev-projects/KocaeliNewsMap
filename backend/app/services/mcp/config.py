@@ -16,8 +16,6 @@ class MCPConfig:
     max_queue_size: int
     max_queue_retries: int
     fail_closed: bool
-    mcp_host: str
-    mcp_port: int
     worker_id: Optional[str]
 
 
@@ -35,7 +33,5 @@ def load_mcp_config() -> MCPConfig:
         max_queue_size=settings.mcp_queue_size,
         max_queue_retries=settings.mcp_max_retries,
         fail_closed=settings.mcp_fail_closed,
-        mcp_host=settings.mcp_host,
-        mcp_port=settings.mcp_port,
         worker_id=worker_id,
     )

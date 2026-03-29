@@ -43,3 +43,23 @@ def test_get_existing_id(store):
     svc, mock_client = store
     mock_client.get.return_value = "news_001"
     assert svc.get_existing_id("abc123") == "news_001"
+
+
+def test_idempotency_store_reconnects_after_runtime_redis_failure(monkeypatch):
+    first_client = MagicMock()
+    first_client.ping.return_value = True
+    first_client.exists.side_effect = RuntimeError("redis down")
+
+    second_client = MagicMock()
+    second_client.ping.return_value = True
+    second_client.exists.return_value = 1
+
+    clients = iter([first_client, second_client])
+
+    monkeypatch.setattr("app.services.mcp.idempotency._REDIS_AVAILABLE", True)
+    monkeypatch.setattr("redis.from_url", lambda *args, **kwargs: next(clients))
+
+    svc = IdempotencyStore("redis://localhost", 86400)
+
+    assert svc.is_duplicate("abc123") is False
+    assert svc.is_duplicate("abc123") is True

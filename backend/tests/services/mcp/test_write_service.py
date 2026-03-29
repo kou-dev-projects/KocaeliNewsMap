@@ -52,8 +52,6 @@ def _cfg() -> MCPConfig:
         max_queue_size=10,
         max_queue_retries=3,
         fail_closed=True,
-        mcp_host="0.0.0.0",
-        mcp_port=8001,
         worker_id="test-worker",
     )
 

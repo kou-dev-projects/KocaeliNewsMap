@@ -2,7 +2,17 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.env
+*.pyc
+.pytest_cache/
+pytest-cache-files-*/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+
+#.env
 venv/
 .venv/
 
@@ -10,6 +20,15 @@ venv/
 node_modules/
 dist/
 build/
+
+scrums.txt
+projectdetails.md
+schema.sql
+# Next.js
+.next/
+out/
+frontend/.next/
+frontend/out/
 
 # IDE
 .vscode/
@@ -31,3 +50,11 @@ Thumbs.db
 
 # Project Notes (personal)
 NOTES.md
+
+backend/.env
+
+# Temporary debug / probe scripts
+backend/tmp/
+
+# Local archive artifacts
+*.archive

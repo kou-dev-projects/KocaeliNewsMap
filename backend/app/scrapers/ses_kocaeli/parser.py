@@ -50,7 +50,6 @@ def parse_listing_links(html: str, base_url: str) -> list[str]:
 
 
 def _select_first(soup: BeautifulSoup, selector_list: list[str]):
-    """Birden fazla selector'dan ilk bulunanı döndürür."""
     for sel in selector_list:
         node = soup.select_one(sel)
         if node:

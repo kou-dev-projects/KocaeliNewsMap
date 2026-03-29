@@ -89,10 +89,18 @@ def make_news_tools(write_service, lease_service):
             "dead_letter_size": write_service._dead_letter.size,
         }
 
+    def process_write_queue(batch_size: int = 20) -> dict[str, Any]:
+        try:
+            normalized_batch_size = max(int(batch_size), 1)
+        except Exception:
+            normalized_batch_size = 20
+        return write_service.process_queue_batch(batch_size=normalized_batch_size)
+
     return {
         "write_news": write_news,
         "acquire_lease": acquire_lease,
         "release_lease": release_lease,
         "check_lease": check_lease,
         "get_queue_status": get_queue_status,
+        "process_write_queue": process_write_queue,
     }

@@ -128,6 +128,91 @@ def test_fail_closed_queues_when_mongo_write_fails():
     assert queue.size == 1
     assert dead.size == 0
 
+
+def test_process_queue_batch_processes_items_successfully():
+    idem = DummyIdempotency()
+    queue = WriteQueue(10, 3)
+    dead = DeadLetterStore()
+    request = _req("https://example.com/queued-success")
+    queue.enqueue(request)
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=queue,
+        dead_letter=dead,
+        config=_cfg(),
+        mongo_client=None,
+        materializer=DummyMaterializer(),
+    )
+
+    summary = svc.process_queue_batch(batch_size=10)
+
+    assert summary == {
+        "dequeued": 1,
+        "processed": 1,
+        "requeued": 0,
+        "dead_lettered": 0,
+    }
+    assert queue.size == 0
+    assert idem.is_duplicate(request.idempotency_key()) is True
+
+
+def test_process_queue_batch_requeues_when_write_still_fails():
+    idem = DummyIdempotency()
+    queue = WriteQueue(10, 3)
+    dead = DeadLetterStore()
+    queue.enqueue(_req("https://example.com/queued-retry"))
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=queue,
+        dead_letter=dead,
+        config=_cfg(),
+        mongo_client="not-none",
+        materializer=DummyMaterializer(),
+    )
+    svc._mongo_write = lambda request, idem_key: (_ for _ in ()).throw(RuntimeError("mongo down"))
+
+    summary = svc.process_queue_batch(batch_size=10)
+
+    assert summary == {
+        "dequeued": 1,
+        "processed": 0,
+        "requeued": 1,
+        "dead_lettered": 0,
+    }
+    assert queue.size == 1
+    requeued_item = queue.dequeue_batch(1)[0]
+    assert requeued_item.attempt_count == 1
+
+
+def test_process_queue_batch_dead_letters_when_max_retry_reached():
+    idem = DummyIdempotency()
+    queue = WriteQueue(10, 0)
+    dead = DeadLetterStore()
+    queue.enqueue(_req("https://example.com/queued-dead-letter"))
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=queue,
+        dead_letter=dead,
+        config=_cfg(),
+        mongo_client="not-none",
+        materializer=DummyMaterializer(),
+    )
+    svc._mongo_write = lambda request, idem_key: (_ for _ in ()).throw(RuntimeError("mongo down"))
+
+    summary = svc.process_queue_batch(batch_size=10)
+
+    assert summary == {
+        "dequeued": 1,
+        "processed": 0,
+        "requeued": 0,
+        "dead_lettered": 1,
+    }
+    assert queue.size == 0
+    assert dead.size == 1
+
 def test_mongo_upsert_insert_returns_inserted():
     idem = DummyIdempotency()
     mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")

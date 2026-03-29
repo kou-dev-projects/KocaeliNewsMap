@@ -105,6 +105,22 @@ class ScrapeOrchestrator:
         self._sessions = session_store or CrawlSessionStore(self._db)
         self._worker_id = f"scheduler:{gethostname()}"
 
+    def drain_pending_writes(self, *, batch_size: int = 50) -> dict[str, Any]:
+        try:
+            result = self._mcp.call("process_write_queue", batch_size=batch_size)
+            if result.get("dequeued", 0) > 0:
+                logger.info("scheduler.queue_drain.finished", extra=result)
+            return result
+        except Exception:
+            logger.exception("scheduler.queue_drain.failed")
+            return {
+                "dequeued": 0,
+                "processed": 0,
+                "requeued": 0,
+                "dead_lettered": 0,
+                "status": "failed",
+            }
+
     def crawl_active_sources(self, *, trigger_type: str = "scheduled") -> dict[str, Any]:
         active_sources = self._list_active_sources()
 
@@ -117,10 +133,21 @@ class ScrapeOrchestrator:
 
         for source_document in active_sources:
             domain = source_document["domain"]
-            session_result = self._crawl_single_source(
-                source_document=source_document,
-                trigger_type=trigger_type,
-            )
+            try:
+                session_result = self._crawl_single_source(
+                    source_document=source_document,
+                    trigger_type=trigger_type,
+                )
+            except Exception:
+                logger.exception(
+                    "scheduler.source.unhandled_error",
+                    extra={"domain": domain},
+                )
+                session_result = {
+                    "domain": domain,
+                    "status": "failed",
+                    "reason": "unhandled_source_exception",
+                }
             if session_result.get("status") == "skipped":
                 summary["skipped_sources"] += 1
                 continue
@@ -186,26 +213,32 @@ class ScrapeOrchestrator:
                 "reason": "lease_not_acquired",
             }
 
-        session_id = self._sessions.create_for_source(
-            source_id=source_document["_id"],
-            trigger_type=trigger_type,
-            lookback_days=self._config.lookback_days,
-            worker_version="scheduler_v1",
-            trace_id=trace_id,
-        )
-
         stats = {
             "fetched_count": 0,
             "parsed_count": 0,
             "failed_count": 0,
             "error_summary": [],
         }
-        definition = STATIC_SOURCE_REGISTRY[domain]
-        listing_scraper = definition.listing_scraper_factory()
-        detail_scraper = definition.detail_scraper_factory()
-        parser = definition.parser_factory()
+        session_id = None
+        final_status = "failed"
+        listing_scraper = None
+        detail_scraper = None
+        parser = None
 
         try:
+            session_id = self._sessions.create_for_source(
+                source_id=source_document["_id"],
+                trigger_type=trigger_type,
+                lookback_days=self._config.lookback_days,
+                worker_version="scheduler_v1",
+                trace_id=trace_id,
+            )
+
+            definition = STATIC_SOURCE_REGISTRY[domain]
+            listing_scraper = definition.listing_scraper_factory()
+            detail_scraper = definition.detail_scraper_factory()
+            parser = definition.parser_factory()
+
             listing_html = listing_scraper.fetch_listing_html(source_document["base_url"])
             urls = listing_scraper.extract_news_urls(listing_html)[: self._config.max_urls_per_source]
 
@@ -268,25 +301,47 @@ class ScrapeOrchestrator:
                         sample_url=target_url,
                     )
 
-            final_status = self._sessions.finalize(
-                session_id=session_id,
-                fetched_count=stats["fetched_count"],
-                parsed_count=stats["parsed_count"],
-                failed_count=stats["failed_count"],
-                error_summary=stats["error_summary"],
+        except Exception as exc:
+            stats["failed_count"] += 1
+            self._append_error(
+                stats["error_summary"],
+                code="source_bootstrap_error",
+                message=f"{type(exc).__name__}: {exc}",
             )
-            return {
-                "domain": domain,
-                "status": final_status,
-                "session_id": str(session_id),
-                "fetched_count": stats["fetched_count"],
-                "parsed_count": stats["parsed_count"],
-                "failed_count": stats["failed_count"],
-            }
         finally:
+            if session_id is not None:
+                try:
+                    final_status = self._sessions.finalize(
+                        session_id=session_id,
+                        fetched_count=stats["fetched_count"],
+                        parsed_count=stats["parsed_count"],
+                        failed_count=stats["failed_count"],
+                        error_summary=stats["error_summary"],
+                    )
+                except Exception:
+                    logger.exception(
+                        "scheduler.source.session_finalize_failed",
+                        extra={"domain": domain, "session_id": str(session_id)},
+                    )
+
             self._close_scraper(listing_scraper)
             self._close_scraper(detail_scraper)
-            self._mcp.call("release_lease", source=domain, worker_id=self._worker_id)
+            try:
+                self._mcp.call("release_lease", source=domain, worker_id=self._worker_id)
+            except Exception:
+                logger.exception(
+                    "scheduler.source.lease_release_failed",
+                    extra={"domain": domain, "worker_id": self._worker_id},
+                )
+
+        return {
+            "domain": domain,
+            "status": final_status,
+            "session_id": str(session_id) if session_id is not None else None,
+            "fetched_count": stats["fetched_count"],
+            "parsed_count": stats["parsed_count"],
+            "failed_count": stats["failed_count"],
+        }
 
     def _crawl_single_source_dynamic(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
         if sys.platform == "win32":
@@ -456,7 +511,13 @@ class ScrapeOrchestrator:
                 await client.stop()
             except Exception:
                 logger.exception("scheduler.source.client_stop_failed", extra={"domain": domain})
-            self._mcp.call("release_lease", source=domain, worker_id=self._worker_id)
+            try:
+                self._mcp.call("release_lease", source=domain, worker_id=self._worker_id)
+            except Exception:
+                logger.exception(
+                    "scheduler.source.lease_release_failed",
+                    extra={"domain": domain, "worker_id": self._worker_id},
+                )
 
     @staticmethod
     def _append_error(

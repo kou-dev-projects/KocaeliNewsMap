@@ -1,24 +1,9 @@
-"""
-Cloudflare / bot-engeli tespit yardımcıları.
 
-Tüm scraper modüllerinde _looks_like_blocked() tekrarlanıyordu.
-Bu modül tek merkezi bir fonksiyonla yanlış pozitif riskini azaltır.
-"""
 from __future__ import annotations
 
 
 def looks_like_blocked(html: str) -> bool:
-    """
-    HTML'in bir Cloudflare/bot-engeli sayfası olup olmadığını kontrol eder.
-
-    Kurallar:
-    - "cf-challenge" veya "cf-chl-widget" → kesin Cloudflare
-    - "just a moment" + kısa sayfa → Cloudflare bekleme sayfası
-    - "your request was blocked" → WAF engeli
-    - "attention required" + kısa sayfa → Cloudflare captcha
-    - "challenge-platform" TEK BAŞINA yeterli DEĞİL (Daktilo CMS'de
-      meşru JS asset'leri bu stringi içerir)
-    """
+   
     if not html:
         return True  # boş yanıt = engel varsay
 

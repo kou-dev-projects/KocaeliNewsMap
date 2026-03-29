@@ -61,10 +61,7 @@ class WriteQueue:
                 self._redis = None
 
     def enqueue(self, request: NewsWriteRequest) -> bool:
-        """
-        İsteği kuyruğa ekle.
-        False → kuyruk dolu, dead-letter'a düşmeli.
-        """
+       
         if self._redis:
             try:
                 if self._redis.llen(_QUEUE_KEY) >= self._max_size:
@@ -125,10 +122,7 @@ class WriteQueue:
             return batch
 
     def requeue(self, item: QueueItem, error: str) -> bool:
-        """
-        Başarısız item'ı retry için geri ekle.
-        max_retries aşıldıysa False → dead-letter'a gönder.
-        """
+       
         if item.attempt_count >= self._max_retries:
             logger.warning(
                 "mcp.queue.max_retries_exceeded",

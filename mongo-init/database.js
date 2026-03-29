@@ -232,6 +232,11 @@ ensureCollection("raw_documents", {
 ensureIndex("raw_documents", { canonical_url: 1 }, { name: "canonical_url" });
 ensureIndex(
   "raw_documents",
+  { source_id: 1, canonical_url: 1 },
+  { name: "source_canonical_url_unique", unique: true },
+);
+ensureIndex(
+  "raw_documents",
   { source_id: 1, scraped_at: -1 },
   { name: "source_scraped_at" },
 );

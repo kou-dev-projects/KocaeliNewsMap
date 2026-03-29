@@ -6,6 +6,7 @@ const MANDATORY_CATEGORIES = [
   "elektrik_kesintisi",
   "hirsizlik",
   "kulturel_etkinlik",
+  "unknown",
 ];
 
 const SOURCE_WHITELIST = [

@@ -8,7 +8,8 @@ import time
 from typing import Any
 
 from app.scheduler.orchestrator import ScrapeOrchestrator
-from app.workers.job_manager import JobManager, JobQueueUnavailableError
+from app.services.scrape_events import ScrapeEvent, get_scrape_event_publisher
+from app.workers.job_manager import JobManager, JobQueueUnavailableError, JobInfo
 from app.settings import settings
 
 try:
@@ -57,6 +58,11 @@ def _is_retryable_error(exc: Exception) -> bool:
     return isinstance(exc, _RETRYABLE_ERROR_TYPES)
 
 
+def _publish(event: ScrapeEvent) -> None:
+    """Fire-and-forget publish — never raises."""
+    get_scrape_event_publisher().publish(event)
+
+
 def _run_scrape_job(orchestrator: ScrapeOrchestrator, source: str | None, trigger_type: str) -> dict[str, Any]:
     if source:
         result = orchestrator.crawl_source(source, trigger_type=trigger_type)
@@ -72,8 +78,8 @@ def _execute_job_with_heartbeat(
     job_manager: JobManager,
     orchestrator: ScrapeOrchestrator,
     claimed_message_id: str,
-    running_job,
-) -> tuple[dict[str, Any], Any]:
+    running_job: JobInfo,
+) -> tuple[dict[str, Any], JobInfo]:
     heartbeat_seconds = max(settings.job_heartbeat_seconds, 1)
     current_job = running_job
 
@@ -94,6 +100,17 @@ def _execute_job_with_heartbeat(
                         claimed_message_id,
                         current_job.job_id,
                         base_job=current_job,
+                    )
+                    _publish(
+                        ScrapeEvent(
+                            event="job_heartbeat",
+                            message="Scrape job is still running",
+                            job_id=current_job.job_id,
+                            source=current_job.source,
+                            trigger_type=current_job.trigger_type,
+                            status="running",
+                            attempt_count=current_job.attempt_count,
+                        )
                     )
                 except JobQueueUnavailableError:
                     logger.warning(
@@ -139,6 +156,18 @@ def main() -> None:
             except JobQueueUnavailableError:
                 logger.warning("worker.job_final_ack_failed", extra={"job_id": job.job_id})
                 time.sleep(2)
+                continue
+
+            _publish(
+                ScrapeEvent(
+                    event="job_stale_ack",
+                    message="Stale job message acknowledged (already terminal)",
+                    job_id=job.job_id,
+                    source=job.source,
+                    trigger_type=job.trigger_type,
+                    status=job.status,
+                )
+            )
             continue
 
         logger.info(
@@ -152,6 +181,18 @@ def main() -> None:
             logger.warning("worker.job_mark_running_failed", extra={"job_id": job.job_id})
             time.sleep(2)
             continue
+
+        _publish(
+            ScrapeEvent(
+                event="job_started",
+                message="Scrape job started",
+                job_id=running_job.job_id,
+                source=running_job.source,
+                trigger_type=running_job.trigger_type,
+                status="running",
+                attempt_count=running_job.attempt_count,
+            )
+        )
 
         try:
             result, running_job = _execute_job_with_heartbeat(
@@ -171,6 +212,18 @@ def main() -> None:
                         claimed.message_id,
                         running_job,
                         error_msg,
+                    )
+                    _publish(
+                        ScrapeEvent(
+                            event="job_retrying",
+                            message="Scrape job will be retried",
+                            job_id=retried_job.job_id,
+                            source=retried_job.source,
+                            trigger_type=retried_job.trigger_type,
+                            status="pending",
+                            attempt_count=retried_job.attempt_count,
+                            details={"error": error_msg},
+                        )
                     )
                     logger.warning(
                         "worker.job.retrying",
@@ -201,6 +254,18 @@ def main() -> None:
                     error_msg,
                     base_job=running_job,
                 )
+                _publish(
+                    ScrapeEvent(
+                        event="job_failed",
+                        message="Scrape job failed",
+                        job_id=failed_job.job_id,
+                        source=failed_job.source,
+                        trigger_type=failed_job.trigger_type,
+                        status="failed",
+                        attempt_count=failed_job.attempt_count,
+                        details={"error": error_msg},
+                    )
+                )
                 job_manager.ack_job(claimed.message_id, job=failed_job)
             except (JobQueueUnavailableError, KeyError):
                 logger.warning(
@@ -219,6 +284,18 @@ def main() -> None:
                 running_job.job_id,
                 result,
                 base_job=running_job,
+            )
+            _publish(
+                ScrapeEvent(
+                    event="job_completed",
+                    message="Scrape job completed",
+                    job_id=completed_job.job_id,
+                    source=completed_job.source,
+                    trigger_type=completed_job.trigger_type,
+                    status="completed",
+                    attempt_count=completed_job.attempt_count,
+                    details={"result_status": result.get("status")},
+                )
             )
             job_manager.ack_job(claimed.message_id, job=completed_job)
         except (JobQueueUnavailableError, KeyError):

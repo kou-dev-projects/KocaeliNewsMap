@@ -7,6 +7,7 @@ import sys
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from app.scheduler.config import load_scheduler_config
+from app.services.scrape_events import ScrapeEvent, get_scrape_event_publisher
 from app.workers.job_manager import JobManager, JobQueueUnavailableError
 
 logging.basicConfig(
@@ -21,11 +22,47 @@ def _run_scheduled_crawl(job_manager: JobManager) -> None:
         job_id = job_manager.submit_scheduled_crawl_job()
         if job_id is None:
             logger.info("scheduler.job_skipped", extra={"reason": "scheduled_job_already_queued"})
+            get_scrape_event_publisher().publish(
+                ScrapeEvent(
+                    event="scheduler_job_skipped",
+                    message="Scheduled crawl was skipped because one is already queued",
+                    trigger_type="scheduled",
+                    status="skipped",
+                )
+            )
             return
+
+        get_scrape_event_publisher().publish(
+            ScrapeEvent(
+                event="job_submitted",
+                message="Scheduled scrape job queued",
+                job_id=job_id,
+                trigger_type="scheduled",
+                status="pending",
+            )
+        )
         logger.info("scheduler.job_submitted", extra={"job_id": job_id})
+
     except JobQueueUnavailableError:
+        get_scrape_event_publisher().publish(
+            ScrapeEvent(
+                event="scheduler_submit_failed",
+                message="Scheduler could not submit job — Redis unavailable",
+                trigger_type="scheduled",
+                status="error",
+            )
+        )
         logger.exception("scheduler.submit_failed")
-    except Exception:
+    except Exception as exc:
+        get_scrape_event_publisher().publish(
+            ScrapeEvent(
+                event="scheduler_submit_failed",
+                message="Scheduler could not submit job — unexpected error",
+                trigger_type="scheduled",
+                status="error",
+                details={"error": type(exc).__name__},
+            )
+        )
         logger.exception("scheduler.submit_failed")
 
 

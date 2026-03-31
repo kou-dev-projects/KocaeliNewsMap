@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import math
+import re
 import secrets
 import time
 
 import redis
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.db.database import db
+from app.services.scrape_events import (
+    ScrapeEvent,
+    ScrapeEventReader,
+    _HEARTBEAT_SENTINEL,
+    get_scrape_event_publisher,
+)
 from app.settings import settings
 from app.workers.job_manager import JobManager, JobQueueUnavailableError
 
@@ -23,6 +31,17 @@ _rate_limit_redis: redis.Redis | None = None
 _trusted_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] | None = None
 
 _RATE_LIMIT_KEY_PREFIX = "pulse:ratelimit:trigger"
+
+_STREAM_ID_RE = re.compile(r"^(?:\$|0|\d{1,15}(?:-\d{1,19})?)$")
+
+
+def _parse_last_event_id(raw: str) -> str:
+    """Return a valid Redis Stream ID or "$" as safe fallback."""
+    stripped = raw.strip()
+    if _STREAM_ID_RE.match(stripped):
+        return stripped
+    logger.warning("scrape.events.invalid_last_event_id", extra={"raw": stripped[:100]})
+    return "$"
 
 
 def _get_job_manager() -> JobManager:
@@ -123,6 +142,7 @@ def _resolve_client_id(request: Request) -> str:
 
 
 def _enforce_rate_limit(client_id: str) -> None:
+    global _rate_limit_redis
     if not settings.scrape_trigger_rate_limit_enabled:
         return
 
@@ -163,6 +183,7 @@ def _enforce_rate_limit(client_id: str) -> None:
     except HTTPException:
         raise
     except Exception:
+        _rate_limit_redis = None  # force reconnect on next call
         logger.warning("scrape.rate_limit.redis_error - failing open")
 
 
@@ -184,9 +205,20 @@ def trigger_scrape(
     try:
         job_id = manager.submit_job(source=normalized_source, trigger_type="manual")
     except JobQueueUnavailableError as exc:
-        raise HTTPException(status_code=503, detail="job_queue_unavailable")
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+
+    get_scrape_event_publisher().publish(
+        ScrapeEvent(
+            event="job_submitted",
+            message="Manual scrape job queued",
+            job_id=job_id,
+            source=normalized_source,
+            trigger_type="manual",
+            status="pending",
+        )
+    )
 
     return JSONResponse(
         status_code=202,
@@ -212,7 +244,7 @@ def get_job_status(
     try:
         job = manager.get_job(job_id)
     except JobQueueUnavailableError as exc:
-        raise HTTPException(status_code=503, detail="job_queue_unavailable")
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
     if job is None:
@@ -239,3 +271,69 @@ def get_job_status(
         response["error"] = job.error
 
     return response
+
+
+@router.get("/events")
+async def scrape_events_stream(
+    request: Request,
+    job_id: str | None = Query(default=None, description="Filter events to a specific job ID"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> StreamingResponse:
+
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+    _verify_trigger_auth(x_api_key)
+
+    last_event_id = _parse_last_event_id(request.headers.get("last-event-id", ""))
+
+    job_id_filter: str | None = None
+    if isinstance(job_id, str):
+        job_id_filter = job_id.strip().lower() or None
+
+    reader = ScrapeEventReader(
+        redis_url=settings.redis_url,
+        heartbeat_seconds=settings.scrape_events_heartbeat_seconds,
+    )
+
+    async def _generate():
+        async for msg_id, fields in reader.stream(
+            last_id=last_event_id,
+            job_id_filter=job_id_filter,
+        ):
+            if await request.is_disconnected():
+                break
+
+            if msg_id == _HEARTBEAT_SENTINEL:
+                yield ": ping\n\n"
+                continue
+
+            out: dict = dict(fields)
+            if out.get("details"):
+                try:
+                    out["details"] = json.loads(out["details"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if out.get("attempt_count"):
+                try:
+                    out["attempt_count"] = int(out["attempt_count"])
+                except (ValueError, TypeError):
+                    pass
+            if out.get("timestamp"):
+                try:
+                    out["timestamp"] = float(out["timestamp"])
+                except (ValueError, TypeError):
+                    pass
+
+            payload = json.dumps(out, ensure_ascii=False, default=str)
+            event_name = out.get("event", "message")
+            yield f"id: {msg_id}\nevent: {event_name}\ndata: {payload}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

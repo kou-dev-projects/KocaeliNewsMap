@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     job_max_attempts: int = 3
     job_retry_backoff_seconds: float = 5.0
     scheduled_job_lock_ttl_seconds: int = 21600
+    scrape_event_stream_maxlen: int = 2000
+    scrape_events_heartbeat_seconds: int = 15
 
     classifier_semantic_enabled: bool = False
     classifier_semantic_threshold: float = 0.3

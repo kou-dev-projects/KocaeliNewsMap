@@ -9,6 +9,9 @@ from app.domain.enums import NewsCategory, normalize_kocaeli_district, normalize
 from app.scrapers.base.date_utils import parse_published_at_raw
 from app.services.classifier.factory import build_classifier_service
 from app.services.classifier.schemas import ClassificationInput, ClassificationResult
+from app.services.geocoding.factory import build_geocoding_service
+from app.services.geocoding.schemas import GeocodingFailure, GeocodingResult
+from app.services.geocoding.service import build_geocoding_input_from_ner
 from app.services.ner.factory import build_ner_service
 from app.services.ner.schemas import NERInput, NERResult
 from app.utils.content_hash import compute_content_hash
@@ -21,6 +24,7 @@ logger = logging.getLogger(__name__)
 class SourceRecordMaterializer:
     classifier_service: Any | None = None
     ner_service: Any | None = None
+    geocoding_service: Any | None = None
 
     def __post_init__(self) -> None:
         if self.classifier_service is None:
@@ -41,6 +45,15 @@ class SourceRecordMaterializer:
                     extra={"error": f"{type(exc).__name__}: {exc}"},
                 )
                 self.ner_service = None
+        if self.geocoding_service is None:
+            try:
+                self.geocoding_service = build_geocoding_service()
+            except Exception as exc:
+                logger.warning(
+                    "pipeline.materializer.geocoding_unavailable",
+                    extra={"error": f"{type(exc).__name__}: {exc}"},
+                )
+                self.geocoding_service = None
 
     def materialize(
         self,
@@ -66,7 +79,12 @@ class SourceRecordMaterializer:
         )
 
         district, district_confidence, location_text = self._extract_location_fields(ner_result)
-        geocode_status = "pending" if location_text or district else "not_needed"
+        geocode_data = self._resolve_geocoding(
+            ner_result=ner_result,
+            fallback_district=district,
+            news_id=str(raw_document.get("_id")) if raw_document.get("_id") is not None else None,
+        )
+        district = geocode_data["district_predicted"] or district
         category = normalize_news_category(classification.category.value)
 
         record = {
@@ -86,12 +104,12 @@ class SourceRecordMaterializer:
             "category_model_version": classification.method,
             "district_predicted": district,
             "location_text_extracted": location_text,
-            "geocode_status": geocode_status,
+            "geocode_status": geocode_data["geocode_status"],
             "text_hash": self._text_hash(title=title, body=body),
             "source_name_snapshot": source_document.get("display_name", raw_document.get("domain", "")),
             "source_url_snapshot": source_document.get("base_url", raw_document.get("resolved_url", raw_document["canonical_url"])),
             "kaynak_listesi": [raw_document.get("domain", "")],
-            "pipeline_status": "classified",
+            "pipeline_status": geocode_data["pipeline_status"],
             "record_status": "active",
             "schema_version": "1.0",
             "updated_at": current_time,
@@ -101,6 +119,12 @@ class SourceRecordMaterializer:
             record["summary"] = summary
         if district_confidence is not None:
             record["district_confidence"] = district_confidence
+        if geocode_data["geocode_provider"] is not None:
+            record["geocode_provider"] = geocode_data["geocode_provider"]
+        if geocode_data["geocode_point"] is not None:
+            record["geocode_point"] = geocode_data["geocode_point"]
+        if geocode_data["geocode_bbox"] is not None:
+            record["geocode_bbox"] = geocode_data["geocode_bbox"]
 
         return record
 
@@ -158,6 +182,83 @@ class SourceRecordMaterializer:
                     break
 
         return district, district_confidence, location_text
+
+    def _resolve_geocoding(
+        self,
+        *,
+        ner_result: NERResult,
+        fallback_district: Optional[str],
+        news_id: Optional[str],
+    ) -> dict[str, Any]:
+        geocoding_input = build_geocoding_input_from_ner(ner_result, news_id=news_id)
+        if geocoding_input is None:
+            return {
+                "geocode_status": "not_needed",
+                "pipeline_status": "geocoded",
+                "geocode_provider": None,
+                "geocode_point": None,
+                "geocode_bbox": None,
+                "district_predicted": fallback_district,
+            }
+
+        if self.geocoding_service is None:
+            return {
+                "geocode_status": "pending",
+                "pipeline_status": "classified",
+                "geocode_provider": None,
+                "geocode_point": None,
+                "geocode_bbox": None,
+                "district_predicted": fallback_district,
+            }
+
+        try:
+            result = self.geocoding_service.geocode(geocoding_input)
+        except Exception as exc:
+            logger.warning(
+                "pipeline.materializer.geocoding_failed",
+                extra={"error": f"{type(exc).__name__}: {exc}"},
+            )
+            return {
+                "geocode_status": "pending",
+                "pipeline_status": "classified",
+                "geocode_provider": None,
+                "geocode_point": None,
+                "geocode_bbox": None,
+                "district_predicted": fallback_district,
+            }
+
+        if isinstance(result, GeocodingFailure):
+            geocode_status = "pending" if result.failure_type in {"rate_limit", "queue_full"} else "failed"
+            return {
+                "geocode_status": geocode_status,
+                "pipeline_status": "classified" if geocode_status == "pending" else "geocoded",
+                "geocode_provider": None,
+                "geocode_point": None,
+                "geocode_bbox": None,
+                "district_predicted": fallback_district,
+            }
+
+        resolved_district = fallback_district
+        if not resolved_district and result.district:
+            district_enum = normalize_kocaeli_district(result.district)
+            resolved_district = district_enum.value if district_enum else None
+
+        return {
+            "geocode_status": self._geocode_status_from_result(result),
+            "pipeline_status": "geocoded",
+            "geocode_provider": result.source,
+            "geocode_point": {
+                "type": "Point",
+                "coordinates": [result.lng, result.lat],
+            },
+            "geocode_bbox": None,
+            "district_predicted": resolved_district,
+        }
+
+    def _geocode_status_from_result(self, result: GeocodingResult) -> str:
+        if result.confidence < 0.75:
+            return "approximate"
+        return "resolved"
 
     def _build_summary(self, body: str) -> Optional[str]:
         text = (body or "").strip()

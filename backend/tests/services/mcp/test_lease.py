@@ -45,9 +45,15 @@ def test_release_not_owner(lease):
     assert result is False
 
 
-def test_no_redis_acquire_returns_false():
+def test_redis_connect_failure_acquire_returns_false(monkeypatch):
+    monkeypatch.setattr("app.services.mcp.lease._REDIS_AVAILABLE", True)
+    monkeypatch.setattr(
+        "app.services.mcp.lease.redis_lib.from_url",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("redis unavailable")),
+    )
+
     svc = SourceLease("redis://localhost", 300)
-    svc._client = None
+
     assert svc.acquire("source", "worker") is False
 
 

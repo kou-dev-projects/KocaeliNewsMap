@@ -29,6 +29,12 @@ schema.sql
 out/
 frontend/.next/
 frontend/out/
+frontend/.data/
+frontend/.lighthouse-tmp/
+frontend/.pwa-server.pid
+frontend/lighthouse-pwa-report.json
+frontend/lighthouse-pwa-summary.json
+frontend/pwa-offline-summary.json
 
 # IDE
 .vscode/

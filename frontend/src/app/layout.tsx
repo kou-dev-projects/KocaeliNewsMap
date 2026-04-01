@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PULSE | Live Scrape Monitor",
-  description: "Real-time scrape activity and operations dashboard for PULSE.",
+  title: "PULSE",
+  description: "News intelligence and map experience for Kocaeli.",
 };
 
 export default function RootLayout({

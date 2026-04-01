@@ -33,7 +33,7 @@ function getTone(event: RawScrapeEvent): ScrapeLogTone {
 }
 
 function formatTimestamp(timestamp?: number): string {
-  if (!timestamp) {
+  if (timestamp == null || !Number.isFinite(timestamp)) {
     return "--:--:--";
   }
 

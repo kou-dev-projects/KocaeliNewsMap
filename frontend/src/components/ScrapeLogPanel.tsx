@@ -9,6 +9,8 @@ import type {
   ScrapeStreamConnectionState,
 } from "@/lib/scrape/types";
 
+const NEAR_BOTTOM_THRESHOLD_PX = 80;
+
 const connectionMeta: Record<
   ScrapeStreamConnectionState,
   { label: string; className: string }
@@ -86,7 +88,33 @@ export function ScrapeLogPanel() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const bottomElement = bottomRef.current;
+    if (!bottomElement) {
+      return;
+    }
+
+    const scrollContainer = bottomElement.parentElement;
+    if (!scrollContainer) {
+      return;
+    }
+
+    const distanceFromBottom =
+      scrollContainer.scrollHeight -
+      scrollContainer.scrollTop -
+      scrollContainer.clientHeight;
+
+    if (distanceFromBottom > NEAR_BOTTOM_THRESHOLD_PX) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    bottomElement.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      block: "end",
+    });
   }, [events.length]);
 
   return (

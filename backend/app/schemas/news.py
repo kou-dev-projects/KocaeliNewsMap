@@ -45,6 +45,7 @@ class NewsListResponse(BaseModel):
 class NewsMapItem(BaseModel):
     id: str
     title: str
+    summary: Optional[str] = None
     source_name: str
     source_domain: str
     url: str

@@ -10,6 +10,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 export type NewsMapItem = {
   id: string;
   title: string;
+  summary?: string | null;
   source_name: string;
   source_domain: string;
   url: string;
@@ -26,11 +27,13 @@ type MapViewProps = {
   className?: string;
   styleUrl?: string;
   items?: NewsMapItem[];
+  onMarkerSelect?: (item: NewsMapItem) => void;
 };
 
 type NewsFeatureProperties = {
   id: string;
   title: string;
+  summary: string;
   source_name: string;
   source_domain: string;
   url: string;
@@ -51,23 +54,6 @@ const DEFAULT_STYLE_URL =
   process.env.NEXT_PUBLIC_MAP_STYLE_URL ??
   "https://tiles.openfreemap.org/styles/liberty";
 
-function categoryColor(category: string) {
-  switch (category) {
-    case "yangin":
-      return "#dc2626";
-    case "trafik_kazasi":
-      return "#f97316";
-    case "elektrik_kesintisi":
-      return "#ca8a04";
-    case "hirsizlik":
-      return "#7c3aed";
-    case "kulturel_etkinlik":
-      return "#0284c7";
-    default:
-      return "#0f172a";
-  }
-}
-
 function buildNewsFeatureCollection(items: NewsMapItem[]) {
   return {
     type: "FeatureCollection" as const,
@@ -80,6 +66,7 @@ function buildNewsFeatureCollection(items: NewsMapItem[]) {
       properties: {
         id: item.id,
         title: item.title,
+        summary: item.summary ?? "",
         source_name: item.source_name,
         source_domain: item.source_domain,
         url: item.url,
@@ -143,6 +130,8 @@ function updateNewsSource(map: MapLibreMap, items: NewsMapItem[]) {
 function bindNewsInteractions(
   map: MapLibreMap,
   popupRef: MutableRefObject<maplibregl.Popup | null>,
+  itemsRef: MutableRefObject<NewsMapItem[]>,
+  onMarkerSelectRef: MutableRefObject<((item: NewsMapItem) => void) | undefined>,
 ) {
   if (map.getLayer(NEWS_LAYER_ID) === undefined) {
     return;
@@ -174,27 +163,11 @@ function bindNewsInteractions(
     title.className = "text-sm font-semibold";
     title.textContent = properties.title;
 
-    const meta = document.createElement("p");
-    meta.className = "text-xs text-slate-600";
-    meta.textContent = [
-      properties.source_name || properties.source_domain,
-      properties.district || "Ilce yok",
-      properties.category || "Kategori yok",
-    ].join(" • ");
-
     const date = document.createElement("p");
     date.className = "text-xs text-slate-500";
     date.textContent = properties.published_at_raw || "Tarih yok";
 
-    const link = document.createElement("a");
-    link.href = properties.url;
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    link.className = "inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold text-white";
-    link.style.backgroundColor = categoryColor(properties.category);
-    link.textContent = "Haberi ac";
-
-    popupContent.append(title, meta, date, link);
+    popupContent.append(title, date);
 
     popupRef.current = new maplibregl.Popup({
       closeButton: true,
@@ -204,6 +177,11 @@ function bindNewsInteractions(
       .setLngLat(coordinates)
       .setDOMContent(popupContent)
       .addTo(map);
+
+    const selectedItem = itemsRef.current.find((item) => item.id === properties.id);
+    if (selectedItem) {
+      onMarkerSelectRef.current?.(selectedItem);
+    }
   });
 }
 
@@ -211,15 +189,21 @@ export default function MapView({
   className = "h-full w-full",
   styleUrl = DEFAULT_STYLE_URL,
   items = [],
+  onMarkerSelect,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const itemsRef = useRef(items);
+  const onMarkerSelectRef = useRef(onMarkerSelect);
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    onMarkerSelectRef.current = onMarkerSelect;
+  }, [onMarkerSelect]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -315,7 +299,7 @@ export default function MapView({
 
         ensureNewsLayer(map);
         updateNewsSource(map, itemsRef.current);
-        bindNewsInteractions(map, popupRef);
+        bindNewsInteractions(map, popupRef, itemsRef, onMarkerSelectRef);
       };
 
       void initializeLayers();

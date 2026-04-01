@@ -9,24 +9,22 @@ export default function Home() {
             PULSE
           </p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            Kocaeli Haber Haritası
+            Kocaeli News Map
           </h1>
           <p className="mt-2 text-sm text-slate-600">
-            İlçe ve mahalle odaklı haberleri tek akışta izlemek için kontrol
-            paneli.
+            A map-first control surface for district and neighborhood-focused
+            news monitoring.
           </p>
         </header>
 
         <section className="grid gap-4 md:grid-cols-3">
           <article className="rounded-xl bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">
-              Toplam Haber
-            </h2>
+            <h2 className="text-sm font-semibold text-slate-500">Total News</h2>
             <p className="mt-2 text-2xl font-bold">--</p>
           </article>
           <article className="rounded-xl bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-500">
-              Aktif Kaynak
+              Active Sources
             </h2>
             <p className="mt-2 text-2xl font-bold">--</p>
           </article>
@@ -37,7 +35,12 @@ export default function Home() {
         </section>
 
         <section className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">Harita Görünümü</h2>
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-lg font-semibold">Map View</h2>
+            <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              PWA-ready
+            </span>
+          </div>
           <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200">
             <MapView className="h-full w-full" />
           </div>

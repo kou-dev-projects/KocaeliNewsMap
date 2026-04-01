@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PULSE Offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #020617;
+        color: #e2e8f0;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top, rgba(56, 189, 248, 0.18), transparent 32%),
+          linear-gradient(180deg, #020617 0%, #0f172a 100%);
+      }
+
+      main {
+        width: min(32rem, calc(100vw - 2rem));
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 1.5rem;
+        padding: 2rem;
+        background: rgba(15, 23, 42, 0.78);
+        box-shadow: 0 24px 80px rgba(2, 6, 23, 0.45);
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: 1.875rem;
+      }
+
+      p {
+        margin: 0;
+        line-height: 1.6;
+        color: #cbd5e1;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>You are offline</h1>
+      <p>
+        PULSE can still show cached map tiles and previously visited screens.
+        Reconnect to refresh live news, API responses, and scrape activity.
+      </p>
+    </main>
+  </body>
+</html>

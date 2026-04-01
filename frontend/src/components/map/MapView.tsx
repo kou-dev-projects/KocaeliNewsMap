@@ -243,7 +243,7 @@ export default function MapView({
 
   const handleRunBenchmark = async () => {
     const activeMap = mapRef.current;
-    if (!activeMap || benchmarkRunning || deckPoints.length === 0) {
+    if (!activeMap || benchmarkRunning || benchmarkPointCount === 0) {
       return;
     }
 

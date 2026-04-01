@@ -10,6 +10,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 export type NewsMapItem = {
   id: string;
   title: string;
+  summary?: string | null;
   source_name: string;
   source_domain: string;
   url: string;
@@ -32,6 +33,7 @@ type MapViewProps = {
 type NewsFeatureProperties = {
   id: string;
   title: string;
+  summary: string;
   source_name: string;
   source_domain: string;
   url: string;
@@ -64,6 +66,7 @@ function buildNewsFeatureCollection(items: NewsMapItem[]) {
       properties: {
         id: item.id,
         title: item.title,
+        summary: item.summary ?? "",
         source_name: item.source_name,
         source_domain: item.source_domain,
         url: item.url,

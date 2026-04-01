@@ -201,6 +201,7 @@ def map_doc_to_news_map_item(doc: dict[str, Any]) -> NewsMapItem:
     return NewsMapItem(
         id=str(doc["_id"]),
         title=doc.get("title", ""),
+        summary=doc.get("summary"),
         source_name=doc.get("source_name_snapshot", ""),
         source_domain=_extract_domain(source_base_url),
         url=doc.get("canonical_url", ""),

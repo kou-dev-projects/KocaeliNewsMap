@@ -93,6 +93,14 @@ function formatPublishedAt(value?: string | null) {
   }).format(date);
 }
 
+function formatSummary(summary?: string | null) {
+  if (!summary || !summary.trim()) {
+    return "Bu haber icin henuz ozet alani gelmedi.";
+  }
+
+  return summary.trim();
+}
+
 export default function InfoCard({
   item,
   className = "",
@@ -209,6 +217,15 @@ export default function InfoCard({
           Bu haber haritada{" "}
           <span className="font-medium">{formatGeocodeStatus(item.geocode_status)}</span>{" "}
           durumunda gosteriliyor.
+        </p>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Ozet
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          {formatSummary(item.summary)}
         </p>
       </div>
 

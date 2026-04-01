@@ -7,6 +7,7 @@ import { usePwaInstallPrompt } from "@/hooks/usePwaInstallPrompt";
 import { useWebPushSubscription } from "@/hooks/useWebPushSubscription";
 
 export function PwaBootstrap() {
+  const [isMounted, setIsMounted] = useState(false);
   const isOnline = useOnlineStatus();
   const shouldRegisterServiceWorker =
     process.env.NODE_ENV === "production" ||
@@ -26,6 +27,16 @@ export function PwaBootstrap() {
     subscribe,
   } = useWebPushSubscription(shouldRegisterServiceWorker);
   const [isPromptPending, setIsPromptPending] = useState(false);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      setIsMounted(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, []);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) {
@@ -86,7 +97,7 @@ export function PwaBootstrap() {
     (pushPermission !== "granted" || isSubscribed);
   const showBanner =
     !isOnline || isDismissed || (canPrompt && !isStandalone) || showPushControls;
-  if (!showBanner) {
+  if (!isMounted || !showBanner) {
     return null;
   }
 

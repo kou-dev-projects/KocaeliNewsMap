@@ -1,11 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
-<<<<<<< feature/s2-tanstack-query
 import QueryProvider from "@/components/providers/QueryProvider";
-
-=======
-import { PwaBootstrap } from "@/components/pwa/PwaBootstrap";
->>>>>>> develop
+import { PwaBootstrapClient } from "@/components/pwa/PwaBootstrapClient";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -44,14 +40,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="tr">
       <body>
-<<<<<<< feature/s2-tanstack-query
         <QueryProvider>{children}</QueryProvider>
-=======
-        {children}
-        <PwaBootstrap />
->>>>>>> develop
+        <PwaBootstrapClient />
       </body>
     </html>
   );

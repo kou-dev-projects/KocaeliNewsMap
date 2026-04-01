@@ -31,7 +31,7 @@ export default function Home() {
             <p className="mt-2 text-2xl font-bold">--</p>
           </article>
           <article className="rounded-xl bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">Son Crawl</h2>
+            <h2 className="text-sm font-semibold text-slate-500">Last Crawl</h2>
             <p className="mt-2 text-2xl font-bold">--</p>
           </article>
         </section>

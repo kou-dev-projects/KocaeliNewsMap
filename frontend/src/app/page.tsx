@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import FilterSidebar, {
@@ -8,6 +8,9 @@ import FilterSidebar, {
 } from "@/components/filters/FilterSidebar";
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
+import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
+import { useNewsMap } from "@/hooks/useNewsMap";
+import { useNewsStats } from "@/hooks/useNewsStats";
 
 const EMPTY_FILTERS: FilterState = {
   category: "",
@@ -40,37 +43,6 @@ const DISTRICT_LABELS: Record<string, string> = {
   derince: "Derince",
 };
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
-
-type NewsStats = {
-  total: number;
-  geocoded_total: number;
-  last_24h_total: number;
-  active_sources: number;
-  categories: Array<{ key: string; count: number }>;
-  districts: Array<{ key: string; count: number }>;
-};
-
-type NewsMapResponse = {
-  items: NewsMapItem[];
-  total: number;
-};
-
-const EMPTY_STATS: NewsStats = {
-  total: 0,
-  geocoded_total: 0,
-  last_24h_total: 0,
-  active_sources: 0,
-  categories: [],
-  districts: [],
-};
-
-const EMPTY_MAP_RESPONSE: NewsMapResponse = {
-  items: [],
-  total: 0,
-};
-
 type SearchParamsLike = {
   get(name: string): string | null;
 };
@@ -82,52 +54,6 @@ function filtersFromSearchParams(searchParams: SearchParamsLike) {
     dateFrom: searchParams.get("date_from") ?? "",
     dateTo: searchParams.get("date_to") ?? "",
   };
-}
-
-function buildStatsUrl(filters: FilterState) {
-  const url = new URL("/api/v1/news/stats", API_BASE_URL);
-
-  if (filters.category) {
-    url.searchParams.set("category", filters.category);
-  }
-
-  if (filters.district) {
-    url.searchParams.set("district", filters.district);
-  }
-
-  if (filters.dateFrom) {
-    url.searchParams.set("date_from", filters.dateFrom);
-  }
-
-  if (filters.dateTo) {
-    url.searchParams.set("date_to", filters.dateTo);
-  }
-
-  return url.toString();
-}
-
-function buildMapUrl(filters: FilterState) {
-  const url = new URL("/api/v1/news/map", API_BASE_URL);
-
-  if (filters.category) {
-    url.searchParams.set("category", filters.category);
-  }
-
-  if (filters.district) {
-    url.searchParams.set("district", filters.district);
-  }
-
-  if (filters.dateFrom) {
-    url.searchParams.set("date_from", filters.dateFrom);
-  }
-
-  if (filters.dateTo) {
-    url.searchParams.set("date_to", filters.dateTo);
-  }
-
-  url.searchParams.set("limit", "500");
-
-  return url.toString();
 }
 
 function formatFilterSummary(filters: FilterState) {
@@ -162,106 +88,26 @@ export default function Home() {
 
   const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(initialFilters);
-  const [stats, setStats] = useState<NewsStats>(EMPTY_STATS);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [statsError, setStatsError] = useState("");
-  const [mapData, setMapData] = useState<NewsMapResponse>(EMPTY_MAP_RESPONSE);
-  const [mapLoading, setMapLoading] = useState(true);
-  const [mapError, setMapError] = useState("");
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const {
+    data: stats = EMPTY_STATS,
+    isLoading: statsLoading,
+    isError: statsIsError,
+  } = useNewsStats(appliedFilters);
 
-    const fetchStats = async () => {
-      setStatsLoading(true);
-      setStatsError("");
+  const {
+    data: mapData = EMPTY_MAP_RESPONSE,
+    isLoading: mapLoading,
+    isError: mapIsError,
+  } = useNewsMap(appliedFilters);
 
-      try {
-        const response = await fetch(buildStatsUrl(appliedFilters), {
-          method: "GET",
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Stats request failed with status ${response.status}`);
-        }
-
-        const payload = (await response.json()) as NewsStats;
-        setStats(payload);
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        console.error("Stats could not be loaded.", error);
-        setStats(EMPTY_STATS);
-        setStatsError("Istatistikler su anda yuklenemedi.");
-      } finally {
-        if (!controller.signal.aborted) {
-          setStatsLoading(false);
-        }
-      }
-    };
-
-    void fetchStats();
-
-    return () => {
-      controller.abort();
-    };
-  }, [appliedFilters]);
-
-  useEffect(() => {
-    if (!selectedNews) {
-      return;
-    }
-
-    const stillVisible = mapData.items.some((item) => item.id === selectedNews.id);
-    if (!stillVisible) {
-      setSelectedNews(null);
-    }
-  }, [mapData.items, selectedNews]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const fetchMapNews = async () => {
-      setMapLoading(true);
-      setMapError("");
-
-      try {
-        const response = await fetch(buildMapUrl(appliedFilters), {
-          method: "GET",
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Map request failed with status ${response.status}`);
-        }
-
-        const payload = (await response.json()) as NewsMapResponse;
-        setMapData(payload);
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        console.error("Map news could not be loaded.", error);
-        setMapData(EMPTY_MAP_RESPONSE);
-        setMapError("Harita verileri su anda yuklenemedi.");
-      } finally {
-        if (!controller.signal.aborted) {
-          setMapLoading(false);
-        }
-      }
-    };
-
-    void fetchMapNews();
-
-    return () => {
-      controller.abort();
-    };
-  }, [appliedFilters]);
+  const statsError = statsIsError ? "Istatistikler su anda yuklenemedi." : "";
+  const mapError = mapIsError ? "Harita verileri su anda yuklenemedi." : "";
+  const visibleSelectedNews =
+    selectedNews && mapData.items.some((item) => item.id === selectedNews.id)
+      ? selectedNews
+      : null;
 
   const handleDraftChange = (field: keyof FilterState, value: string) => {
     setDraftFilters((current) => ({
@@ -405,7 +251,7 @@ export default function Home() {
               </div>
 
               <InfoCard
-                item={selectedNews}
+                item={visibleSelectedNews}
                 className="lg:min-h-0 lg:overflow-auto"
               />
             </div>

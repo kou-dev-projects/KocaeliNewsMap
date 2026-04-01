@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useRef, type MutableRefObject } from "react";
-import maplibregl, {
-  type GeoJSONSource,
-  type Map as MapLibreMap,
-} from "maplibre-gl";
+import { useEffect, useMemo, useRef, useState } from "react";
+import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+import DeckGLOverlay from "@/components/map/DeckGLOverlay";
+import MapLayerToggle from "@/components/map/MapLayerToggle";
+import MapTooltip, { type MapTooltipState } from "@/components/map/MapTooltip";
+import { FpsTracker, type FpsMetrics } from "@/components/map/mapFpsTracker";
+import {
+  adaptNewsItemsToDeckPoints,
+  buildBenchmarkPoints,
+  type DeckNewsPoint,
+  type MapLayerMode,
+} from "@/components/map/mapLayerUtils";
 
 export type NewsMapItem = {
   id: string;
@@ -30,158 +38,38 @@ type MapViewProps = {
   onMarkerSelect?: (item: NewsMapItem) => void;
 };
 
-type NewsFeatureProperties = {
-  id: string;
-  title: string;
-  summary: string;
-  source_name: string;
-  source_domain: string;
-  url: string;
-  published_at_raw: string;
-  category: string;
-  district: string;
-  geocode_status: string;
-};
-
 const KOCAELI_CENTER: [number, number] = [29.9213, 40.7654];
 const INITIAL_ZOOM = 12;
 const BUILDING_SOURCE_ID = "openfreemap";
 const BUILDING_LAYER_ID = "kocaeli-3d-buildings";
-const NEWS_SOURCE_ID = "news-points";
-const NEWS_LAYER_ID = "news-point-circles";
+const BENCHMARK_DURATION_MS = 2800;
 
 const DEFAULT_STYLE_URL =
   process.env.NEXT_PUBLIC_MAP_STYLE_URL ??
   "https://tiles.openfreemap.org/styles/liberty";
 
-function buildNewsFeatureCollection(items: NewsMapItem[]) {
-  return {
-    type: "FeatureCollection" as const,
-    features: items.map((item) => ({
-      type: "Feature" as const,
-      geometry: {
-        type: "Point" as const,
-        coordinates: [item.longitude, item.latitude],
-      },
-      properties: {
-        id: item.id,
-        title: item.title,
-        summary: item.summary ?? "",
-        source_name: item.source_name,
-        source_domain: item.source_domain,
-        url: item.url,
-        published_at_raw: item.published_at_raw ?? "",
-        category: item.category ?? "",
-        district: item.district ?? "",
-        geocode_status: item.geocode_status,
-      },
-    })),
-  };
-}
+function waitForAnimationFrames(frameCount = 2) {
+  return new Promise<void>((resolve) => {
+    let remaining = frameCount;
 
-function ensureNewsLayer(map: MapLibreMap) {
-  const source = map.getSource(NEWS_SOURCE_ID) as GeoJSONSource | undefined;
-  if (!source) {
-    map.addSource(NEWS_SOURCE_ID, {
-      type: "geojson",
-      data: buildNewsFeatureCollection([]),
-    });
-  }
+    const step = () => {
+      remaining -= 1;
 
-  if (!map.getLayer(NEWS_LAYER_ID)) {
-    map.addLayer({
-      id: NEWS_LAYER_ID,
-      type: "circle",
-      source: NEWS_SOURCE_ID,
-      paint: {
-        "circle-radius": 7,
-        "circle-color": [
-          "match",
-          ["get", "category"],
-          "yangin",
-          "#dc2626",
-          "trafik_kazasi",
-          "#f97316",
-          "elektrik_kesintisi",
-          "#ca8a04",
-          "hirsizlik",
-          "#7c3aed",
-          "kulturel_etkinlik",
-          "#0284c7",
-          "#0f172a",
-        ],
-        "circle-stroke-width": 2,
-        "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.9,
-      },
-    });
-  }
-}
+      if (remaining <= 0) {
+        resolve();
+        return;
+      }
 
-function updateNewsSource(map: MapLibreMap, items: NewsMapItem[]) {
-  const source = map.getSource(NEWS_SOURCE_ID) as GeoJSONSource | undefined;
-  if (!source) {
-    return;
-  }
+      window.requestAnimationFrame(step);
+    };
 
-  source.setData(buildNewsFeatureCollection(items));
-}
-
-function bindNewsInteractions(
-  map: MapLibreMap,
-  popupRef: MutableRefObject<maplibregl.Popup | null>,
-  itemsRef: MutableRefObject<NewsMapItem[]>,
-  onMarkerSelectRef: MutableRefObject<((item: NewsMapItem) => void) | undefined>,
-) {
-  if (map.getLayer(NEWS_LAYER_ID) === undefined) {
-    return;
-  }
-
-  map.on("mouseenter", NEWS_LAYER_ID, () => {
-    map.getCanvas().style.cursor = "pointer";
+    window.requestAnimationFrame(step);
   });
+}
 
-  map.on("mouseleave", NEWS_LAYER_ID, () => {
-    map.getCanvas().style.cursor = "";
-  });
-
-  map.on("click", NEWS_LAYER_ID, (event) => {
-    const feature = event.features?.[0];
-    if (!feature || feature.geometry.type !== "Point") {
-      return;
-    }
-
-    const properties = feature.properties as unknown as NewsFeatureProperties;
-    const coordinates = [...feature.geometry.coordinates] as [number, number];
-
-    popupRef.current?.remove();
-
-    const popupContent = document.createElement("div");
-    popupContent.className = "space-y-2 text-slate-900";
-
-    const title = document.createElement("h3");
-    title.className = "text-sm font-semibold";
-    title.textContent = properties.title;
-
-    const date = document.createElement("p");
-    date.className = "text-xs text-slate-500";
-    date.textContent = properties.published_at_raw || "Tarih yok";
-
-    popupContent.append(title, date);
-
-    popupRef.current = new maplibregl.Popup({
-      closeButton: true,
-      offset: 14,
-      maxWidth: "280px",
-    })
-      .setLngLat(coordinates)
-      .setDOMContent(popupContent)
-      .addTo(map);
-
-    const selectedItem = itemsRef.current.find((item) => item.id === properties.id);
-    if (selectedItem) {
-      onMarkerSelectRef.current?.(selectedItem);
-    }
+function waitForMapEvent(map: MapLibreMap, eventName: string) {
+  return new Promise<void>((resolve) => {
+    map.once(eventName, () => resolve());
   });
 }
 
@@ -193,26 +81,35 @@ export default function MapView({
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
-  const itemsRef = useRef(items);
-  const onMarkerSelectRef = useRef(onMarkerSelect);
-
-  useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
-
-  useEffect(() => {
-    onMarkerSelectRef.current = onMarkerSelect;
-  }, [onMarkerSelect]);
+  const [map, setMap] = useState<MapLibreMap | null>(null);
+  const [layerMode, setLayerMode] = useState<MapLayerMode>("markers");
+  const [tooltip, setTooltip] = useState<MapTooltipState>(null);
+  const [benchmarkActive, setBenchmarkActive] = useState(false);
+  const [benchmarkRunning, setBenchmarkRunning] = useState(false);
+  const [benchmarkMetrics, setBenchmarkMetrics] = useState<FpsMetrics>();
+  const deckPoints = useMemo<DeckNewsPoint[]>(
+    () => adaptNewsItemsToDeckPoints(items),
+    [items],
+  );
+  const benchmarkPointCount = useMemo(
+    () => buildBenchmarkPoints(deckPoints).length,
+    [deckPoints],
+  );
+  const benchmarkTrackerRef = useRef<{
+    tracker: FpsTracker;
+    previousTimestamp?: number;
+  } | null>(null);
+  const activeStyleUrlRef = useRef(styleUrl);
+  const didRunInitialFlightRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
       return;
     }
 
-    const map = new maplibregl.Map({
+    const nextMap = new maplibregl.Map({
       container: containerRef.current,
-      style: styleUrl,
+      style: activeStyleUrlRef.current,
       center: KOCAELI_CENTER,
       zoom: INITIAL_ZOOM,
       pitch: 45,
@@ -220,11 +117,11 @@ export default function MapView({
       canvasContextAttributes: { antialias: true },
     });
 
-    mapRef.current = map;
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    mapRef.current = nextMap;
+    nextMap.addControl(new maplibregl.NavigationControl(), "top-right");
 
-    map.on("load", () => {
-      const labelLayerId = map
+    const ensureBaseLayers = () => {
+      const labelLayerId = nextMap
         .getStyle()
         .layers?.find(
           (layer) =>
@@ -232,8 +129,9 @@ export default function MapView({
             typeof layer.layout?.["text-field"] !== "undefined",
         )?.id;
 
-      const initializeLayers = async () => {
-        map.flyTo({
+      if (!didRunInitialFlightRef.current) {
+        didRunInitialFlightRef.current = true;
+        nextMap.flyTo({
           center: KOCAELI_CENTER,
           zoom: INITIAL_ZOOM,
           pitch: 45,
@@ -241,85 +139,171 @@ export default function MapView({
           duration: 2500,
           essential: true,
         });
+      }
 
-        if (!map.getSource(BUILDING_SOURCE_ID)) {
-          map.addSource(BUILDING_SOURCE_ID, {
-            type: "vector",
-            url: "https://tiles.openfreemap.org/planet",
-          });
-        }
+      if (!nextMap.getSource(BUILDING_SOURCE_ID)) {
+        nextMap.addSource(BUILDING_SOURCE_ID, {
+          type: "vector",
+          url: "https://tiles.openfreemap.org/planet",
+        });
+      }
 
-        if (!map.getLayer(BUILDING_LAYER_ID)) {
-          map.addLayer(
-            {
-              id: BUILDING_LAYER_ID,
-              type: "fill-extrusion",
-              source: BUILDING_SOURCE_ID,
-              "source-layer": "building",
-              minzoom: 15,
-              filter: ["!=", ["get", "hide_3d"], true],
-              paint: {
-                "fill-extrusion-color": [
-                  "interpolate",
-                  ["linear"],
-                  ["coalesce", ["get", "render_height"], 0],
-                  0,
-                  "#334155",
-                  120,
-                  "#475569",
-                  250,
-                  "#94a3b8",
-                  500,
-                  "#cbd5e1",
-                ],
-                "fill-extrusion-opacity": 0.82,
-                "fill-extrusion-height": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  15,
-                  0,
-                  16,
-                  ["coalesce", ["get", "render_height"], 0],
-                ],
-                "fill-extrusion-base": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  15,
-                  0,
-                  16,
-                  ["coalesce", ["get", "render_min_height"], 0],
-                ],
-              },
+      if (!nextMap.getLayer(BUILDING_LAYER_ID)) {
+        nextMap.addLayer(
+          {
+            id: BUILDING_LAYER_ID,
+            type: "fill-extrusion",
+            source: BUILDING_SOURCE_ID,
+            "source-layer": "building",
+            minzoom: 15,
+            filter: ["!=", ["get", "hide_3d"], true],
+            paint: {
+              "fill-extrusion-color": [
+                "interpolate",
+                ["linear"],
+                ["coalesce", ["get", "render_height"], 0],
+                0,
+                "#334155",
+                120,
+                "#475569",
+                250,
+                "#94a3b8",
+                500,
+                "#cbd5e1",
+              ],
+              "fill-extrusion-opacity": 0.82,
+              "fill-extrusion-height": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                15,
+                0,
+                16,
+                ["coalesce", ["get", "render_height"], 0],
+              ],
+              "fill-extrusion-base": [
+                "interpolate",
+                ["linear"],
+                ["zoom"],
+                15,
+                0,
+                16,
+                ["coalesce", ["get", "render_min_height"], 0],
+              ],
             },
-            labelLayerId,
-          );
-        }
+          },
+          labelLayerId,
+        );
+      }
+    };
 
-        ensureNewsLayer(map);
-        updateNewsSource(map, itemsRef.current);
-        bindNewsInteractions(map, popupRef, itemsRef, onMarkerSelectRef);
-      };
+    const handleLoad = () => {
+      ensureBaseLayers();
+      setMap(nextMap);
+    };
 
-      void initializeLayers();
-    });
+    nextMap.once("load", handleLoad);
+    nextMap.on("style.load", ensureBaseLayers);
 
     return () => {
-      map.remove();
+      nextMap.off("load", handleLoad);
+      nextMap.off("style.load", ensureBaseLayers);
+      nextMap.remove();
       mapRef.current = null;
+      setMap(null);
+      didRunInitialFlightRef.current = false;
     };
-  }, [styleUrl]);
+  }, []);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) {
+    const activeMap = mapRef.current;
+    if (!activeMap || activeStyleUrlRef.current === styleUrl) {
       return;
     }
 
-    ensureNewsLayer(map);
-    updateNewsSource(map, items);
-  }, [items]);
+    activeStyleUrlRef.current = styleUrl;
+    activeMap.setStyle(styleUrl);
+  }, [styleUrl]);
 
-  return <div ref={containerRef} className={className} />;
+  const handleBenchmarkRender = () => {
+    const activeBenchmark = benchmarkTrackerRef.current;
+    if (!activeBenchmark) {
+      return;
+    }
+
+    const now = performance.now();
+    if (activeBenchmark.previousTimestamp === undefined) {
+      activeBenchmark.previousTimestamp = now;
+      return;
+    }
+
+    activeBenchmark.tracker.record(now - activeBenchmark.previousTimestamp);
+    activeBenchmark.previousTimestamp = now;
+  };
+
+  const handleRunBenchmark = async () => {
+    const activeMap = mapRef.current;
+    if (!activeMap || benchmarkRunning || benchmarkPointCount === 0) {
+      return;
+    }
+
+    setBenchmarkRunning(true);
+    setBenchmarkActive(true);
+    setBenchmarkMetrics(undefined);
+    benchmarkTrackerRef.current = {
+      tracker: new FpsTracker(),
+    };
+
+    await waitForAnimationFrames(3);
+
+    const initialBearing = activeMap.getBearing();
+    const initialPitch = activeMap.getPitch();
+    activeMap.easeTo({
+      bearing: initialBearing + 22,
+      pitch: Math.min(58, initialPitch + 8),
+      duration: BENCHMARK_DURATION_MS,
+      essential: true,
+    });
+
+    await waitForMapEvent(activeMap, "moveend");
+
+    const metrics = benchmarkTrackerRef.current?.tracker.getMetrics();
+    benchmarkTrackerRef.current = null;
+    setBenchmarkActive(false);
+    setBenchmarkMetrics(metrics);
+    setBenchmarkRunning(false);
+
+    activeMap.easeTo({
+      bearing: initialBearing,
+      pitch: initialPitch,
+      duration: 450,
+      essential: true,
+    });
+  };
+
+  return (
+    <div className={`relative ${className}`}>
+      <div ref={containerRef} className="h-full w-full" />
+
+      <MapLayerToggle
+        layerMode={layerMode}
+        onLayerModeChange={setLayerMode}
+        onRunBenchmark={handleRunBenchmark}
+        benchmarkRunning={benchmarkRunning}
+        benchmarkMetrics={benchmarkMetrics}
+        pointCount={deckPoints.length}
+        benchmarkPointCount={benchmarkPointCount}
+      />
+      <MapTooltip tooltip={tooltip} />
+      <DeckGLOverlay
+        map={map}
+        points={deckPoints}
+        layerMode={layerMode}
+        benchmarkActive={benchmarkActive}
+        onMarkerSelect={onMarkerSelect}
+        onTooltipChange={setTooltip}
+        onBenchmarkRender={handleBenchmarkRender}
+      />
+    </div>
+  );
 }

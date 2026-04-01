@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import FilterSidebar, {
@@ -8,9 +8,9 @@ import FilterSidebar, {
 } from "@/components/filters/FilterSidebar";
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
-import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
 import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
+import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
 
 const EMPTY_FILTERS: FilterState = {
   category: "",
@@ -80,14 +80,52 @@ function formatFilterSummary(filters: FilterState) {
   return parts.join(" | ");
 }
 
-export default function Home() {
+function HomeFallback() {
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:max-w-[1500px] lg:px-6">
+        <header className="rounded-2xl bg-white px-5 py-4 shadow-sm">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
+            PULSE
+          </p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+            Kocaeli Haber Haritasi
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Harita ve filtreler hazirlaniyor.
+          </p>
+        </header>
+
+        <section className="grid grid-cols-3 gap-3">
+          {[0, 1, 2].map((key) => (
+            <article
+              key={key}
+              className="rounded-xl bg-white px-4 py-3 shadow-sm"
+            >
+              <div className="h-4 w-20 rounded bg-slate-200" />
+              <div className="mt-3 h-8 w-14 rounded bg-slate-200" />
+            </article>
+          ))}
+        </section>
+
+        <section className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="min-h-[320px] rounded-2xl bg-white shadow-sm" />
+          <div className="min-h-[560px] rounded-2xl bg-white shadow-sm" />
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function HomeContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const initialFilters = filtersFromSearchParams(searchParams);
 
   const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
-  const [appliedFilters, setAppliedFilters] = useState<FilterState>(initialFilters);
+  const [appliedFilters, setAppliedFilters] =
+    useState<FilterState>(initialFilters);
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
 
   const {
@@ -157,8 +195,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 lg:h-dvh lg:overflow-hidden">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:h-full lg:max-w-[1500px] lg:overflow-hidden lg:px-6">
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:max-w-[1500px] lg:px-6">
         <header className="rounded-2xl bg-white px-5 py-4 shadow-sm">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
             PULSE
@@ -259,5 +297,13 @@ export default function Home() {
         </section>
       </main>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<HomeFallback />}>
+      <HomeContent />
+    </Suspense>
   );
 }

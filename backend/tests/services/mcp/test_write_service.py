@@ -83,18 +83,34 @@ def test_mock_insert_marks_idempotency():
     assert idem.is_duplicate(result.idempotency_key) is True
 
 
-def test_duplicate_returns_duplicate_merged():
+def test_duplicate_still_refreshes_existing_record():
     idem = DummyIdempotency()
-    req = _req()
+    req = _req("https://example.com/existing-refresh")
     idem_key = req.idempotency_key()
     idem.mark_processed(idem_key, "news_123")
+    mongo = FakeMongo(
+        raw_existing_doc={
+            "_id": "raw_existing_id",
+            "canonical_url": "https://example.com/existing-refresh",
+            "source_id": "source_doc_id",
+            "title_raw": "Test haber",
+            "text_raw": "icerik",
+            "content_raw": "icerik",
+            "published_at_raw": None,
+            "scraped_at": "scraped_now",
+            "updated_at": "updated_now",
+        },
+        source_record_existing_doc={"_id": "news_123", "raw_document_id": "raw_existing_id"},
+        raw_upserted_id=None,
+        source_record_upserted_id=None,
+    )
 
     svc = NewsWriteService(
         idempotency=idem,
         queue=WriteQueue(10, 3),
         dead_letter=DeadLetterStore(),
         config=_cfg(),
-        mongo_client=None,
+        mongo_client=mongo,
         materializer=DummyMaterializer(),
     )
 
@@ -103,6 +119,7 @@ def test_duplicate_returns_duplicate_merged():
     assert result.status == WriteStatus.DUPLICATE_MERGED
     assert result.news_id == "news_123"
     assert result.was_duplicate is True
+    assert mongo.raw_documents.last_filter["canonical_url"] == "https://example.com/existing-refresh"
 
 
 def test_fail_closed_queues_when_mongo_write_fails():
@@ -153,6 +170,51 @@ def test_process_queue_batch_processes_items_successfully():
     }
     assert queue.size == 0
     assert idem.is_duplicate(request.idempotency_key()) is True
+
+
+def test_process_queue_batch_duplicate_still_rewrites_existing_record():
+    idem = DummyIdempotency()
+    request = _req("https://example.com/queued-duplicate")
+    idem.mark_processed(request.idempotency_key(), "existing_news")
+    queue = WriteQueue(10, 3)
+    dead = DeadLetterStore()
+    queue.enqueue(request)
+    mongo = FakeMongo(
+        raw_existing_doc={
+            "_id": "raw_existing_id",
+            "canonical_url": "https://example.com/queued-duplicate",
+            "source_id": "source_doc_id",
+            "title_raw": "Test haber",
+            "text_raw": "icerik",
+            "content_raw": "icerik",
+            "published_at_raw": None,
+            "scraped_at": "scraped_now",
+            "updated_at": "updated_now",
+        },
+        source_record_existing_doc={"_id": "existing_news", "raw_document_id": "raw_existing_id"},
+        raw_upserted_id=None,
+        source_record_upserted_id=None,
+    )
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=queue,
+        dead_letter=dead,
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=DummyMaterializer(),
+    )
+
+    summary = svc.process_queue_batch(batch_size=10)
+
+    assert summary == {
+        "dequeued": 1,
+        "processed": 1,
+        "requeued": 0,
+        "dead_lettered": 0,
+    }
+    assert queue.size == 0
+    assert mongo.raw_documents.last_filter["canonical_url"] == "https://example.com/queued-duplicate"
 
 
 def test_process_queue_batch_requeues_when_write_still_fails():

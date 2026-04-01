@@ -1,29 +1,209 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
+import { useEffect, useRef, type MutableRefObject } from "react";
+import maplibregl, {
+  type GeoJSONSource,
+  type Map as MapLibreMap,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+export type NewsMapItem = {
+  id: string;
+  title: string;
+  summary?: string | null;
+  source_name: string;
+  source_domain: string;
+  url: string;
+  published_at_raw?: string | null;
+  category?: string | null;
+  category_confidence?: number | null;
+  district?: string | null;
+  geocode_status: string;
+  latitude: number;
+  longitude: number;
+};
 
 type MapViewProps = {
   className?: string;
   styleUrl?: string;
+  items?: NewsMapItem[];
+  onMarkerSelect?: (item: NewsMapItem) => void;
+};
+
+type NewsFeatureProperties = {
+  id: string;
+  title: string;
+  summary: string;
+  source_name: string;
+  source_domain: string;
+  url: string;
+  published_at_raw: string;
+  category: string;
+  district: string;
+  geocode_status: string;
 };
 
 const KOCAELI_CENTER: [number, number] = [29.9213, 40.7654];
 const INITIAL_ZOOM = 12;
 const BUILDING_SOURCE_ID = "openfreemap";
 const BUILDING_LAYER_ID = "kocaeli-3d-buildings";
+const NEWS_SOURCE_ID = "news-points";
+const NEWS_LAYER_ID = "news-point-circles";
 
 const DEFAULT_STYLE_URL =
   process.env.NEXT_PUBLIC_MAP_STYLE_URL ??
   "https://tiles.openfreemap.org/styles/liberty";
 
+function buildNewsFeatureCollection(items: NewsMapItem[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: items.map((item) => ({
+      type: "Feature" as const,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [item.longitude, item.latitude],
+      },
+      properties: {
+        id: item.id,
+        title: item.title,
+        summary: item.summary ?? "",
+        source_name: item.source_name,
+        source_domain: item.source_domain,
+        url: item.url,
+        published_at_raw: item.published_at_raw ?? "",
+        category: item.category ?? "",
+        district: item.district ?? "",
+        geocode_status: item.geocode_status,
+      },
+    })),
+  };
+}
+
+function ensureNewsLayer(map: MapLibreMap) {
+  const source = map.getSource(NEWS_SOURCE_ID) as GeoJSONSource | undefined;
+  if (!source) {
+    map.addSource(NEWS_SOURCE_ID, {
+      type: "geojson",
+      data: buildNewsFeatureCollection([]),
+    });
+  }
+
+  if (!map.getLayer(NEWS_LAYER_ID)) {
+    map.addLayer({
+      id: NEWS_LAYER_ID,
+      type: "circle",
+      source: NEWS_SOURCE_ID,
+      paint: {
+        "circle-radius": 7,
+        "circle-color": [
+          "match",
+          ["get", "category"],
+          "yangin",
+          "#dc2626",
+          "trafik_kazasi",
+          "#f97316",
+          "elektrik_kesintisi",
+          "#ca8a04",
+          "hirsizlik",
+          "#7c3aed",
+          "kulturel_etkinlik",
+          "#0284c7",
+          "#0f172a",
+        ],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
+        "circle-opacity": 0.9,
+      },
+    });
+  }
+}
+
+function updateNewsSource(map: MapLibreMap, items: NewsMapItem[]) {
+  const source = map.getSource(NEWS_SOURCE_ID) as GeoJSONSource | undefined;
+  if (!source) {
+    return;
+  }
+
+  source.setData(buildNewsFeatureCollection(items));
+}
+
+function bindNewsInteractions(
+  map: MapLibreMap,
+  popupRef: MutableRefObject<maplibregl.Popup | null>,
+  itemsRef: MutableRefObject<NewsMapItem[]>,
+  onMarkerSelectRef: MutableRefObject<((item: NewsMapItem) => void) | undefined>,
+) {
+  if (map.getLayer(NEWS_LAYER_ID) === undefined) {
+    return;
+  }
+
+  map.on("mouseenter", NEWS_LAYER_ID, () => {
+    map.getCanvas().style.cursor = "pointer";
+  });
+
+  map.on("mouseleave", NEWS_LAYER_ID, () => {
+    map.getCanvas().style.cursor = "";
+  });
+
+  map.on("click", NEWS_LAYER_ID, (event) => {
+    const feature = event.features?.[0];
+    if (!feature || feature.geometry.type !== "Point") {
+      return;
+    }
+
+    const properties = feature.properties as unknown as NewsFeatureProperties;
+    const coordinates = [...feature.geometry.coordinates] as [number, number];
+
+    popupRef.current?.remove();
+
+    const popupContent = document.createElement("div");
+    popupContent.className = "space-y-2 text-slate-900";
+
+    const title = document.createElement("h3");
+    title.className = "text-sm font-semibold";
+    title.textContent = properties.title;
+
+    const date = document.createElement("p");
+    date.className = "text-xs text-slate-500";
+    date.textContent = properties.published_at_raw || "Tarih yok";
+
+    popupContent.append(title, date);
+
+    popupRef.current = new maplibregl.Popup({
+      closeButton: true,
+      offset: 14,
+      maxWidth: "280px",
+    })
+      .setLngLat(coordinates)
+      .setDOMContent(popupContent)
+      .addTo(map);
+
+    const selectedItem = itemsRef.current.find((item) => item.id === properties.id);
+    if (selectedItem) {
+      onMarkerSelectRef.current?.(selectedItem);
+    }
+  });
+}
+
 export default function MapView({
   className = "h-full w-full",
   styleUrl = DEFAULT_STYLE_URL,
+  items = [],
+  onMarkerSelect,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const popupRef = useRef<maplibregl.Popup | null>(null);
+  const itemsRef = useRef(items);
+  const onMarkerSelectRef = useRef(onMarkerSelect);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    onMarkerSelectRef.current = onMarkerSelect;
+  }, [onMarkerSelect]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -116,6 +296,10 @@ export default function MapView({
             labelLayerId,
           );
         }
+
+        ensureNewsLayer(map);
+        updateNewsSource(map, itemsRef.current);
+        bindNewsInteractions(map, popupRef, itemsRef, onMarkerSelectRef);
       };
 
       void initializeLayers();
@@ -126,6 +310,16 @@ export default function MapView({
       mapRef.current = null;
     };
   }, [styleUrl]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) {
+      return;
+    }
+
+    ensureNewsLayer(map);
+    updateNewsSource(map, items);
+  }, [items]);
 
   return <div ref={containerRef} className={className} />;
 }

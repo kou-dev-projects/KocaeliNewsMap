@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import FilterSidebar, {
@@ -39,13 +39,60 @@ const DISTRICT_LABELS: Record<string, string> = {
   derince: "Derince",
 };
 
-function filtersFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParams) {
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+
+type NewsStats = {
+  total: number;
+  geocoded_total: number;
+  last_24h_total: number;
+  active_sources: number;
+  categories: Array<{ key: string; count: number }>;
+  districts: Array<{ key: string; count: number }>;
+};
+
+const EMPTY_STATS: NewsStats = {
+  total: 0,
+  geocoded_total: 0,
+  last_24h_total: 0,
+  active_sources: 0,
+  categories: [],
+  districts: [],
+};
+
+type SearchParamsLike = {
+  get(name: string): string | null;
+};
+
+function filtersFromSearchParams(searchParams: SearchParamsLike) {
   return {
     category: searchParams.get("category") ?? "",
     district: searchParams.get("district") ?? "",
     dateFrom: searchParams.get("date_from") ?? "",
     dateTo: searchParams.get("date_to") ?? "",
   };
+}
+
+function buildStatsUrl(filters: FilterState) {
+  const url = new URL("/api/v1/news/stats", API_BASE_URL);
+
+  if (filters.category) {
+    url.searchParams.set("category", filters.category);
+  }
+
+  if (filters.district) {
+    url.searchParams.set("district", filters.district);
+  }
+
+  if (filters.dateFrom) {
+    url.searchParams.set("date_from", filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    url.searchParams.set("date_to", filters.dateTo);
+  }
+
+  return url.toString();
 }
 
 function formatFilterSummary(filters: FilterState) {
@@ -80,6 +127,50 @@ export default function Home() {
 
   const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(initialFilters);
+  const [stats, setStats] = useState<NewsStats>(EMPTY_STATS);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchStats = async () => {
+      setStatsLoading(true);
+      setStatsError("");
+
+      try {
+        const response = await fetch(buildStatsUrl(appliedFilters), {
+          method: "GET",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Stats request failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as NewsStats;
+        setStats(payload);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        console.error("Stats could not be loaded.", error);
+        setStats(EMPTY_STATS);
+        setStatsError("Istatistikler su anda yuklenemedi.");
+      } finally {
+        if (!controller.signal.aborted) {
+          setStatsLoading(false);
+        }
+      }
+    };
+
+    void fetchStats();
+
+    return () => {
+      controller.abort();
+    };
+  }, [appliedFilters]);
 
   const handleDraftChange = (field: keyof FilterState, value: string) => {
     setDraftFilters((current) => ({
@@ -149,19 +240,31 @@ export default function Home() {
             <h2 className="text-sm font-semibold text-slate-500">
               Toplam Haber
             </h2>
-            <p className="mt-2 text-2xl font-bold">--</p>
+            <p className="mt-2 text-2xl font-bold">
+              {statsLoading ? "--" : stats.total}
+            </p>
           </article>
           <article className="rounded-xl bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-500">
               Aktif Kaynak
             </h2>
-            <p className="mt-2 text-2xl font-bold">--</p>
+            <p className="mt-2 text-2xl font-bold">
+              {statsLoading ? "--" : stats.active_sources}
+            </p>
           </article>
           <article className="rounded-xl bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">Son Crawl</h2>
-            <p className="mt-2 text-2xl font-bold">--</p>
+            <h2 className="text-sm font-semibold text-slate-500">Son 24 Saat</h2>
+            <p className="mt-2 text-2xl font-bold">
+              {statsLoading ? "--" : stats.last_24h_total}
+            </p>
           </article>
         </section>
+
+        {statsError ? (
+          <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {statsError}
+          </section>
+        ) : null}
 
         <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
           <FilterSidebar

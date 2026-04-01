@@ -1,4 +1,25 @@
-export default function FilterSidebar() {
+type FilterState = {
+  category: string;
+  district: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+type FilterSidebarProps = {
+  values: FilterState;
+  onChange: (field: keyof FilterState, value: string) => void;
+  onApply: () => void;
+  onReset: () => void;
+};
+
+export type { FilterState };
+
+export default function FilterSidebar({
+  values,
+  onChange,
+  onApply,
+  onReset,
+}: FilterSidebarProps) {
   return (
     <aside className="rounded-2xl bg-white p-6 shadow-sm lg:sticky lg:top-6">
       <div className="flex items-start justify-between gap-4">
@@ -27,7 +48,8 @@ export default function FilterSidebar() {
           <select
             id="category"
             className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-sky-500"
-            defaultValue=""
+            value={values.category}
+            onChange={(event) => onChange("category", event.target.value)}
           >
             <option value="">Tum kategoriler</option>
             <option value="trafik_kazasi">Trafik Kazasi</option>
@@ -48,7 +70,8 @@ export default function FilterSidebar() {
           <select
             id="district"
             className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-sky-500"
-            defaultValue=""
+            value={values.district}
+            onChange={(event) => onChange("district", event.target.value)}
           >
             <option value="">Tum ilceler</option>
             <option value="izmit">Izmit</option>
@@ -82,6 +105,8 @@ export default function FilterSidebar() {
                 id="date-from"
                 type="date"
                 className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-sky-500"
+                value={values.dateFrom}
+                onChange={(event) => onChange("dateFrom", event.target.value)}
               />
             </div>
 
@@ -96,6 +121,8 @@ export default function FilterSidebar() {
                 id="date-to"
                 type="date"
                 className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-sky-500"
+                value={values.dateTo}
+                onChange={(event) => onChange("dateTo", event.target.value)}
               />
             </div>
           </div>
@@ -103,10 +130,18 @@ export default function FilterSidebar() {
       </div>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
-        <button className="inline-flex items-center justify-center rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-800">
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-800"
+          onClick={onApply}
+        >
           Uygula
         </button>
-        <button className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          onClick={onReset}
+        >
           Temizle
         </button>
       </div>

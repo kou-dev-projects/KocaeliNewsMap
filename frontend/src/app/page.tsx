@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import FilterSidebar, {
   type FilterState,
 } from "@/components/filters/FilterSidebar";
-import MapView from "@/components/map/MapView";
+import MapView, { type NewsMapItem } from "@/components/map/MapView";
 
 const EMPTY_FILTERS: FilterState = {
   category: "",
@@ -51,6 +51,11 @@ type NewsStats = {
   districts: Array<{ key: string; count: number }>;
 };
 
+type NewsMapResponse = {
+  items: NewsMapItem[];
+  total: number;
+};
+
 const EMPTY_STATS: NewsStats = {
   total: 0,
   geocoded_total: 0,
@@ -58,6 +63,11 @@ const EMPTY_STATS: NewsStats = {
   active_sources: 0,
   categories: [],
   districts: [],
+};
+
+const EMPTY_MAP_RESPONSE: NewsMapResponse = {
+  items: [],
+  total: 0,
 };
 
 type SearchParamsLike = {
@@ -91,6 +101,30 @@ function buildStatsUrl(filters: FilterState) {
   if (filters.dateTo) {
     url.searchParams.set("date_to", filters.dateTo);
   }
+
+  return url.toString();
+}
+
+function buildMapUrl(filters: FilterState) {
+  const url = new URL("/api/v1/news/map", API_BASE_URL);
+
+  if (filters.category) {
+    url.searchParams.set("category", filters.category);
+  }
+
+  if (filters.district) {
+    url.searchParams.set("district", filters.district);
+  }
+
+  if (filters.dateFrom) {
+    url.searchParams.set("date_from", filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    url.searchParams.set("date_to", filters.dateTo);
+  }
+
+  url.searchParams.set("limit", "500");
 
   return url.toString();
 }
@@ -130,6 +164,9 @@ export default function Home() {
   const [stats, setStats] = useState<NewsStats>(EMPTY_STATS);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState("");
+  const [mapData, setMapData] = useState<NewsMapResponse>(EMPTY_MAP_RESPONSE);
+  const [mapLoading, setMapLoading] = useState(true);
+  const [mapError, setMapError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -166,6 +203,47 @@ export default function Home() {
     };
 
     void fetchStats();
+
+    return () => {
+      controller.abort();
+    };
+  }, [appliedFilters]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchMapNews = async () => {
+      setMapLoading(true);
+      setMapError("");
+
+      try {
+        const response = await fetch(buildMapUrl(appliedFilters), {
+          method: "GET",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Map request failed with status ${response.status}`);
+        }
+
+        const payload = (await response.json()) as NewsMapResponse;
+        setMapData(payload);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        console.error("Map news could not be loaded.", error);
+        setMapData(EMPTY_MAP_RESPONSE);
+        setMapError("Harita verileri su anda yuklenemedi.");
+      } finally {
+        if (!controller.signal.aborted) {
+          setMapLoading(false);
+        }
+      }
+    };
+
+    void fetchMapNews();
 
     return () => {
       controller.abort();
@@ -291,10 +369,24 @@ export default function Home() {
               <p className="mt-2 text-sm text-slate-700">
                 {formatFilterSummary(appliedFilters)}
               </p>
+              <p className="mt-2 text-xs text-slate-500">
+                {mapLoading
+                  ? "Harita haberleri yukleniyor..."
+                  : `${mapData.total} geocoded haber haritada gosteriliyor.`}
+              </p>
             </div>
 
+            {mapError ? (
+              <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {mapError}
+              </section>
+            ) : null}
+
             <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200">
-              <MapView className="h-full min-h-[460px] w-full" />
+              <MapView
+                className="h-full min-h-[460px] w-full"
+                items={mapData.items}
+              />
             </div>
           </article>
         </section>

@@ -37,7 +37,18 @@ class NERService:
         gazetteer_matches = self._gazetteer_pass(text)
 
         # 2) NER provider — gazetteer'in kaçırdıklarını yakala
-        ner_entities = self._provider.extract_entities(text)
+        try:
+            ner_entities = self._provider.extract_entities(text)
+        except Exception as exc:
+            logger.warning(
+                "ner.service.provider_failed",
+                extra={
+                    "provider": self._provider.name,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "gazetteer_hits": len(gazetteer_matches),
+                },
+            )
+            ner_entities = []
 
         # 3) Birleştir ve validate et
         location_candidates, validated_districts = self._merge_and_validate(

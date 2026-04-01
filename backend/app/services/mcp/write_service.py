@@ -43,15 +43,12 @@ class NewsWriteService:
         if self._idempotency.is_duplicate(idem_key):
             existing_id = self._idempotency.get_existing_id(idem_key)
             logger.info(
-                "mcp.write.idempotency_hit",
-                extra={"idem_key": idem_key[:16], "existing_id": existing_id},
-            )
-            return WriteResult(
-                status=WriteStatus.DUPLICATE_MERGED,
-                news_id=existing_id,
-                was_duplicate=True,
-                idempotency_key=idem_key,
-                reason="idempotency_cache_hit",
+                "mcp.write.idempotency_refresh",
+                extra={
+                    "idem_key": idem_key[:16],
+                    "existing_id": existing_id,
+                    "reason": "recompute_materialized_record",
+                },
             )
 
         error_message: str | None = None
@@ -94,8 +91,10 @@ class NewsWriteService:
             idem_key = request.idempotency_key()
 
             if self._idempotency.is_duplicate(idem_key):
-                summary["processed"] += 1
-                continue
+                logger.info(
+                    "mcp.write.queue_idempotency_refresh",
+                    extra={"idem_key": idem_key[:16]},
+                )
 
             try:
                 self._mongo_write(request, idem_key)

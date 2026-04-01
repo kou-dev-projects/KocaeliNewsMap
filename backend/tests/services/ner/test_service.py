@@ -80,3 +80,23 @@ def test_neighborhood_does_not_inherit_previous_district():
     )
 
     assert neighborhood_candidate.district is None
+
+
+class ExplodingProvider:
+    @property
+    def name(self):
+        return "exploding-ner"
+
+    def extract_entities(self, text: str):
+        raise RuntimeError("provider unavailable")
+
+
+def test_gazetteer_results_survive_provider_failure():
+    service = NERService(provider=ExplodingProvider(), min_score=0.5)
+
+    result = service.extract_locations(
+        NERInput(title="Gebze'de fabrika yangÄ±nÄ±")
+    )
+
+    assert "Gebze" in result.validated_districts
+    assert any(candidate.district == "Gebze" for candidate in result.location_candidates)

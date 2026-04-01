@@ -1,19 +1,19 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import type { FilterState } from "@/components/filters/FilterSidebar";
 import {
-  EMPTY_STATS,
   fetchNewsStats,
   type NewsStats,
 } from "@/lib/news-api";
+import { newsKeys } from "@/lib/news-query-keys";
 
 export function useNewsStats(filters: FilterState) {
   return useQuery<NewsStats>({
-    queryKey: ["news-stats", filters],
+    queryKey: newsKeys.stats(filters),
     queryFn: () => fetchNewsStats(filters),
-    placeholderData: EMPTY_STATS,
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 }

@@ -8,7 +8,7 @@ import FilterSidebar, {
 } from "@/components/filters/FilterSidebar";
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
-import { EMPTY_STATS } from "@/lib/news-api";
+import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
 import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
 
@@ -97,7 +97,7 @@ export default function Home() {
   } = useNewsStats(appliedFilters);
 
   const {
-    data: mapData,
+    data: mapData = EMPTY_MAP_RESPONSE,
     isLoading: mapLoading,
     isError: mapIsError,
   } = useNewsMap(appliedFilters);

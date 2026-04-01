@@ -1,19 +1,19 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import type { FilterState } from "@/components/filters/FilterSidebar";
 import {
-  EMPTY_MAP_RESPONSE,
   fetchNewsMap,
   type NewsMapResponse,
 } from "@/lib/news-api";
+import { newsKeys } from "@/lib/news-query-keys";
 
 export function useNewsMap(filters: FilterState) {
   return useQuery<NewsMapResponse>({
-    queryKey: ["news-map", filters],
+    queryKey: newsKeys.map(filters),
     queryFn: () => fetchNewsMap(filters),
-    placeholderData: EMPTY_MAP_RESPONSE,
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 }

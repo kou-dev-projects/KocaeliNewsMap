@@ -21,24 +21,24 @@ export default function FilterSidebar({
   onReset,
 }: FilterSidebarProps) {
   return (
-    <aside className="rounded-2xl bg-white p-6 shadow-sm lg:sticky lg:top-6">
+    <aside className="rounded-2xl bg-white p-4 shadow-sm lg:sticky lg:top-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">
             Filtreler
           </p>
-          <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          <h2 className="mt-2 text-xl font-bold tracking-tight text-slate-900">
             Harita Kontrolleri
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-xs leading-5 text-slate-600">
             Haritadaki haberleri tur, ilce ve tarih araligina gore daraltmak
             icin filtreleri kullanin.
           </p>
         </div>
       </div>
 
-      <div className="mt-6 space-y-5">
-        <section className="rounded-xl border border-slate-200 p-4">
+      <div className="mt-4 space-y-4">
+        <section className="rounded-xl border border-slate-200 p-3">
           <label
             htmlFor="category"
             className="text-sm font-semibold text-slate-800"
@@ -60,7 +60,7 @@ export default function FilterSidebar({
           </select>
         </section>
 
-        <section className="rounded-xl border border-slate-200 p-4">
+        <section className="rounded-xl border border-slate-200 p-3">
           <label
             htmlFor="district"
             className="text-sm font-semibold text-slate-800"
@@ -90,7 +90,7 @@ export default function FilterSidebar({
           </select>
         </section>
 
-        <section className="rounded-xl border border-slate-200 p-4">
+        <section className="rounded-xl border border-slate-200 p-3">
           <p className="text-sm font-semibold text-slate-800">Tarih Araligi</p>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
@@ -129,7 +129,7 @@ export default function FilterSidebar({
         </section>
       </div>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row lg:flex-col">
         <button
           type="button"
           className="inline-flex items-center justify-center rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-800"

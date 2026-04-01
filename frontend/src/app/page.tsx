@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import FilterSidebar, {
   type FilterState,
 } from "@/components/filters/FilterSidebar";
+import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
 
 const EMPTY_FILTERS: FilterState = {
@@ -167,6 +168,7 @@ export default function Home() {
   const [mapData, setMapData] = useState<NewsMapResponse>(EMPTY_MAP_RESPONSE);
   const [mapLoading, setMapLoading] = useState(true);
   const [mapError, setMapError] = useState("");
+  const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -208,6 +210,17 @@ export default function Home() {
       controller.abort();
     };
   }, [appliedFilters]);
+
+  useEffect(() => {
+    if (!selectedNews) {
+      return;
+    }
+
+    const stillVisible = mapData.items.some((item) => item.id === selectedNews.id);
+    if (!stillVisible) {
+      setSelectedNews(null);
+    }
+  }, [mapData.items, selectedNews]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -298,13 +311,13 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <header className="rounded-2xl bg-white p-6 shadow-sm">
+    <div className="min-h-screen bg-slate-100 text-slate-900 lg:h-dvh lg:overflow-hidden">
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:h-full lg:max-w-[1500px] lg:overflow-hidden lg:px-6">
+        <header className="rounded-2xl bg-white px-5 py-4 shadow-sm">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
             PULSE
           </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">
+          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
             Kocaeli Haber Haritasi
           </h1>
           <p className="mt-2 text-sm text-slate-600">
@@ -313,26 +326,26 @@ export default function Home() {
           </p>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <article className="rounded-xl bg-white p-5 shadow-sm">
+        <section className="grid gap-3 grid-cols-3">
+          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-500">
               Toplam Haber
             </h2>
-            <p className="mt-2 text-2xl font-bold">
+            <p className="mt-1 text-xl font-bold sm:text-2xl">
               {statsLoading ? "--" : stats.total}
             </p>
           </article>
-          <article className="rounded-xl bg-white p-5 shadow-sm">
+          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-500">
               Aktif Kaynak
             </h2>
-            <p className="mt-2 text-2xl font-bold">
+            <p className="mt-1 text-xl font-bold sm:text-2xl">
               {statsLoading ? "--" : stats.active_sources}
             </p>
           </article>
-          <article className="rounded-xl bg-white p-5 shadow-sm">
+          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-500">Son 24 Saat</h2>
-            <p className="mt-2 text-2xl font-bold">
+            <p className="mt-1 text-xl font-bold sm:text-2xl">
               {statsLoading ? "--" : stats.last_24h_total}
             </p>
           </article>
@@ -344,7 +357,7 @@ export default function Home() {
           </section>
         ) : null}
 
-        <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <section className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
           <FilterSidebar
             values={draftFilters}
             onChange={handleDraftChange}
@@ -352,7 +365,7 @@ export default function Home() {
             onReset={handleResetFilters}
           />
 
-          <article className="flex min-h-[560px] flex-col rounded-2xl bg-white p-6 shadow-sm">
+          <article className="flex min-h-[560px] flex-col rounded-2xl bg-white p-4 shadow-sm lg:min-h-0 lg:overflow-hidden">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-semibold">Harita Gorunumu</h2>
@@ -382,10 +395,18 @@ export default function Home() {
               </section>
             ) : null}
 
-            <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200">
-              <MapView
-                className="h-full min-h-[460px] w-full"
-                items={mapData.items}
+            <div className="mt-4 grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-h-0 overflow-hidden rounded-xl border border-slate-200">
+                <MapView
+                  className="h-[360px] w-full sm:h-[420px] lg:h-full"
+                  items={mapData.items}
+                  onMarkerSelect={setSelectedNews}
+                />
+              </div>
+
+              <InfoCard
+                item={selectedNews}
+                className="lg:min-h-0 lg:overflow-auto"
               />
             </div>
           </article>

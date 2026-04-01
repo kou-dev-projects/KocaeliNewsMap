@@ -89,3 +89,15 @@ export async function fetchNewsStats(filters: FilterState): Promise<NewsStats> {
 
   return (await response.json()) as NewsStats;
 }
+
+export async function fetchNewsMap(filters: FilterState): Promise<NewsMapResponse> {
+  const response = await fetch(buildMapUrl(filters), {
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Map request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as NewsMapResponse;
+}

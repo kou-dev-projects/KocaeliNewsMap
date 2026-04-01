@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import FilterSidebar, {
@@ -8,12 +8,8 @@ import FilterSidebar, {
 } from "@/components/filters/FilterSidebar";
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
-import {
-  buildMapUrl,
-  EMPTY_MAP_RESPONSE,
-  EMPTY_STATS,
-  type NewsMapResponse,
-} from "@/lib/news-api";
+import { EMPTY_STATS } from "@/lib/news-api";
+import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
 
 const EMPTY_FILTERS: FilterState = {
@@ -92,9 +88,6 @@ export default function Home() {
 
   const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState<FilterState>(initialFilters);
-  const [mapData, setMapData] = useState<NewsMapResponse>(EMPTY_MAP_RESPONSE);
-  const [mapLoading, setMapLoading] = useState(true);
-  const [mapError, setMapError] = useState("");
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
 
   const {
@@ -103,59 +96,18 @@ export default function Home() {
     isError: statsIsError,
   } = useNewsStats(appliedFilters);
 
+  const {
+    data: mapData,
+    isLoading: mapLoading,
+    isError: mapIsError,
+  } = useNewsMap(appliedFilters);
+
   const statsError = statsIsError ? "Istatistikler su anda yuklenemedi." : "";
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const fetchMapNews = async () => {
-      setMapLoading(true);
-      setMapError("");
-
-      try {
-        const response = await fetch(buildMapUrl(appliedFilters), {
-          method: "GET",
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Map request failed with status ${response.status}`);
-        }
-
-        const payload = (await response.json()) as NewsMapResponse;
-        setMapData(payload);
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        console.error("Map news could not be loaded.", error);
-        setMapData(EMPTY_MAP_RESPONSE);
-        setMapError("Harita verileri su anda yuklenemedi.");
-      } finally {
-        if (!controller.signal.aborted) {
-          setMapLoading(false);
-        }
-      }
-    };
-
-    void fetchMapNews();
-
-    return () => {
-      controller.abort();
-    };
-  }, [appliedFilters]);
-
-  useEffect(() => {
-    if (!selectedNews) {
-      return;
-    }
-
-    const stillVisible = mapData.items.some((item) => item.id === selectedNews.id);
-    if (!stillVisible) {
-      setSelectedNews(null);
-    }
-  }, [mapData.items, selectedNews]);
+  const mapError = mapIsError ? "Harita verileri su anda yuklenemedi." : "";
+  const visibleSelectedNews =
+    selectedNews && mapData.items.some((item) => item.id === selectedNews.id)
+      ? selectedNews
+      : null;
 
   const handleDraftChange = (field: keyof FilterState, value: string) => {
     setDraftFilters((current) => ({
@@ -299,7 +251,7 @@ export default function Home() {
               </div>
 
               <InfoCard
-                item={selectedNews}
+                item={visibleSelectedNews}
                 className="lg:min-h-0 lg:overflow-auto"
               />
             </div>

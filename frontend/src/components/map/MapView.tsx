@@ -160,19 +160,11 @@ function bindNewsInteractions(
     title.className = "text-sm font-semibold";
     title.textContent = properties.title;
 
-    const meta = document.createElement("p");
-    meta.className = "text-xs text-slate-600";
-    meta.textContent = [
-      properties.source_name || properties.source_domain,
-      properties.district || "Ilce yok",
-      properties.category || "Kategori yok",
-    ].join(" • ");
-
     const date = document.createElement("p");
     date.className = "text-xs text-slate-500";
     date.textContent = properties.published_at_raw || "Tarih yok";
 
-    popupContent.append(title, meta, date);
+    popupContent.append(title, date);
 
     popupRef.current = new maplibregl.Popup({
       closeButton: true,

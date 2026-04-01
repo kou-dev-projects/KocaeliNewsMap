@@ -26,6 +26,73 @@ function formatCategory(category?: string | null) {
   }
 }
 
+function formatDistrict(district?: string | null) {
+  switch (district) {
+    case "izmit":
+      return "Izmit";
+    case "gebze":
+      return "Gebze";
+    case "darica":
+      return "Darica";
+    case "golcuk":
+      return "Golcuk";
+    case "hereke":
+      return "Hereke";
+    case "korfez":
+      return "Korfez";
+    case "kartepe":
+      return "Kartepe";
+    case "basiskele":
+      return "Basiskele";
+    case "cayirova":
+      return "Cayirova";
+    case "dilovasi":
+      return "Dilovasi";
+    case "kandira":
+      return "Kandira";
+    case "karamursel":
+      return "Karamursel";
+    case "derince":
+      return "Derince";
+    default:
+      return "--";
+  }
+}
+
+function formatGeocodeStatus(status: string) {
+  switch (status) {
+    case "resolved":
+      return "Dogrulanmis konum";
+    case "approximate":
+      return "Yaklasik konum";
+    case "pending":
+      return "Konum bekleniyor";
+    case "failed":
+      return "Konum cozulmedi";
+    default:
+      return status || "--";
+  }
+}
+
+function formatPublishedAt(value?: string | null) {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default function InfoCard({
   item,
   className = "",
@@ -35,19 +102,17 @@ export default function InfoCard({
       <section
         className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-              Haber Detayi
-            </p>
-            <h3 className="mt-2 text-lg font-semibold text-slate-900">
-              Haritadan bir haber secin
-            </h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Bir marker secildiginde basit detaylar burada gosterilecek ve
-              haberi kaynak sitesinde acabileceksin.
-            </p>
-          </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
+            Haber Detayi
+          </p>
+          <h3 className="mt-2 text-lg font-semibold text-slate-900">
+            Haritadan bir haber secin
+          </h3>
+          <p className="mt-2 text-sm text-slate-600">
+            Bir marker secildiginde kontrol icin gereken temel detaylar burada
+            gosterilecek.
+          </p>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -79,11 +144,11 @@ export default function InfoCard({
 
         <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Ozet
+            Konum Bilgisi
           </p>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Haritadaki bir haber secildiginde, temel detaylar bu alanda
-            gosterilecek.
+            Haritadaki bir haber secildiginde kontrol icin gereken bilgiler bu
+            alanda gosterilecek.
           </p>
         </div>
       </section>
@@ -123,7 +188,7 @@ export default function InfoCard({
             Ilce
           </p>
           <p className="mt-2 text-sm font-medium text-slate-900">
-            {item.district || "--"}
+            {formatDistrict(item.district)}
           </p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
@@ -131,7 +196,7 @@ export default function InfoCard({
             Tarih
           </p>
           <p className="mt-2 text-sm font-medium text-slate-900">
-            {item.published_at_raw || "--"}
+            {formatPublishedAt(item.published_at_raw)}
           </p>
         </div>
       </div>
@@ -141,7 +206,8 @@ export default function InfoCard({
           Konum Bilgisi
         </p>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Bu haber haritada <span className="font-medium">{item.geocode_status}</span>{" "}
+          Bu haber haritada{" "}
+          <span className="font-medium">{formatGeocodeStatus(item.geocode_status)}</span>{" "}
           durumunda gosteriliyor.
         </p>
       </div>

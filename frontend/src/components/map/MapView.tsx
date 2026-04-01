@@ -44,15 +44,6 @@ export default function MapView({
     map.addControl(new maplibregl.NavigationControl(), "top-right");
 
     map.on("load", () => {
-      map.flyTo({
-        center: KOCAELI_CENTER,
-        zoom: INITIAL_ZOOM,
-        pitch: 45,
-        bearing: -8,
-        duration: 2500,
-        essential: true,
-      });
-
       const labelLayerId = map
         .getStyle()
         .layers?.find(
@@ -61,60 +52,73 @@ export default function MapView({
             typeof layer.layout?.["text-field"] !== "undefined",
         )?.id;
 
-      if (!map.getSource(BUILDING_SOURCE_ID)) {
-        map.addSource(BUILDING_SOURCE_ID, {
-          type: "vector",
-          url: "https://tiles.openfreemap.org/planet",
+      const initializeLayers = async () => {
+        map.flyTo({
+          center: KOCAELI_CENTER,
+          zoom: INITIAL_ZOOM,
+          pitch: 45,
+          bearing: -8,
+          duration: 2500,
+          essential: true,
         });
-      }
 
-      if (!map.getLayer(BUILDING_LAYER_ID)) {
-        map.addLayer(
-          {
-            id: BUILDING_LAYER_ID,
-            type: "fill-extrusion",
-            source: BUILDING_SOURCE_ID,
-            "source-layer": "building",
-            minzoom: 15,
-            filter: ["!=", ["get", "hide_3d"], true],
-            paint: {
-              "fill-extrusion-color": [
-                "interpolate",
-                ["linear"],
-                ["coalesce", ["get", "render_height"], 0],
-                0,
-                "#334155",
-                120,
-                "#475569",
-                250,
-                "#94a3b8",
-                500,
-                "#cbd5e1",
-              ],
-              "fill-extrusion-opacity": 0.82,
-              "fill-extrusion-height": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                15,
-                0,
-                16,
-                ["coalesce", ["get", "render_height"], 0],
-              ],
-              "fill-extrusion-base": [
-                "interpolate",
-                ["linear"],
-                ["zoom"],
-                15,
-                0,
-                16,
-                ["coalesce", ["get", "render_min_height"], 0],
-              ],
+        if (!map.getSource(BUILDING_SOURCE_ID)) {
+          map.addSource(BUILDING_SOURCE_ID, {
+            type: "vector",
+            url: "https://tiles.openfreemap.org/planet",
+          });
+        }
+
+        if (!map.getLayer(BUILDING_LAYER_ID)) {
+          map.addLayer(
+            {
+              id: BUILDING_LAYER_ID,
+              type: "fill-extrusion",
+              source: BUILDING_SOURCE_ID,
+              "source-layer": "building",
+              minzoom: 15,
+              filter: ["!=", ["get", "hide_3d"], true],
+              paint: {
+                "fill-extrusion-color": [
+                  "interpolate",
+                  ["linear"],
+                  ["coalesce", ["get", "render_height"], 0],
+                  0,
+                  "#334155",
+                  120,
+                  "#475569",
+                  250,
+                  "#94a3b8",
+                  500,
+                  "#cbd5e1",
+                ],
+                "fill-extrusion-opacity": 0.82,
+                "fill-extrusion-height": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  15,
+                  0,
+                  16,
+                  ["coalesce", ["get", "render_height"], 0],
+                ],
+                "fill-extrusion-base": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  15,
+                  0,
+                  16,
+                  ["coalesce", ["get", "render_min_height"], 0],
+                ],
+              },
             },
-          },
-          labelLayerId,
-        );
-      }
+            labelLayerId,
+          );
+        }
+      };
+
+      void initializeLayers();
     });
 
     return () => {

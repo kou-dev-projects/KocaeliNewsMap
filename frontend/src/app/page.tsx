@@ -2,8 +2,8 @@ import MapView from "@/components/map/MapView";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="h-dvh overflow-hidden bg-slate-100 text-slate-900">
+      <main className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
         <header className="rounded-2xl bg-white p-6 shadow-sm">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
             PULSE
@@ -36,9 +36,9 @@ export default function Home() {
           </article>
         </section>
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold">Harita Görünümü</h2>
-          <div className="mt-4 h-[480px] overflow-hidden rounded-xl border border-slate-200">
+          <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200">
             <MapView className="h-full w-full" />
           </div>
         </section>

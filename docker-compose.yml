@@ -82,6 +82,9 @@ services:
       - backend
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - API_INTERNAL_URL=http://backend:8000
+      - SCRAPE_EVENTS_API_KEY=${SCRAPE_EVENTS_API_KEY:-}
+      - SCRAPE_TRIGGER_API_KEY=${SCRAPE_TRIGGER_API_KEY:-}
     volumes:
       - ./frontend:/app
       - /app/node_modules

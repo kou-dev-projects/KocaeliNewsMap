@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import FilterSidebar, {
   type FilterState,
@@ -38,6 +39,15 @@ const DISTRICT_LABELS: Record<string, string> = {
   derince: "Derince",
 };
 
+function filtersFromSearchParams(searchParams: URLSearchParams | ReadonlyURLSearchParams) {
+  return {
+    category: searchParams.get("category") ?? "",
+    district: searchParams.get("district") ?? "",
+    dateFrom: searchParams.get("date_from") ?? "",
+    dateTo: searchParams.get("date_to") ?? "",
+  };
+}
+
 function formatFilterSummary(filters: FilterState) {
   const parts: string[] = [];
 
@@ -63,8 +73,13 @@ function formatFilterSummary(filters: FilterState) {
 }
 
 export default function Home() {
-  const [draftFilters, setDraftFilters] = useState<FilterState>(EMPTY_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState<FilterState>(EMPTY_FILTERS);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const initialFilters = filtersFromSearchParams(searchParams);
+
+  const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
+  const [appliedFilters, setAppliedFilters] = useState<FilterState>(initialFilters);
 
   const handleDraftChange = (field: keyof FilterState, value: string) => {
     setDraftFilters((current) => ({
@@ -75,11 +90,42 @@ export default function Home() {
 
   const handleApplyFilters = () => {
     setAppliedFilters(draftFilters);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+
+    if (draftFilters.category) {
+      nextParams.set("category", draftFilters.category);
+    } else {
+      nextParams.delete("category");
+    }
+
+    if (draftFilters.district) {
+      nextParams.set("district", draftFilters.district);
+    } else {
+      nextParams.delete("district");
+    }
+
+    if (draftFilters.dateFrom) {
+      nextParams.set("date_from", draftFilters.dateFrom);
+    } else {
+      nextParams.delete("date_from");
+    }
+
+    if (draftFilters.dateTo) {
+      nextParams.set("date_to", draftFilters.dateTo);
+    } else {
+      nextParams.delete("date_to");
+    }
+
+    const nextQuery = nextParams.toString();
+    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    router.replace(nextUrl, { scroll: false });
   };
 
   const handleResetFilters = () => {
     setDraftFilters(EMPTY_FILTERS);
     setAppliedFilters(EMPTY_FILTERS);
+    router.replace(pathname, { scroll: false });
   };
 
   return (

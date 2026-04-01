@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import logging
+import re
 from typing import Optional
 
 from .districts import recover_district_name
@@ -33,15 +35,24 @@ class NERService:
                 provider=self._provider.name,
             )
 
-        # 1) Gazetteer-first — tokenları sözlükte ara
         gazetteer_matches = self._gazetteer_pass(text)
 
-        # 2) NER provider — gazetteer'in kaçırdıklarını yakala
-        ner_entities = self._provider.extract_entities(text)
+        try:
+            ner_entities = self._provider.extract_entities(text)
+        except Exception as exc:
+            logger.warning(
+                "ner.service.provider_failed",
+                extra={
+                    "provider": self._provider.name,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "gazetteer_hits": len(gazetteer_matches),
+                },
+            )
+            ner_entities = []
 
-        # 3) Birleştir ve validate et
         location_candidates, validated_districts = self._merge_and_validate(
-            gazetteer_matches, ner_entities
+            gazetteer_matches,
+            ner_entities,
         )
 
         logger.info(
@@ -61,17 +72,23 @@ class NERService:
         )
 
     def _gazetteer_pass(self, text: str) -> list[LocationCandidate]:
-        import re
-        text = text.replace("’", "'")
-        tokens = re.split(r"[\s,;:.!?()\[\]\"\"]+", text)
-        tokens = [t for t in tokens if len(t) >= 3]
+        sanitized = text.replace("\u2019", "'")
+        tokens = re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşüâîûÂÎÛ']+", sanitized)
+        tokens = [token for token in tokens if len(token) >= 3]
 
-        candidates = []
-        seen = set()
+        candidates: list[LocationCandidate] = []
+        seen: set[str] = set()
 
-        for token in tokens:
-            match = self._gazetteer.match(token)
-            if match and match.canonical_name not in seen:
+        for span_size in (4, 3, 2, 1):
+            if len(tokens) < span_size:
+                continue
+
+            for start_index in range(len(tokens) - span_size + 1):
+                span = " ".join(tokens[start_index : start_index + span_size])
+                match = self._gazetteer.match(span)
+                if not match or match.canonical_name in seen:
+                    continue
+
                 seen.add(match.canonical_name)
                 candidates.append(
                     LocationCandidate(
@@ -82,19 +99,46 @@ class NERService:
                         district=match.canonical_name,
                     )
                 )
-        return candidates
+
+        if candidates:
+            return candidates
+
+        fallback = self._district_fallback_pass(tokens)
+        return [fallback] if fallback else []
+
+    def _district_fallback_pass(
+        self,
+        tokens: list[str],
+    ) -> LocationCandidate | None:
+        for span_size in (4, 3, 2, 1):
+            if len(tokens) < span_size:
+                continue
+
+            for start_index in range(len(tokens) - span_size + 1):
+                span = " ".join(tokens[start_index : start_index + span_size])
+                district = recover_district_name(span)
+                if not district:
+                    continue
+
+                return LocationCandidate(
+                    original_text=span,
+                    normalized_text=district,
+                    score=0.88,
+                    is_kocaeli_district=True,
+                    district=district,
+                )
+
+        return None
 
     def _merge_and_validate(
         self,
         gazetteer_candidates: list[LocationCandidate],
         ner_entities: list[RawEntity],
     ) -> tuple[list[LocationCandidate], list[str]]:
-       
         all_candidates: list[LocationCandidate] = list(gazetteer_candidates)
         validated: list[str] = [c.district for c in gazetteer_candidates if c.district]
         seen = set(validated)
 
-        # NER sonuçlarını işle — gazetteer'in kaçırdıkları
         for entity in ner_entities:
             if not self._is_location_entity(entity):
                 continue
@@ -129,28 +173,42 @@ class NERService:
                     )
                 )
 
-
         return all_candidates, validated
 
     def _is_location_entity(self, entity: RawEntity) -> bool:
         label = entity.label.upper()
         return label in {
-            "LOC", "B-LOC", "I-LOC",
-            # GLiNER etiketleri
-            "İL", "İLÇE", "MAHALLE", "MEKAN",
-            "IL", "ILCE", "MAHALLE", "MEKAN",
+            "LOC",
+            "B-LOC",
+            "I-LOC",
+            "İL",
+            "İLÇE",
+            "MAHALLE",
+            "MEKAN",
+            "IL",
+            "ILCE",
+            "MAHALLE",
+            "MEKAN",
         }
-
 
     @staticmethod
     def _extract_neighborhood(text: str) -> str | None:
-
         lower = text.lower().strip()
-        keywords = ["mahallesi", "mahalle", "mah.", "mah",
-                     "sokak", "sok.", "cadde", "caddesi", "cad.",
-                     "bulvarı", "bulvar", "blv."]
-        for kw in keywords:
-            if kw in lower:
+        keywords = [
+            "mahallesi",
+            "mahalle",
+            "mah.",
+            "mah",
+            "sokak",
+            "sok.",
+            "cadde",
+            "caddesi",
+            "cad.",
+            "bulvarı",
+            "bulvar",
+            "blv.",
+        ]
+        for keyword in keywords:
+            if keyword in lower:
                 return text.strip()
         return None
-    

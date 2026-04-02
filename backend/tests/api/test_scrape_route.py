@@ -3,7 +3,13 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from app.routes.scrape import get_job_status, trigger_scrape
+from app.routes.scrape import (
+    bootstrap_scrape,
+    get_job_status,
+    refresh_scrape,
+    trigger_scrape,
+)
+from app.services.scrape_orchestrator import ScrapeTriggerResult
 from app.workers.job_manager import JobInfo, JobQueueUnavailableError
 
 
@@ -77,6 +83,83 @@ def test_trigger_scrape_returns_202_with_job_details(monkeypatch):
         "status_url": "http://testserver/api/v1/scrape/jobs/job_123",
     }
     assert manager.submitted == [(None, "manual")]
+
+
+def test_bootstrap_scrape_returns_200_when_data_already_initialized(monkeypatch):
+    monkeypatch.setattr(
+        "app.routes.scrape.start_bootstrap_scrape_if_needed",
+        lambda database, manager: ScrapeTriggerResult(
+            status="already_initialized",
+            trigger_type="bootstrap",
+            reason="data_exists",
+        ),
+    )
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
+
+    result = bootstrap_scrape(request=FakeRequest())
+    payload = json.loads(result.body)
+
+    assert result.status_code == 200
+    assert payload == {
+        "status": "already_initialized",
+        "reason": "data_exists",
+    }
+
+
+def test_bootstrap_scrape_returns_202_when_job_is_started(monkeypatch):
+    monkeypatch.setattr(
+        "app.routes.scrape.start_bootstrap_scrape_if_needed",
+        lambda database, manager: ScrapeTriggerResult(
+            status="started",
+            trigger_type="bootstrap",
+            job_id="job_456",
+        ),
+    )
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
+
+    result = bootstrap_scrape(request=FakeRequest())
+    payload = json.loads(result.body)
+
+    assert result.status_code == 202
+    assert payload == {
+        "job_id": "job_456",
+        "status": "pending",
+        "status_url": "http://testserver/api/v1/scrape/jobs/job_456",
+    }
+
+
+def test_refresh_scrape_returns_202_with_reset_details(monkeypatch):
+    reset_result = type(
+        "FakeResetResult",
+        (),
+        {"deleted_counts": {"raw_documents": 12, "source_records": 8}, "total_deleted": 20},
+    )()
+    monkeypatch.setattr(
+        "app.routes.scrape.start_refresh_scrape",
+        lambda database, manager: ScrapeTriggerResult(
+            status="started",
+            trigger_type="refresh",
+            job_id="job_789",
+            reset_result=reset_result,
+        ),
+    )
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
+
+    result = refresh_scrape(request=FakeRequest())
+    payload = json.loads(result.body)
+
+    assert result.status_code == 202
+    assert payload == {
+        "job_id": "job_789",
+        "status": "pending",
+        "status_url": "http://testserver/api/v1/scrape/jobs/job_789",
+        "details": {
+            "reset": {
+                "deleted_counts": {"raw_documents": 12, "source_records": 8},
+                "total_deleted": 20,
+            }
+        },
+    }
 
 
 def test_trigger_scrape_normalizes_source_before_enqueue(monkeypatch):

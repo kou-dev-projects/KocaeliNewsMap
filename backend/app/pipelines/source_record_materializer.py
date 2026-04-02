@@ -9,6 +9,7 @@ from app.domain.enums import NewsCategory, normalize_kocaeli_district, normalize
 from app.scrapers.base.date_utils import parse_published_at_raw
 from app.services.classifier.factory import build_classifier_service
 from app.services.classifier.schemas import ClassificationInput, ClassificationResult
+from app.services.geocoding.district_centers import get_kocaeli_district_center
 from app.services.geocoding.factory import build_geocoding_service
 from app.services.geocoding.schemas import GeocodingFailure, GeocodingResult
 from app.services.geocoding.service import build_geocoding_input_from_ner
@@ -228,6 +229,20 @@ class SourceRecordMaterializer:
             }
 
         if isinstance(result, GeocodingFailure):
+            district_center = get_kocaeli_district_center(fallback_district)
+            if district_center is not None:
+                district_value, lat, lng = district_center
+                return {
+                    "geocode_status": "approximate",
+                    "pipeline_status": "geocoded",
+                    "geocode_provider": "district_fallback",
+                    "geocode_point": {
+                        "type": "Point",
+                        "coordinates": [lng, lat],
+                    },
+                    "geocode_bbox": None,
+                    "district_predicted": district_value,
+                }
             geocode_status = "pending" if result.failure_type in {"rate_limit", "queue_full"} else "failed"
             return {
                 "geocode_status": geocode_status,

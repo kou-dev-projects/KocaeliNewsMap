@@ -108,3 +108,17 @@ def test_trafik_keyword_still_matches_tem_as_full_token(clf):
     )
     assert r is not None
     assert r.category == NewsCategory.TRAFIK_KAZASI
+
+
+def test_hirsizlik_keyword_does_not_match_generic_yakalandi(clf):
+    r = clf.classify(
+        ClassificationInput(title="Şüpheli olay sonrası yakalandı")
+    )
+    assert r is None
+
+
+def test_elektrik_keyword_does_not_match_generic_kesinti(clf):
+    r = clf.classify(
+        ClassificationInput(title="Program yayında kısa süreli kesinti yaşandı")
+    )
+    assert r is None

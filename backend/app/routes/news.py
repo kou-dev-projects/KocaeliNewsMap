@@ -303,17 +303,17 @@ def get_news_stats(
     collection = db["source_records"]
     docs = list(collection.find(query))
     now = datetime.now(timezone.utc)
-    last_24h_cutoff = now - timedelta(hours=24)
+    last_3d_cutoff = now - timedelta(days=3)
 
     geocoded_total = sum(1 for doc in docs if doc.get("geocode_point") is not None)
-    last_24h_total = 0
+    last_3d_total = 0
     for doc in docs:
         published_at = doc.get("published_at")
         if isinstance(published_at, datetime):
             if published_at.tzinfo is None:
                 published_at = published_at.replace(tzinfo=timezone.utc)
-            if published_at >= last_24h_cutoff:
-                last_24h_total += 1
+            if published_at >= last_3d_cutoff:
+                last_3d_total += 1
 
     active_sources = len(
         {
@@ -326,7 +326,7 @@ def get_news_stats(
     return NewsStatsResponse(
         total=len(docs),
         geocoded_total=geocoded_total,
-        last_24h_total=last_24h_total,
+        last_3d_total=last_3d_total,
         active_sources=active_sources,
         categories=_count_buckets(docs, "category_predicted"),
         districts=_count_buckets(docs, "district_predicted"),

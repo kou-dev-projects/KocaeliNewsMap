@@ -383,9 +383,9 @@ function HomeContent() {
             </p>
           </article>
           <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">Son 24 Saat</h2>
+            <h2 className="text-sm font-semibold text-slate-500">Son 3 Gun</h2>
             <p className="mt-1 text-xl font-bold sm:text-2xl">
-              {statsLoading ? "--" : stats.last_24h_total}
+              {statsLoading ? "--" : stats.last_3d_total}
             </p>
           </article>
         </section>

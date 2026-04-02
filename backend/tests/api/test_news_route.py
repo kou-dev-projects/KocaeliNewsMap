@@ -225,6 +225,7 @@ def test_get_news_stats_returns_facets(monkeypatch, sample_docs):
 
     assert response.total == 2
     assert response.geocoded_total == 1
+    assert response.last_3d_total == 2
     assert response.active_sources == 1
     assert response.categories[0].key in {"trafik_kazasi", "yangin"}
     assert {bucket.key for bucket in response.districts} == {"gebze", "izmit"}

@@ -7,7 +7,7 @@ const API_BASE_URL =
 export type NewsStats = {
   total: number;
   geocoded_total: number;
-  last_24h_total: number;
+  last_3d_total: number;
   active_sources: number;
   categories: Array<{ key: string; count: number }>;
   districts: Array<{ key: string; count: number }>;
@@ -21,7 +21,7 @@ export type NewsMapResponse = {
 export const EMPTY_STATS: NewsStats = {
   total: 0,
   geocoded_total: 0,
-  last_24h_total: 0,
+  last_3d_total: 0,
   active_sources: 0,
   categories: [],
   districts: [],

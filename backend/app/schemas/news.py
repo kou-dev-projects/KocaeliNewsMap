@@ -71,7 +71,7 @@ class StatsBucket(BaseModel):
 class NewsStatsResponse(BaseModel):
     total: int
     geocoded_total: int
-    last_24h_total: int
+    last_3d_total: int
     active_sources: int
     categories: list[StatsBucket]
     districts: list[StatsBucket]

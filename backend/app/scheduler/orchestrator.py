@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 import sys
@@ -16,6 +16,7 @@ from app.scrapers.cagdas_kocaeli.parser import CagdasKocaeliParser
 from app.scrapers.base.playwright_client import PlaywrightClient
 from app.scrapers.bizim_yaka.detail import BizimYakaDetailScraper
 from app.scrapers.bizim_yaka.listing import BizimYakaListingScraper
+from app.scrapers.base.date_utils import parse_published_at_raw
 from app.scrapers.ozgur_kocaeli.detail import OzgurKocaeliDetailScraper
 from app.scrapers.ozgur_kocaeli.listing import OzgurKocaeliListingScraper
 from app.scrapers.ozgur_kocaeli.parser import OzgurKocaeliParser
@@ -239,6 +240,17 @@ class ScrapeOrchestrator:
             "reason": result.reason,
         }
 
+    def _is_record_within_lookback(self, published_at_raw: Any) -> bool:
+        if not isinstance(published_at_raw, str) or not published_at_raw.strip():
+            return True
+
+        published_at = parse_published_at_raw(published_at_raw)
+        if published_at is None:
+            return True
+
+        threshold = datetime.now(timezone.utc) - timedelta(days=self._config.lookback_days)
+        return published_at >= threshold
+
     def _crawl_single_source_static(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
         domain = source_document["domain"]
         trace_id = uuid4().hex[:16]
@@ -296,6 +308,9 @@ class ScrapeOrchestrator:
                     stats["fetched_count"] += 1
                     detail_data = detail_scraper.extract_detail_fields(detail_html)
                     record = parser.build_record(target_url, detail_data)
+
+                    if not self._is_record_within_lookback(record.get("published_at_raw")):
+                        continue
 
                     if not record.get("title", "").strip() or not record.get("content_text", "").strip():
                         stats["failed_count"] += 1
@@ -470,6 +485,9 @@ class ScrapeOrchestrator:
                             "image_url": detail_data.get("image_url", ""),
                             "scraped_at": datetime.now(timezone.utc).isoformat(),
                         }
+
+                        if not self._is_record_within_lookback(record.get("published_at_raw")):
+                            continue
 
                         if not record.get("title", "").strip() or not record.get("content_text", "").strip():
                             stats["failed_count"] += 1

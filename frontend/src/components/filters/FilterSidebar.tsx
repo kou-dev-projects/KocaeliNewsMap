@@ -10,6 +10,11 @@ type FilterSidebarProps = {
   onChange: (field: keyof FilterState, value: string) => void;
   onApply: () => void;
   onReset: () => void;
+  onRefresh: () => void;
+  refreshDisabled?: boolean;
+  refreshLabel?: string;
+  scrapeStatusMessage?: string;
+  scrapeStatusTone?: "info" | "success" | "warning" | "error";
 };
 
 export type { FilterState };
@@ -19,7 +24,19 @@ export default function FilterSidebar({
   onChange,
   onApply,
   onReset,
+  onRefresh,
+  refreshDisabled = false,
+  refreshLabel = "Yenile",
+  scrapeStatusMessage,
+  scrapeStatusTone = "info",
 }: FilterSidebarProps) {
+  const statusToneClasses = {
+    info: "border-sky-200 bg-sky-50 text-sky-800",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    warning: "border-amber-200 bg-amber-50 text-amber-800",
+    error: "border-rose-200 bg-rose-50 text-rose-800",
+  } as const;
+
   return (
     <aside className="rounded-2xl bg-white p-4 shadow-sm lg:sticky lg:top-4">
       <div className="flex items-start justify-between gap-4">
@@ -144,7 +161,23 @@ export default function FilterSidebar({
         >
           Temizle
         </button>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={onRefresh}
+          disabled={refreshDisabled}
+        >
+          {refreshLabel}
+        </button>
       </div>
+
+      {scrapeStatusMessage ? (
+        <section
+          className={`mt-4 rounded-xl border px-3 py-3 text-sm ${statusToneClasses[scrapeStatusTone]}`}
+        >
+          {scrapeStatusMessage}
+        </section>
+      ) : null}
     </aside>
   );
 }

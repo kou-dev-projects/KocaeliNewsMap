@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 
 import FilterSidebar, {
   type FilterState,
@@ -11,6 +12,13 @@ import MapView, { type NewsMapItem } from "@/components/map/MapView";
 import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
 import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
+import { newsKeys } from "@/lib/news-query-keys";
+import {
+  bootstrapScrape,
+  fetchScrapeJobStatus,
+  refreshScrape,
+  type ScrapeQueuedResponse,
+} from "@/lib/scrape-api";
 
 const EMPTY_FILTERS: FilterState = {
   category: "",
@@ -121,12 +129,20 @@ function HomeContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const initialFilters = filtersFromSearchParams(searchParams);
+  const hasTriggeredBootstrapRef = useRef(false);
 
   const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
   const [appliedFilters, setAppliedFilters] =
     useState<FilterState>(initialFilters);
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
+  const [activeScrapeJobId, setActiveScrapeJobId] = useState<string | null>(null);
+  const [scrapeStatusMessage, setScrapeStatusMessage] = useState("");
+  const [scrapeStatusTone, setScrapeStatusTone] = useState<
+    "info" | "success" | "warning" | "error"
+  >("info");
+  const [isRefreshPending, setIsRefreshPending] = useState(false);
 
   const {
     data: stats = EMPTY_STATS,
@@ -146,6 +162,127 @@ function HomeContent() {
     selectedNews && mapData.items.some((item) => item.id === selectedNews.id)
       ? selectedNews
       : null;
+  const refreshDisabled = isRefreshPending || activeScrapeJobId !== null;
+
+  const startQueuedScrape = (result: ScrapeQueuedResponse, message: string) => {
+    setActiveScrapeJobId(result.job_id);
+    setScrapeStatusTone("info");
+    setScrapeStatusMessage(message);
+  };
+
+  useEffect(() => {
+    if (hasTriggeredBootstrapRef.current) {
+      return;
+    }
+
+    hasTriggeredBootstrapRef.current = true;
+    let cancelled = false;
+
+    const runBootstrap = async () => {
+      setScrapeStatusTone("info");
+      setScrapeStatusMessage("Ilk veri kontrolu yapiliyor...");
+
+      try {
+        const result = await bootstrapScrape();
+        if (cancelled) {
+          return;
+        }
+
+        if ("job_id" in result) {
+          startQueuedScrape(result, "Ilk veri cekimi baslatildi.");
+          return;
+        }
+
+        setScrapeStatusTone("success");
+        setScrapeStatusMessage("Veri zaten hazir.");
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setScrapeStatusTone("error");
+        setScrapeStatusMessage(
+          error instanceof Error
+            ? error.message
+            : "Ilk veri kontrolu basarisiz oldu.",
+        );
+      }
+    };
+
+    void runBootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeScrapeJobId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncJobStatus = async () => {
+      try {
+        const status = await fetchScrapeJobStatus(activeScrapeJobId);
+        if (cancelled) {
+          return;
+        }
+
+        if (status.status === "pending") {
+          setScrapeStatusTone("info");
+          setScrapeStatusMessage("Scrape isi kuyruga alindi.");
+          return;
+        }
+
+        if (status.status === "running") {
+          setScrapeStatusTone("info");
+          setScrapeStatusMessage("Scrape calisiyor.");
+          return;
+        }
+
+        if (status.status === "completed") {
+          setActiveScrapeJobId(null);
+          setIsRefreshPending(false);
+          setScrapeStatusTone("success");
+          setScrapeStatusMessage("Scrape tamamlandi. Veriler yenileniyor.");
+          await queryClient.invalidateQueries({ queryKey: newsKeys.all });
+          return;
+        }
+
+        if (status.status === "failed") {
+          setActiveScrapeJobId(null);
+          setIsRefreshPending(false);
+          setScrapeStatusTone("error");
+          setScrapeStatusMessage(status.error || "Scrape basarisiz oldu.");
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setActiveScrapeJobId(null);
+        setIsRefreshPending(false);
+        setScrapeStatusTone("error");
+        setScrapeStatusMessage(
+          error instanceof Error
+            ? error.message
+            : "Scrape durumu su anda kontrol edilemiyor.",
+        );
+      }
+    };
+
+    void syncJobStatus();
+    const pollTimer = window.setInterval(() => {
+      void syncJobStatus();
+    }, 2_500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollTimer);
+    };
+  }, [activeScrapeJobId, queryClient]);
 
   const handleDraftChange = (field: keyof FilterState, value: string) => {
     setDraftFilters((current) => ({
@@ -192,6 +329,24 @@ function HomeContent() {
     setDraftFilters(EMPTY_FILTERS);
     setAppliedFilters(EMPTY_FILTERS);
     router.replace(pathname, { scroll: false });
+  };
+
+  const handleRefresh = async () => {
+    setSelectedNews(null);
+    setIsRefreshPending(true);
+    setScrapeStatusTone("warning");
+    setScrapeStatusMessage("Veriler sifirlaniyor ve yeni scrape baslatiliyor...");
+
+    try {
+      const result = await refreshScrape();
+      startQueuedScrape(result, "Yenileme baslatildi.");
+    } catch (error) {
+      setIsRefreshPending(false);
+      setScrapeStatusTone("error");
+      setScrapeStatusMessage(
+        error instanceof Error ? error.message : "Yenileme baslatilamadi.",
+      );
+    }
   };
 
   return (
@@ -247,6 +402,11 @@ function HomeContent() {
             onChange={handleDraftChange}
             onApply={handleApplyFilters}
             onReset={handleResetFilters}
+            onRefresh={handleRefresh}
+            refreshDisabled={refreshDisabled}
+            refreshLabel={refreshDisabled ? "Yenileniyor..." : "Yenile"}
+            scrapeStatusMessage={scrapeStatusMessage}
+            scrapeStatusTone={scrapeStatusTone}
           />
 
           <article className="flex min-h-[560px] flex-col rounded-2xl bg-white p-4 shadow-sm lg:min-h-0 lg:overflow-hidden">

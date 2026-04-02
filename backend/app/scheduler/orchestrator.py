@@ -151,15 +151,21 @@ class ScrapeOrchestrator:
                     source_document=source_document,
                     trigger_type=trigger_type,
                 )
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "scheduler.source.unhandled_error",
-                    extra={"domain": domain},
+                    extra={
+                        "domain": domain,
+                        "trigger_type": trigger_type,
+                        "error_type": type(exc).__name__,
+                    },
                 )
                 session_result = {
                     "domain": domain,
                     "status": "failed",
                     "reason": "unhandled_source_exception",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc)[:500],
                 }
             if session_result.get("status") == "skipped":
                 summary["skipped_sources"] += 1
@@ -324,6 +330,7 @@ class ScrapeOrchestrator:
                         stats["error_summary"],
                         code="source_processing_error",
                         message=f"{type(exc).__name__}: {exc}",
+                        error_type=type(exc).__name__,
                         sample_url=target_url,
                     )
 
@@ -333,6 +340,7 @@ class ScrapeOrchestrator:
                 stats["error_summary"],
                 code="source_bootstrap_error",
                 message=f"{type(exc).__name__}: {exc}",
+                error_type=type(exc).__name__,
             )
         finally:
             if session_id is not None:
@@ -367,6 +375,7 @@ class ScrapeOrchestrator:
             "fetched_count": stats["fetched_count"],
             "parsed_count": stats["parsed_count"],
             "failed_count": stats["failed_count"],
+            **self._summarize_error_details(stats["error_summary"]),
         }
 
     def _crawl_single_source_dynamic(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
@@ -495,6 +504,7 @@ class ScrapeOrchestrator:
                             stats["error_summary"],
                             code="source_processing_error",
                             message=f"{type(exc).__name__}: {exc}",
+                            error_type=type(exc).__name__,
                             sample_url=target_url,
                         )
             except Exception as exc:
@@ -503,6 +513,7 @@ class ScrapeOrchestrator:
                     stats["error_summary"],
                     code="source_bootstrap_error",
                     message=f"{type(exc).__name__}: {exc}",
+                    error_type=type(exc).__name__,
                 )
 
             if session_id is not None:
@@ -527,6 +538,7 @@ class ScrapeOrchestrator:
                 "fetched_count": stats["fetched_count"],
                 "parsed_count": stats["parsed_count"],
                 "failed_count": stats["failed_count"],
+                **self._summarize_error_details(stats["error_summary"]),
             }
         finally:
             self._close_scraper(detail_scraper)
@@ -549,15 +561,34 @@ class ScrapeOrchestrator:
         *,
         code: str,
         message: str,
+        error_type: str | None = None,
         sample_url: str | None = None,
     ) -> None:
         error = {
             "code": code,
             "message": message[:500],
         }
+        if error_type:
+            error["error_type"] = error_type[:100]
         if sample_url:
             error["sample_url"] = sample_url
         error_summary.append(error)
+
+    @staticmethod
+    def _summarize_error_details(error_summary: list[dict[str, Any]]) -> dict[str, str]:
+        if not error_summary:
+            return {}
+
+        first_error = error_summary[0]
+        summary: dict[str, str] = {
+            "error_message": str(first_error.get("message", ""))[:500],
+        }
+
+        error_type = first_error.get("error_type")
+        if isinstance(error_type, str) and error_type.strip():
+            summary["error_type"] = error_type[:100]
+
+        return summary
 
     @staticmethod
     def _close_scraper(scraper: Any) -> None:

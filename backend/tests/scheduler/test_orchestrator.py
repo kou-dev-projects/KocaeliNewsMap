@@ -276,6 +276,8 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
     failed_session = next(item for item in summary["sessions"] if item["domain"] == "broken.example.com")
     assert failed_session["status"] == "failed"
     assert failed_session["reason"] == "unhandled_source_exception"
+    assert failed_session["error_type"] == "RuntimeError"
+    assert failed_session["error_message"] == "boom"
 
 
 def test_crawl_source_returns_skipped_for_unsupported_source():
@@ -333,8 +335,11 @@ def test_crawl_source_static_bootstrap_failure_releases_lease(monkeypatch):
 
     assert result["status"] == "failed"
     assert result["failed_count"] == 1
+    assert result["error_type"] == "RuntimeError"
+    assert "factory_error" in result["error_message"]
     assert session_store.finalized[0]["failed_count"] == 1
     assert session_store.finalized[0]["error_summary"][0]["code"] == "source_bootstrap_error"
+    assert session_store.finalized[0]["error_summary"][0]["error_type"] == "RuntimeError"
     # Verify lease was acquired then released
     assert len(lease.acquired) == 1
     assert len(lease.released) == 1
@@ -409,3 +414,52 @@ def test_crawl_source_dynamic_closes_scrapers(monkeypatch):
     assert FakeDynamicListingScraper.closed is True
     assert FakeDynamicDetailScraper.closed is True
     assert FakePlaywrightClient.stopped is True
+
+
+def test_crawl_source_static_processing_failure_exposes_error_details(monkeypatch):
+    class BrokenDetailScraper(FakeDetailScraper):
+        def fetch_detail_html(self, url):
+            raise ValueError("detail_boom")
+
+    monkeypatch.setattr(
+        "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
+        {
+            "cagdaskocaeli.com.tr": StaticSourceDefinition(
+                listing_scraper_factory=FakeListingScraper,
+                detail_scraper_factory=BrokenDetailScraper,
+                parser_factory=FakeParser,
+            )
+        },
+    )
+    monkeypatch.setattr("app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY", {})
+
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "cagdaskocaeli.com.tr",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+            "scraper_type": "static",
+        }
+    ]
+
+    session_store = StatusAwareSessionStore()
+    orchestrator = _make_orchestrator(
+        source_docs,
+        session_store=session_store,
+        config=SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=1,
+            max_urls_per_source=1,
+        ),
+    )
+
+    result = orchestrator.crawl_source("cagdaskocaeli.com.tr", trigger_type="manual")
+
+    assert result["status"] == "failed"
+    assert result["error_type"] == "ValueError"
+    assert "detail_boom" in result["error_message"]
+    error_summary = session_store.finalized[0]["error_summary"]
+    assert error_summary[0]["code"] == "source_processing_error"
+    assert error_summary[0]["error_type"] == "ValueError"

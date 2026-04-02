@@ -114,7 +114,9 @@ ensureCollection("crawl_sessions", {
       properties: {
         _id: { bsonType: "objectId" },
         source_id: { bsonType: "objectId" },
-        trigger_type: { enum: ["startup", "manual", "scheduled"] },
+        trigger_type: {
+          enum: ["startup", "manual", "scheduled", "bootstrap", "refresh"],
+        },
         scope: { enum: ["single_source", "all_sources"] },
         lookback_days: { bsonType: ["int", "long"], minimum: 1, maximum: 30 },
         requested_window_start: { bsonType: "date" },
@@ -143,6 +145,7 @@ ensureCollection("crawl_sessions", {
             properties: {
               code: { bsonType: "string" },
               message: { bsonType: "string" },
+              error_type: { bsonType: "string" },
               sample_url: { bsonType: "string", pattern: "^https?://" },
             },
           },

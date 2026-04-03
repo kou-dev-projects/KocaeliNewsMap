@@ -9,7 +9,38 @@ services:
       - mongo_data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d
     environment:
-      MONGO_INITDB_DATABASE: kocaeli_news
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-kocaeli_news}
+      MONGO_DB: ${MONGO_DB:-kocaeli_news}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "mongodb://localhost:27017/admin",
+          "--quiet",
+          "--eval",
+          "db.runCommand({ ping: 1 }).ok",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  mongo-migrate:
+    image: mongo:8.0
+    container_name: kocaeli-news_map_mongo_migrate
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_DB: ${MONGO_DB:-kocaeli_news}
+      MONGO_DOCKER_URL: ${MONGO_DOCKER_URL:-mongodb://mongodb:27017}
+    volumes:
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - mongosh "$MONGO_DOCKER_URL/$MONGO_DB" --file /docker-entrypoint-initdb.d/database.js
+    restart: "no"
 
   redis:
     image: redis:7-alpine
@@ -26,11 +57,13 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - redis
-      - mongodb
+      redis:
+        condition: service_started
+      mongo-migrate:
+        condition: service_completed_successfully
     environment:
-      - MONGO_URL=${MONGO_URL}
-      - MONGO_DB=kocaeli_news
+      - MONGO_URL=${MONGO_DOCKER_URL:-mongodb://mongodb:27017}
+      - MONGO_DB=${MONGO_DB:-kocaeli_news}
       - REDIS_URL=redis://redis:6379
       - WORKER_ID=api
     env_file:
@@ -42,12 +75,14 @@ services:
     build: ./backend
     container_name: kocaeli-news_map_worker
     depends_on:
-      - redis
-      - mongodb
+      redis:
+        condition: service_started
+      mongo-migrate:
+        condition: service_completed_successfully
     command: ["python", "-m", "app.workers.job_worker"]
     environment:
-      - MONGO_URL=${MONGO_URL}
-      - MONGO_DB=kocaeli_news
+      - MONGO_URL=${MONGO_DOCKER_URL:-mongodb://mongodb:27017}
+      - MONGO_DB=${MONGO_DB:-kocaeli_news}
       - REDIS_URL=redis://redis:6379
       - WORKER_ID=worker
     env_file:
@@ -60,11 +95,14 @@ services:
     build: ./backend
     container_name: kocaeli-news_map_scheduler
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      mongo-migrate:
+        condition: service_completed_successfully
     command: ["python", "-m", "app.workers.run_scheduler"]
     environment:
-      - MONGO_URL=${MONGO_URL}
-      - MONGO_DB=kocaeli_news
+      - MONGO_URL=${MONGO_DOCKER_URL:-mongodb://mongodb:27017}
+      - MONGO_DB=${MONGO_DB:-kocaeli_news}
       - REDIS_URL=redis://redis:6379
       - WORKER_ID=scheduler
     env_file:
@@ -79,7 +117,10 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+      mongo-migrate:
+        condition: service_completed_successfully
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - API_INTERNAL_URL=http://backend:8000
@@ -87,7 +128,7 @@ services:
       - NEXT_PUBLIC_ENABLE_PUSH_TEST=${NEXT_PUBLIC_ENABLE_PUSH_TEST:-false}
       - ENABLE_PUSH_TEST_ENDPOINT=${ENABLE_PUSH_TEST_ENDPOINT:-false}
       - PUSH_TEST_API_KEY=${PUSH_TEST_API_KEY:-}
-      - MONGO_URL=${MONGO_URL}
+      - MONGO_URL=${MONGO_DOCKER_URL:-mongodb://mongodb:27017}
       - MONGO_DB=${MONGO_DB:-kocaeli_news}
       - PUSH_SUBSCRIPTIONS_MONGO_URL=${PUSH_SUBSCRIPTIONS_MONGO_URL:-}
       - PUSH_SUBSCRIPTIONS_MONGO_DB=${PUSH_SUBSCRIPTIONS_MONGO_DB:-}

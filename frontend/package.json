@@ -9,6 +9,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "qa:map": "npm run build && npm run qa:map:smoke",
+    "qa:map:smoke": "node ./scripts/map-smoke.mjs",
     "qa:pwa": "npm run build && npm run qa:pwa:offline && npm run qa:pwa:lighthouse",
     "qa:pwa:lighthouse": "node ./scripts/pwa-lighthouse.mjs",
     "qa:pwa:offline": "node ./scripts/pwa-offline-smoke.mjs",

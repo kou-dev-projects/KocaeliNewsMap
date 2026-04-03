@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
-import type { FilterState } from "@/components/filters/FilterSidebar";
+import type { FilterState } from "@/lib/filter-state";
 import {
   fetchNewsStats,
   type NewsStats,

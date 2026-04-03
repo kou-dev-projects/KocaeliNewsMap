@@ -1,4 +1,4 @@
-import type { FilterState } from "@/components/filters/FilterSidebar";
+import type { FilterState } from "@/lib/filter-state";
 import type { NewsMapItem } from "@/components/map/MapView";
 
 const API_BASE_URL =

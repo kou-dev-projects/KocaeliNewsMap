@@ -41,7 +41,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="tr">
-      <body>
+      <body className="font-sans antialiased">
         <QueryProvider>{children}</QueryProvider>
         <PwaBootstrapClient />
       </body>

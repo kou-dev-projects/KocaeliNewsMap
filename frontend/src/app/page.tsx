@@ -4,13 +4,12 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 
-import FilterSidebar, {
-  type FilterState,
-} from "@/components/filters/FilterSidebar";
+import FilterSidebar from "@/components/filters/FilterSidebar";
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
 import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
+import type { FilterState } from "@/lib/filter-state";
 import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
 import { newsKeys } from "@/lib/news-query-keys";
 import {
@@ -431,6 +430,13 @@ function HomeContent() {
                   ? "Harita haberleri yukleniyor..."
                   : `${mapData.total} geocoded haber haritada gosteriliyor.`}
               </p>
+            </div>
+
+            <div
+              className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600"
+              data-testid="visible-news-count"
+            >
+              {mapData.items.length} / {mapData.total} haber gosteriliyor
             </div>
 
             {mapError ? (

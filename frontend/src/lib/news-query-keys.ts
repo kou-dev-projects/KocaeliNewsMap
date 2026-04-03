@@ -1,4 +1,4 @@
-import type { FilterState } from "@/components/filters/FilterSidebar";
+import type { FilterState } from "@/lib/filter-state";
 
 export const newsKeys = {
   all: ["news"] as const,

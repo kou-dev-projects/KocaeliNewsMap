@@ -282,8 +282,8 @@ export default function MapView({
   };
 
   return (
-    <div className={`relative ${className}`}>
-      <div ref={containerRef} className="h-full w-full" />
+    <div className={`relative ${className}`} data-testid="news-map-shell">
+      <div ref={containerRef} className="h-full w-full" data-testid="news-map" />
 
       <MapLayerToggle
         layerMode={layerMode}

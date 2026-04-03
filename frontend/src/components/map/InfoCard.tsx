@@ -108,6 +108,7 @@ export default function InfoCard({
   if (!item) {
     return (
       <section
+        data-testid="news-info-card"
         className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}
       >
         <div>
@@ -165,12 +166,16 @@ export default function InfoCard({
 
   return (
     <section
+      data-testid="news-info-card"
       className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}
     >
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
         Haber Detayi
       </p>
-      <h3 className="mt-2 text-lg font-semibold leading-7 text-slate-900">
+      <h3
+        className="mt-2 text-lg font-semibold leading-7 text-slate-900"
+        data-testid="news-info-title"
+      >
         {item.title}
       </h3>
 
@@ -213,7 +218,10 @@ export default function InfoCard({
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Konum Bilgisi
         </p>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p
+          className="mt-2 text-sm leading-6 text-slate-600"
+          data-testid="news-info-status"
+        >
           Bu haber haritada{" "}
           <span className="font-medium">{formatGeocodeStatus(item.geocode_status)}</span>{" "}
           durumunda gosteriliyor.

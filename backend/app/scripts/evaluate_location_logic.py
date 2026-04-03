@@ -6,7 +6,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from app.domain.enums import NewsCategory
 from app.evaluation.location_benchmarks import (
     DISTRICT_GROUP_EXPECTATIONS,
     LOGICAL_BENCHMARK_CASES,

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.scrape_events import _HEARTBEAT_SENTINEL
 
-
+API_KEY = "secret"
 
 _SAMPLE_FIELDS = {
     "event": "job_submitted",
@@ -42,8 +42,15 @@ class FakeScrapeEventReader:
 
 @pytest.fixture(autouse=True)
 def _reset_scrape_auth(monkeypatch):
-    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", None)
+    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", API_KEY)
     monkeypatch.setattr("app.routes.scrape.settings.scrape_events_heartbeat_seconds", 999)
+
+
+def _authorized_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+    headers = {"X-API-Key": API_KEY}
+    if extra:
+        headers.update(extra)
+    return headers
 
 
 
@@ -79,7 +86,7 @@ class TestScrapeEventsRoute:
         _make_reader_with([], monkeypatch)
 
         with TestClient(app, raise_server_exceptions=True) as client:
-            response = client.get("/api/v1/scrape/events")
+            response = client.get("/api/v1/scrape/events", headers=_authorized_headers())
 
         assert "text/event-stream" in response.headers["content-type"]
 
@@ -87,13 +94,12 @@ class TestScrapeEventsRoute:
         _make_reader_with([], monkeypatch)
 
         with TestClient(app) as client:
-            response = client.get("/api/v1/scrape/events")
+            response = client.get("/api/v1/scrape/events", headers=_authorized_headers())
 
         assert response.headers.get("cache-control") == "no-cache"
         assert response.headers.get("x-accel-buffering") == "no"
 
     def test_auth_returns_401_when_key_configured_and_missing(self, monkeypatch):
-        monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", "secret")
         _make_reader_with([], monkeypatch)
 
         with TestClient(app) as client:
@@ -102,13 +108,12 @@ class TestScrapeEventsRoute:
         assert response.status_code == 401
 
     def test_auth_accepts_valid_api_key(self, monkeypatch):
-        monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", "secret")
         _make_reader_with([], monkeypatch)
 
         with TestClient(app) as client:
             response = client.get(
                 "/api/v1/scrape/events",
-                headers={"X-API-Key": "secret"},
+                headers=_authorized_headers(),
             )
 
         assert response.status_code == 200
@@ -117,7 +122,7 @@ class TestScrapeEventsRoute:
         _make_reader_with([("1680000000-0", _SAMPLE_FIELDS)], monkeypatch)
 
         with TestClient(app) as client:
-            response = client.get("/api/v1/scrape/events")
+            response = client.get("/api/v1/scrape/events", headers=_authorized_headers())
 
         frames = _collect_sse_frames(response.content)
         assert len(frames) >= 1
@@ -131,7 +136,7 @@ class TestScrapeEventsRoute:
         _make_reader_with([("1-0", _SAMPLE_FIELDS)], monkeypatch)
 
         with TestClient(app) as client:
-            response = client.get("/api/v1/scrape/events")
+            response = client.get("/api/v1/scrape/events", headers=_authorized_headers())
 
         frames = _collect_sse_frames(response.content)
         data_line = next(l for l in frames[0].splitlines() if l.startswith("data: "))
@@ -145,7 +150,7 @@ class TestScrapeEventsRoute:
         _make_reader_with([("2-0", _SAMPLE_FIELDS)], monkeypatch)
 
         with TestClient(app) as client:
-            response = client.get("/api/v1/scrape/events")
+            response = client.get("/api/v1/scrape/events", headers=_authorized_headers())
 
         frames = _collect_sse_frames(response.content)
         data_line = next(l for l in frames[0].splitlines() if l.startswith("data: "))
@@ -159,7 +164,7 @@ class TestScrapeEventsRoute:
         _make_reader_with([(_HEARTBEAT_SENTINEL, {})], monkeypatch)
 
         with TestClient(app) as client:
-            response = client.get("/api/v1/scrape/events")
+            response = client.get("/api/v1/scrape/events", headers=_authorized_headers())
 
         assert ": ping" in response.text
 
@@ -180,7 +185,7 @@ class TestScrapeEventsRoute:
         with TestClient(app) as client:
             client.get(
                 "/api/v1/scrape/events",
-                headers={"last-event-id": "1680000000-5"},
+                headers=_authorized_headers({"last-event-id": "1680000000-5"}),
             )
 
         assert captured.get("last_id") == "1680000000-5"
@@ -200,7 +205,7 @@ class TestScrapeEventsRoute:
         monkeypatch.setattr("app.routes.scrape.ScrapeEventReader", _CapturingReader)
 
         with TestClient(app) as client:
-            client.get("/api/v1/scrape/events")
+            client.get("/api/v1/scrape/events", headers=_authorized_headers())
 
         assert captured.get("last_id") == "$"
 
@@ -219,7 +224,7 @@ class TestScrapeEventsRoute:
         monkeypatch.setattr("app.routes.scrape.ScrapeEventReader", _CapturingReader)
 
         with TestClient(app) as client:
-            client.get("/api/v1/scrape/events?job_id=abc123")
+            client.get("/api/v1/scrape/events?job_id=abc123", headers=_authorized_headers())
 
         assert captured.get("job_id_filter") == "abc123"
 
@@ -241,7 +246,7 @@ class TestScrapeEventsRoute:
         with TestClient(app) as client:
             client.get(
                 "/api/v1/scrape/events",
-                headers={"last-event-id": "DROP TABLE events;"},
+                headers=_authorized_headers({"last-event-id": "DROP TABLE events;"}),
             )
 
         assert captured.get("last_id") == "$"
@@ -264,7 +269,7 @@ class TestScrapeEventsRoute:
         with TestClient(app) as client:
             client.get(
                 "/api/v1/scrape/events",
-                headers={"last-event-id": "1680000000000-5"},
+                headers=_authorized_headers({"last-event-id": "1680000000000-5"}),
             )
 
         assert captured.get("last_id") == "1680000000000-5"

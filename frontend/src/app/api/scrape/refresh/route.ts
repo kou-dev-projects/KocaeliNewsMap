@@ -1,8 +1,19 @@
-import { buildScrapeBackendUrl, createScrapeProxyHeaders } from "../_proxy";
+import { type NextRequest } from "next/server";
+
+import {
+  authorizeScrapeControlRequest,
+  buildScrapeBackendUrl,
+  createScrapeProxyHeaders,
+} from "../_proxy";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(): Promise<Response> {
+export async function POST(request: NextRequest): Promise<Response> {
+  const authError = authorizeScrapeControlRequest(request);
+  if (authError) {
+    return authError;
+  }
+
   let upstream: Response;
 
   try {

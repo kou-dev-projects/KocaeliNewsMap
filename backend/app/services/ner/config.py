@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.settings import settings
-
 
 @dataclass(frozen=True)
 class NERConfig:
@@ -14,6 +12,8 @@ class NERConfig:
 
 
 def load_ner_config() -> NERConfig:
+    from app.settings import settings
+
     provider = settings.ner_provider
 
     if provider == "gliner":

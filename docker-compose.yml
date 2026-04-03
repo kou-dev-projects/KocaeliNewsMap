@@ -4,11 +4,19 @@ x-backend-build: &backend-build
     INSTALL_ML: ${DOCKER_INSTALL_ML:-false}
     INSTALL_DEV_TOOLS: ${DOCKER_INSTALL_DEV_TOOLS:-false}
     INSTALL_OPTIONAL_INTEGRATIONS: ${DOCKER_INSTALL_OPTIONAL_INTEGRATIONS:-false}
+    INSTALL_PLAYWRIGHT_BROWSER: ${DOCKER_INSTALL_PLAYWRIGHT_BROWSER:-false}
+
+x-ml-build: &ml-build
+  context: ./backend
+  dockerfile: Dockerfile.ml-runtime
+  args:
+    ML_BASE_IMAGE: ${ML_BASE_IMAGE:-kocaelinewsmap-ml-base:py313-torch210-cpu-v1}
 
 x-backend-environment: &backend-environment
   MONGO_URL: ${MONGO_DOCKER_URL:-mongodb://mongodb:27017}
   MONGO_DB: ${MONGO_DB:-kocaeli_news}
   REDIS_URL: redis://redis:6379
+  ML_SERVICE_URL: http://ml:8010
 
 x-backend-common: &backend-common
   image: kocaelinewsmap-backend:dev
@@ -17,6 +25,8 @@ x-backend-common: &backend-common
       condition: service_started
     mongo-migrate:
       condition: service_completed_successfully
+    ml:
+      condition: service_healthy
   env_file:
     - .env
   volumes:
@@ -73,6 +83,26 @@ services:
     volumes:
       - redis_data:/data
 
+  ml:
+    image: kocaelinewsmap-ml:dev
+    build: *ml-build
+    container_name: kocaeli-news_map_ml
+    command: ["python", "-m", "uvicorn", "app.ml_app:app", "--host", "0.0.0.0", "--port", "8010", "--reload"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ML_SERVICE_URL: ""
+      DOCKER_INSTALL_ML: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/healthz', timeout=5).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - ./backend:/app
+
   backend:
     <<: *backend-common
     build: *backend-build
@@ -107,10 +137,12 @@ services:
     build:
       context: ./frontend
     container_name: kocaeli-news_map_frontend
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
       backend:
+        condition: service_started
+      ml:
         condition: service_started
       mongo-migrate:
         condition: service_completed_successfully
@@ -133,10 +165,29 @@ services:
       - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:hello@example.com}
       - SCRAPE_EVENTS_API_KEY=${SCRAPE_EVENTS_API_KEY:-}
       - SCRAPE_TRIGGER_API_KEY=${SCRAPE_TRIGGER_API_KEY:-}
+      - SCRAPE_OPS_USERNAME=${SCRAPE_OPS_USERNAME:-}
+      - SCRAPE_OPS_PASSWORD=${SCRAPE_OPS_PASSWORD:-}
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
       - frontend_next:/app/.next
+
+  edge:
+    image: nginx:1.27-alpine
+    container_name: kocaeli-news_map_edge
+    depends_on:
+      frontend:
+        condition: service_started
+    ports:
+      - "${FRONTEND_EDGE_PORT:-3000}:80"
+    environment:
+      EDGE_SERVER_NAME: "${EDGE_SERVER_NAME:-_}"
+      FRONTEND_UPSTREAM: "${FRONTEND_UPSTREAM:-frontend:3000}"
+      SCRAPE_OPS_ALLOWED_CIDRS: "${SCRAPE_OPS_ALLOWED_CIDRS:-127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+    volumes:
+      - ./deploy/nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./deploy/nginx/docker-entrypoint.d/40-render-scrape-ops-allowlist.sh:/docker-entrypoint.d/40-render-scrape-ops-allowlist.sh:ro
+    restart: unless-stopped
 
 volumes:
   mongo_data:

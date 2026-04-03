@@ -1,10 +1,19 @@
 import { type NextRequest } from "next/server";
 
-import { buildScrapeBackendUrl, createScrapeProxyHeaders } from "../_proxy";
+import {
+  authorizeScrapeControlRequest,
+  buildScrapeBackendUrl,
+  createScrapeProxyHeaders,
+} from "../_proxy";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<Response> {
+  const authError = authorizeScrapeControlRequest(request);
+  if (authError) {
+    return authError;
+  }
+
   const jobId = request.nextUrl.searchParams.get("job_id")?.trim();
 
   if (!jobId) {

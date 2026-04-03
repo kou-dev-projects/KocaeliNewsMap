@@ -148,11 +148,11 @@ def test_factory_falls_back_to_mock_when_optional_embedding_providers_missing(mo
             raise ImportError("SigLIP2 missing")
 
     monkeypatch.setattr(
-        "app.services.embedding.factory.BGEM3Provider",
+        "app.services.embedding.local_factory.BGEM3Provider",
         MissingTextProvider,
     )
     monkeypatch.setattr(
-        "app.services.embedding.factory.SigLIP2Provider",
+        "app.services.embedding.local_factory.SigLIP2Provider",
         MissingImageProvider,
     )
 
@@ -180,3 +180,66 @@ def test_factory_falls_back_to_mock_when_optional_embedding_providers_missing(mo
     assert text_emb.provider == "mock-text"
     assert image_emb is not None
     assert image_emb.provider == "mock-image"
+
+
+def test_factory_uses_remote_embedding_providers_when_ml_service_configured(monkeypatch, cfg):
+    class RemoteTextProviderStub:
+        name = "remote-bge-m3"
+        dimension = 1024
+
+        def __init__(self, *, base_url: str, timeout_seconds: float, provider: str, dimension: int):
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.provider = provider
+            self.dimension = dimension
+
+        def embed_text(self, text: str):
+            return np.ones(self.dimension, dtype=np.float32) / np.sqrt(self.dimension)
+
+    class RemoteImageProviderStub:
+        name = "remote-siglip2"
+        dimension = 768
+
+        def __init__(self, *, base_url: str, timeout_seconds: float, provider: str, dimension: int):
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.provider = provider
+            self.dimension = dimension
+
+        def embed_image(self, image_url: str):
+            return np.ones(self.dimension, dtype=np.float32) / np.sqrt(self.dimension)
+
+    monkeypatch.setattr("app.settings.settings.ml_service_url", "http://ml:8010")
+    monkeypatch.setattr(
+        "app.services.embedding.factory.RemoteTextProvider",
+        RemoteTextProviderStub,
+    )
+    monkeypatch.setattr(
+        "app.services.embedding.factory.RemoteImageProvider",
+        RemoteImageProviderStub,
+    )
+
+    service = build_embedding_service_from_factory(
+        EmbeddingConfig(
+            text_provider="bge-m3",
+            image_provider="siglip2",
+            text_dimension=1024,
+            image_dimension=768,
+            duplicate_threshold=0.90,
+            text_score_weight=0.85,
+            image_score_weight=0.15,
+            cost_log_path=cfg.cost_log_path,
+        )
+    )
+
+    text_emb, image_emb = service.embed(
+        EmbeddingInput(
+            title="Remote embedding test",
+            source="test.com",
+            image_url="https://example.com/image.jpg",
+        )
+    )
+
+    assert text_emb.provider == "remote-bge-m3"
+    assert image_emb is not None
+    assert image_emb.provider == "remote-siglip2"

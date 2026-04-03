@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useScrapeEventStream } from "@/hooks/useScrapeEventStream";
+import {
+  bootstrapScrape,
+  fetchScrapeJobStatus,
+  refreshScrape,
+  type ScrapeQueuedResponse,
+} from "@/lib/scrape-api";
 import type {
   ScrapeLogEntry,
   ScrapeLogTone,
@@ -76,6 +82,20 @@ function LogRow({ entry }: { entry: ScrapeLogEntry }) {
   );
 }
 
+function summarizeRefreshResult(result: Record<string, unknown> | undefined): string {
+  const refreshCleanup = result?.refresh_cleanup;
+  if (
+    refreshCleanup &&
+    typeof refreshCleanup === "object" &&
+    "status" in refreshCleanup &&
+    refreshCleanup.status === "discarded"
+  ) {
+    return "Refresh kismi kaldi. Aday veri atildi ve aktif gorunum korundu.";
+  }
+
+  return "Job tamamlandi.";
+}
+
 export function ScrapeLogPanel() {
   const {
     events,
@@ -86,6 +106,13 @@ export function ScrapeLogPanel() {
     clearEvents,
   } = useScrapeEventStream();
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [jobStatusMessage, setJobStatusMessage] = useState(
+    "No operator job running.",
+  );
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const controlsDisabled = isSubmitting || activeJobId !== null;
 
   useEffect(() => {
     const bottomElement = bottomRef.current;
@@ -117,6 +144,114 @@ export function ScrapeLogPanel() {
     });
   }, [events.length]);
 
+  useEffect(() => {
+    if (!activeJobId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncJobStatus = async () => {
+      try {
+        const status = await fetchScrapeJobStatus(activeJobId);
+        if (cancelled) {
+          return;
+        }
+
+        if (status.status === "pending") {
+          setJobStatusMessage("Job kuyrukta bekliyor.");
+          return;
+        }
+
+        if (status.status === "running") {
+          setJobStatusMessage("Job calisiyor.");
+          return;
+        }
+
+        setIsSubmitting(false);
+        setActiveJobId(null);
+
+        if (status.status === "completed") {
+          setActionError(null);
+          setJobStatusMessage(summarizeRefreshResult(status.result));
+          return;
+        }
+
+        setActionError(status.error || "Job basarisiz oldu.");
+        setJobStatusMessage("Job hata ile bitti.");
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setIsSubmitting(false);
+        setActiveJobId(null);
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "Job durumu kontrol edilemiyor.",
+        );
+        setJobStatusMessage("Job durumu alinmadi.");
+      }
+    };
+
+    void syncJobStatus();
+    const timer = window.setInterval(() => {
+      void syncJobStatus();
+    }, 2_500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeJobId]);
+
+  const startQueuedJob = (result: ScrapeQueuedResponse, message: string) => {
+    setActionError(null);
+    setActiveJobId(result.job_id);
+    setJobStatusMessage(message);
+  };
+
+  const handleBootstrap = async () => {
+    setIsSubmitting(true);
+    setActionError(null);
+    setJobStatusMessage("Bootstrap scrape kuyruga aliniyor...");
+
+    try {
+      const result = await bootstrapScrape();
+      if ("job_id" in result) {
+        startQueuedJob(result, "Bootstrap scrape baslatildi.");
+        return;
+      }
+
+      setIsSubmitting(false);
+      setJobStatusMessage("Veri zaten hazir.");
+    } catch (error) {
+      setIsSubmitting(false);
+      setActionError(
+        error instanceof Error ? error.message : "Bootstrap baslatilamadi.",
+      );
+      setJobStatusMessage("Bootstrap istegi hata verdi.");
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsSubmitting(true);
+    setActionError(null);
+    setJobStatusMessage("Refresh scrape kuyruga aliniyor...");
+
+    try {
+      const result = await refreshScrape();
+      startQueuedJob(result, "Refresh scrape baslatildi.");
+    } catch (error) {
+      setIsSubmitting(false);
+      setActionError(
+        error instanceof Error ? error.message : "Refresh baslatilamadi.",
+      );
+      setJobStatusMessage("Refresh istegi hata verdi.");
+    }
+  };
+
   return (
     <section className="rounded-[28px] border border-white/10 bg-[#06111d]/90 p-5 text-white shadow-[0_24px_80px_rgba(3,8,20,0.45)] backdrop-blur">
       <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
@@ -128,8 +263,8 @@ export function ScrapeLogPanel() {
             Real-time crawler activity
           </h2>
           <p className="max-w-2xl text-sm text-slate-300">
-            This panel follows the backend scrape event stream and shows queue,
-            retry, failure, and completion updates as they happen.
+            This panel follows the backend scrape event stream and lets operators
+            trigger bootstrap and refresh jobs from a protected route.
           </p>
         </div>
 
@@ -146,6 +281,28 @@ export function ScrapeLogPanel() {
           >
             Clear log
           </button>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={handleBootstrap}
+          disabled={controlsDisabled}
+          className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Bootstrap
+        </button>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={controlsDisabled}
+          className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Refresh
+        </button>
+        <div className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+          {jobStatusMessage}
         </div>
       </div>
 
@@ -190,6 +347,12 @@ export function ScrapeLogPanel() {
             <span className="h-3 w-3 rounded-full bg-emerald-400/90" />
           </div>
         </div>
+
+        {actionError ? (
+          <div className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            {actionError}
+          </div>
+        ) : null}
 
         {errorMessage ? (
           <div className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">

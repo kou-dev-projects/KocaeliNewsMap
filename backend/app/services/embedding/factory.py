@@ -1,57 +1,40 @@
 from __future__ import annotations
 
-import logging
+from app.settings import settings
 
 from .config import EmbeddingConfig, load_embedding_config
-from .providers.bge_m3 import BGEM3Provider
-from .providers.mock import MockImageProvider, MockTextProvider
-from .providers.siglip2 import SigLIP2Provider
+from .local_factory import build_local_image_provider, build_local_text_provider
+from .providers.remote import RemoteImageProvider, RemoteTextProvider
 from .service import EmbeddingService
 
+def build_text_provider(config: EmbeddingConfig):
+    if settings.ml_service_url and config.text_provider != "mock":
+        return RemoteTextProvider(
+            base_url=settings.ml_service_url,
+            timeout_seconds=settings.ml_service_timeout_seconds,
+            provider=config.text_provider,
+            dimension=config.text_dimension,
+        )
+    return build_local_text_provider(config)
 
-logger = logging.getLogger(__name__)
+
+def build_image_provider(config: EmbeddingConfig):
+    if settings.ml_service_url and config.image_provider != "mock":
+        return RemoteImageProvider(
+            base_url=settings.ml_service_url,
+            timeout_seconds=settings.ml_service_timeout_seconds,
+            provider=config.image_provider,
+            dimension=config.image_dimension,
+        )
+    return build_local_image_provider(config)
 
 
 def build_embedding_service(
     config: EmbeddingConfig | None = None,
 ) -> EmbeddingService:
     cfg = config or load_embedding_config()
-
-    match cfg.text_provider:
-        case "mock":
-            text = MockTextProvider()
-        case "bge-m3":
-            try:
-                text = BGEM3Provider()
-            except Exception as exc:
-                logger.warning(
-                    "embedding.factory.optional_provider_unavailable",
-                    extra={
-                        "provider": "bge-m3",
-                        "error": f"{type(exc).__name__}: {exc}",
-                    },
-                )
-                text = MockTextProvider()
-        case _:
-            raise ValueError(f"Bilinmeyen text provider: {cfg.text_provider!r}")
-
-    match cfg.image_provider:
-        case "mock":
-            image = MockImageProvider()
-        case "siglip2":
-            try:
-                image = SigLIP2Provider()
-            except Exception as exc:
-                logger.warning(
-                    "embedding.factory.optional_provider_unavailable",
-                    extra={
-                        "provider": "siglip2",
-                        "error": f"{type(exc).__name__}: {exc}",
-                    },
-                )
-                image = MockImageProvider()
-        case _:
-            raise ValueError(f"Bilinmeyen image provider: {cfg.image_provider!r}")
+    text = build_text_provider(cfg)
+    image = build_image_provider(cfg)
 
     return EmbeddingService(
         text_provider=text,

@@ -4,7 +4,6 @@ import asyncio
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.services.scrape_events import (
     ScrapeEvent,

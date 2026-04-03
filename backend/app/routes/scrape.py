@@ -89,11 +89,14 @@ def _get_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Networ
 
 
 def _verify_trigger_auth(x_api_key: str | None) -> None:
-    expected_key = settings.scrape_trigger_api_key
+    expected_key = (settings.scrape_trigger_api_key or "").strip()
     if not expected_key:
-        return
+        logger.error("scrape.trigger_auth.misconfigured")
+        raise HTTPException(status_code=503, detail="scrape_trigger_auth_misconfigured")
 
-    if not x_api_key or not secrets.compare_digest(x_api_key, expected_key):
+    provided_key = x_api_key.strip() if isinstance(x_api_key, str) else ""
+
+    if not provided_key or not secrets.compare_digest(provided_key, expected_key):
         raise HTTPException(status_code=401, detail="unauthorized_scrape_trigger")
 
 
@@ -344,21 +347,10 @@ def refresh_scrape(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
 
-    reset_result = result.reset_result
-    details = None
-    if reset_result is not None:
-        details = {
-            "reset": {
-                "deleted_counts": reset_result.deleted_counts,
-                "total_deleted": reset_result.total_deleted,
-            }
-        }
-
     return _trigger_started_response(
         request,
         result=result,
         message="Refresh scrape job queued",
-        details=details,
     )
 
 

@@ -4,7 +4,7 @@ from app.services.ner import build_ner_service
 from app.services.ner.factory import build_ner_service as build_ner_service_from_factory
 from app.services.ner.config import NERConfig
 from app.services.ner.districts import normalize_for_compare
-from app.services.ner.schemas import NERInput, RawEntity
+from app.services.ner.schemas import NERInput, NERResult, RawEntity
 from app.services.ner.service import NERService
 
 
@@ -226,7 +226,7 @@ def test_factory_falls_back_to_mock_when_optional_bertturk_missing(monkeypatch):
             raise ImportError("transformers missing")
 
     monkeypatch.setattr(
-        "app.services.ner.factory.BERTTurkNERProvider",
+        "app.services.ner.local_factory.BERTTurkNERProvider",
         MissingBERTTurkProvider,
     )
 
@@ -237,6 +237,39 @@ def test_factory_falls_back_to_mock_when_optional_bertturk_missing(monkeypatch):
     result = service.extract_locations(NERInput(title="Izmit'te trafik kazasi"))
 
     assert result.provider == "mock-ner"
+    assert "izmit" in {
+        normalize_for_compare(value) for value in result.validated_districts
+    }
+
+
+def test_factory_uses_remote_ner_service_when_ml_service_configured(monkeypatch):
+    class RemoteNERServiceStub:
+        def __init__(self, *, base_url: str, timeout_seconds: float, config):
+            self.base_url = base_url
+            self.timeout_seconds = timeout_seconds
+            self.config = config
+
+        def extract_locations(self, input_data: NERInput):
+            return NERResult(
+                raw_entities=[],
+                location_candidates=[],
+                validated_districts=["Izmit"],
+                provider="remote-ner",
+            )
+
+    monkeypatch.setattr("app.settings.settings.ml_service_url", "http://ml:8010")
+    monkeypatch.setattr(
+        "app.services.ner.factory.RemoteNERService",
+        RemoteNERServiceStub,
+    )
+
+    service = build_ner_service_from_factory(
+        NERConfig(provider="bertturk", min_score=0.5, model_name="dummy-model")
+    )
+
+    result = service.extract_locations(NERInput(title="Izmit'te trafik kazasi"))
+
+    assert result.provider == "remote-ner"
     assert "izmit" in {
         normalize_for_compare(value) for value in result.validated_districts
     }

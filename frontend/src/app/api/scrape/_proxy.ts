@@ -1,3 +1,5 @@
+import { authorizeScrapeOpsRequest } from "@/lib/scrape-ops-auth";
+
 const BACKEND_BASE_URL =
   process.env.API_INTERNAL_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
@@ -24,4 +26,8 @@ export function createScrapeProxyHeaders() {
   }
 
   return headers;
+}
+
+export function authorizeScrapeControlRequest(request: Request) {
+  return authorizeScrapeOpsRequest(request, { isApi: true });
 }

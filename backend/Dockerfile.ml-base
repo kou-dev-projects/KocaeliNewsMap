@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1.7
+
+FROM python:3.13-slim-bookworm
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_CACHE_DIR=/root/.cache/pip \
+    PIP_ROOT_USER_ACTION=ignore \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/appuser \
+    HF_HOME=/home/appuser/.cache/huggingface \
+    TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/hub
+
+WORKDIR /build
+
+COPY requirements.txt ./requirements.txt
+COPY requirements/runtime.txt requirements/torch-cpu.txt requirements/optional-ml.txt ./requirements/
+
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    python -m pip install -r requirements.txt \
+    && python -m pip install -r requirements/torch-cpu.txt \
+    && python -m pip install -r requirements/optional-ml.txt
+
+RUN groupadd -r appuser \
+    && useradd -m -r -g appuser -d /home/appuser appuser \
+    && mkdir -p /home/appuser/.cache/huggingface/hub \
+    && chown -R appuser:appuser /home/appuser
+
+WORKDIR /app
+
+USER appuser

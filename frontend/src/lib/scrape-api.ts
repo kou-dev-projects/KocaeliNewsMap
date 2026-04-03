@@ -67,8 +67,8 @@ export async function fetchScrapeJobStatus(jobId: string) {
   const response = await fetch(
     `/api/scrape/job-status?job_id=${encodeURIComponent(jobId)}`,
     {
-    method: "GET",
-    cache: "no-store",
+      method: "GET",
+      cache: "no-store",
     },
   );
 

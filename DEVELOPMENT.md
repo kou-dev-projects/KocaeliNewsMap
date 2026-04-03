@@ -54,6 +54,7 @@ Notes:
 DOCKER_INSTALL_ML=true
 DOCKER_INSTALL_DEV_TOOLS=true
 DOCKER_INSTALL_OPTIONAL_INTEGRATIONS=true
+DOCKER_INSTALL_PLAYWRIGHT_BROWSER=false
 ```
 
 ### Dependency Profiles
@@ -61,10 +62,78 @@ DOCKER_INSTALL_OPTIONAL_INTEGRATIONS=true
 The backend requirements are split by intent:
 
 - `backend/requirements.txt`: lean runtime dependencies
-- `backend/requirements-dev.txt`: runtime + optional ML + dev/test + legacy integrations
+- `backend/requirements-dev.txt`: runtime + local test/lint tooling
+- `backend/requirements-full.txt`: runtime + optional ML + dev/test + legacy integrations
+- `backend/requirements/optional-ml.txt`: heavyweight local inference providers, install only when needed
+- `backend/requirements/optional-integrations.txt`: experimental / legacy integrations, not part of the default dev path
 
-This keeps local Docker images small by default while preserving a full install path
-for explicit development or experimentation.
+This keeps local Docker images and default virtualenvs smaller by default while preserving
+an explicit full install path for experimentation.
+
+Docker image caching notes:
+
+- `backend/requirements/torch-cpu.txt` pins the heavyweight Torch wheel separately from the rest of the ML stack.
+- The backend Dockerfile installs runtime, Torch, optional ML, dev tools, and legacy integrations in separate cached layers.
+- `playwright install` now runs before `app/` is copied into the runtime stage, so ordinary backend code changes no longer force Chromium to download again.
+- These cache mounts require Docker BuildKit, which is enabled by default in modern Docker Desktop builds.
+
+### Versioned ML Base Image
+
+The dedicated `ml` service now builds from a separate prebuilt ML base image instead of
+resolving Torch on every everyday Compose build.
+
+Default tag:
+
+```env
+ML_BASE_IMAGE=kocaelinewsmap-ml-base:py313-torch210-cpu-v1
+```
+
+Build or refresh the heavy ML base image only when one of these changes:
+
+- `backend/requirements/torch-cpu.txt`
+- `backend/requirements/optional-ml.txt`
+- the Python base image in `backend/Dockerfile.ml-base`
+
+Build it with:
+
+```powershell
+./backend/scripts/build_ml_base.ps1
+```
+
+Then rebuild or start the ML service normally:
+
+```powershell
+docker compose build ml
+docker compose up -d ml backend worker scheduler
+```
+
+When you intentionally change heavyweight ML dependencies, bump `ML_BASE_IMAGE` to a new
+tag before rebuilding so old local images stay reusable and explicit.
+
+### Scrape Control Plane
+
+The scrape control plane is now closed by default:
+
+- Backend `/api/v1/scrape/*` routes require `SCRAPE_TRIGGER_API_KEY`.
+- Frontend `/api/scrape/*` proxy routes and `/scrape-log` require server-side HTTP Basic Auth via `SCRAPE_OPS_USERNAME` and `SCRAPE_OPS_PASSWORD`.
+- Docker Compose now places an `edge` Nginx reverse proxy in front of the frontend on `FRONTEND_EDGE_PORT` and applies an IP allowlist to `/scrape-log` and `/api/scrape/*`.
+- The edge allowlist is driven by `SCRAPE_OPS_ALLOWED_CIDRS` and defaults to localhost plus RFC1918 private ranges. Tighten this in production to your office VPN, bastion, or fixed operator IPs.
+- Public home page no longer exposes scrape controls; operators use the dedicated `/scrape-log` route after authenticating in the browser.
+
+### Dedicated ML Service
+
+ML-heavy inference now belongs in a separate container:
+
+```powershell
+docker compose up -d ml backend worker scheduler
+```
+
+Notes:
+- `ml` is built from the backend codebase with `INSTALL_ML=true`.
+- `backend`, `worker`, and `scheduler` stay on the lean backend image.
+- Inside Docker Compose, backend processes talk to `http://ml:8010`.
+- This keeps `torch`, transformers, and embedding model dependencies out of the
+  main API image by default.
 
 ### Verify Local Mongo Mode
 
@@ -88,13 +157,6 @@ Then verify the API:
 Expected:
 - `/livez` should return `{"status": "ok"}`
 - `/readyz` should report both Mongo and Redis as available
-
-Current note:
-- The app currently exposes `http://localhost:8000/docs` and the news API routes, not
-  dedicated `/livez` or `/readyz` endpoints.
-- For a real runtime check, prefer:
-  - `http://localhost:8000/docs`
-  - `http://localhost:8000/api/v1/news/stats`
 
 ### Frontend QA
 

@@ -59,7 +59,7 @@ export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsF
             />
           </div>
           <div className="text-left">
-            <span className="font-semibold text-sm text-foreground">Canli Haber Akisi</span>
+            <span className="font-semibold text-sm text-foreground">Canlı Haber Akışı</span>
             <p className="text-xs text-muted-foreground">{news.length} haber</p>
           </div>
         </div>
@@ -77,7 +77,7 @@ export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsF
           <div className="p-2 space-y-2 max-h-80 overflow-y-auto">
             {news.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border/70 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
-                Aktif filtrelere gore gosterilecek canli haber yok.
+                Aktif filtrelere göre gösterilecek canlı haber yok.
               </div>
             ) : news.map((item, index) => {
               const config = categoryConfig[item.pulseCategory] || categoryConfig.breaking
@@ -122,7 +122,7 @@ export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsF
                       animate={{ opacity: [1, 0.7, 1] }}
                       transition={{ duration: 1, repeat: Infinity }}
                     >
-                      YENI
+                      YENİ
                     </motion.div>
                   )}
                 </motion.button>

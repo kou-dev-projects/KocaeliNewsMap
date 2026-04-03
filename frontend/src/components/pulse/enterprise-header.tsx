@@ -120,7 +120,7 @@ export function EnterpriseHeader({
                 animate={{ scale: [1, 1.2, 1], opacity: [1, 0.6, 1] }}
                 transition={{ duration: 1, repeat: Infinity }}
               />
-              <span className="font-mono text-muted-foreground">SISTEM AKTIF</span>
+              <span className="font-mono text-muted-foreground">SİSTEM AKTİF</span>
             </div>
 
             <div className="hidden items-center gap-2 text-muted-foreground md:flex">
@@ -137,7 +137,7 @@ export function EnterpriseHeader({
           <div className="flex items-center gap-4">
             <div className="hidden items-center gap-2 text-muted-foreground sm:flex">
               <Globe className="h-3 w-3" />
-              <span className="font-mono">TR-41 KOCAELI</span>
+              <span className="font-mono">TR-41 KOCAELİ</span>
             </div>
 
             <div
@@ -199,11 +199,11 @@ export function EnterpriseHeader({
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold tracking-tight text-foreground">PULSE</h1>
                 <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
-                  Enterprise
+                  Sistem
                 </span>
               </div>
               <p className="mt-0.5 text-xs tracking-wide text-muted-foreground">
-                Kocaeli Yerel Haber Izleme Sistemi
+                Kocaeli Yerel Haber İzleme Sistemi
               </p>
             </div>
           </motion.div>
@@ -237,7 +237,7 @@ export function EnterpriseHeader({
                 <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
                   {liveCount.toLocaleString("tr-TR")}
                 </span>
-                <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Canli</span>
+                <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Canlı</span>
               </div>
 
               <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2">
@@ -260,7 +260,7 @@ export function EnterpriseHeader({
               type="button"
               onClick={() => setIsSearchOpen((current) => !current)}
               className="rounded-xl border border-border/50 bg-secondary/50 p-2.5 transition-colors hover:bg-secondary lg:hidden"
-              aria-label={isSearchOpen ? "Aramayi kapat" : "Aramayi ac"}
+              aria-label={isSearchOpen ? "Aramayı kapat" : "Aramayı aç"}
             >
               {isSearchOpen ? (
                 <X className="h-5 w-5 text-foreground" />
@@ -275,7 +275,7 @@ export function EnterpriseHeader({
               whileTap={{ scale: 0.96 }}
               onClick={() => setTheme(currentTheme === "dark" ? "light" : "dark")}
               className="rounded-xl border border-border/50 bg-secondary/50 p-2.5 transition-colors hover:bg-secondary"
-              aria-label={currentTheme === "dark" ? "Acik temaya gec" : "Koyu temaya gec"}
+              aria-label={currentTheme === "dark" ? "Açık temaya geç" : "Koyu temaya geç"}
             >
               {currentTheme === "dark" ? (
                 <Moon className="h-5 w-5 text-foreground" />
@@ -287,7 +287,7 @@ export function EnterpriseHeader({
             <button
               type="button"
               onClick={onMenuToggle}
-              aria-label={isMenuOpen ? "Kontrol panelini kapat" : "Kontrol panelini ac"}
+              aria-label={isMenuOpen ? "Kontrol panelini kapat" : "Kontrol panelini aç"}
               data-testid="control-panel-toggle"
               className="rounded-xl bg-primary p-2.5 transition-colors hover:bg-primary/90"
             >

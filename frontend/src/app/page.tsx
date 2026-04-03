@@ -40,10 +40,10 @@ type FeedCategoryId = LiveNewsFeedItem["pulseCategory"];
 
 const CATEGORY_OPTIONS: PulseCategoryOption[] = [
   { id: "traffic", label: "Trafik", icon: <Car className="h-3.5 w-3.5" />, color: "bg-amber-500" },
-  { id: "crime", label: "Asayis", icon: <AlertTriangle className="h-3.5 w-3.5" />, color: "bg-red-500" },
+  { id: "crime", label: "Asayiş", icon: <AlertTriangle className="h-3.5 w-3.5" />, color: "bg-red-500" },
   { id: "weather", label: "Hava", icon: <CloudRain className="h-3.5 w-3.5" />, color: "bg-blue-500" },
   { id: "event", label: "Etkinlik", icon: <CalendarDays className="h-3.5 w-3.5" />, color: "bg-emerald-500" },
-  { id: "economy", label: "Gundem", icon: <BriefcaseBusiness className="h-3.5 w-3.5" />, color: "bg-purple-500" },
+  { id: "economy", label: "Gündem", icon: <BriefcaseBusiness className="h-3.5 w-3.5" />, color: "bg-purple-500" },
 ];
 
 const ALL_CATEGORY_IDS = CATEGORY_OPTIONS.map((option) => option.id);
@@ -191,16 +191,16 @@ function formatRelativeTime(value?: string | null): string {
   const diffMinutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000));
 
   if (diffMinutes < 60) {
-    return `${diffMinutes} dk once`;
+    return `${diffMinutes} dk önce`;
   }
 
   const diffHours = Math.round(diffMinutes / 60);
   if (diffHours < 24) {
-    return `${diffHours} saat once`;
+    return `${diffHours} saat önce`;
   }
 
   const diffDays = Math.round(diffHours / 24);
-  return `${diffDays} gun once`;
+  return `${diffDays} gün önce`;
 }
 
 function isLikelyLive(item: NewsMapItem): boolean {
@@ -367,11 +367,11 @@ function HomeContent() {
   const topDistrict = useMemo(() => {
     if (filteredMapItems.length === 0) {
       if (stats.districts.length === 0) {
-        return "Izmit";
+        return "İzmit";
       }
 
       const top = [...stats.districts].sort((a, b) => b.count - a.count)[0];
-      return formatDistrictName(top?.key || "Izmit");
+      return formatDistrictName(top?.key || "İzmit");
     }
 
     const counts = new Map<string, number>();
@@ -384,7 +384,7 @@ function HomeContent() {
     });
 
     const topEntry = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-    return formatDistrictName(topEntry?.[0] || "Izmit");
+    return formatDistrictName(topEntry?.[0] || "İzmit");
   }, [filteredMapItems, stats.districts]);
 
   const avgNewsPerHour = useMemo(() => {
@@ -419,7 +419,7 @@ function HomeContent() {
 
     return dashboardError instanceof Error
       ? dashboardError.message
-      : "Veri akisinda beklenmeyen bir hata olustu.";
+      : "Veri akışında beklenmeyen bir hata oluştu.";
   }, [dashboardError]);
 
   return (
@@ -455,7 +455,7 @@ function HomeContent() {
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="glass inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                Veriler yukleniyor...
+                Veriler yükleniyor...
               </div>
             </div>
           )}
@@ -471,7 +471,7 @@ function HomeContent() {
           {!dashboardLoading && !dataErrorMessage && filteredMapItems.length === 0 ? (
             <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
               <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
-                Aktif filtrelere gore gosterilecek haber bulunamadi.
+                Aktif filtrelere göre gösterilecek haber bulunamadı.
               </div>
             </div>
           ) : null}
@@ -497,7 +497,7 @@ function HomeContent() {
           isOpen={isPanelOpen}
           onClose={() => setIsPanelOpen(false)}
           title="Harita Filtreleri"
-          subtitle="Kategori, ilce ve zaman filtreleri ile haber gorunumunu daralt."
+          subtitle="Kategori, ilçe ve zaman filtreleri ile haber görünümünü daralt."
         >
           {dataErrorMessage ? (
             <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -507,7 +507,7 @@ function HomeContent() {
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <StatsCard
-              title="Gorunum"
+              title="Görünüm"
               value={filteredMapItems.length}
               icon={<Newspaper className="h-4 w-4" />}
               color="bg-primary"
@@ -561,7 +561,7 @@ function HomeContent() {
             className="mt-4 rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
             data-testid="visible-news-count"
           >
-            {filteredMapItems.length} / {stats.total || mapData.total} haber gosteriliyor
+            {filteredMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
           </div>
         </EnhancedSidebar>
       </main>

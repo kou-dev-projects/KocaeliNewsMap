@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     default: "PULSE",
     template: "%s | PULSE",
   },
-  description: "Kocaeli sehir istihbarati ve yerel haber haritasi.",
+  description: "Kocaeli şehir istihbaratı ve yerel haber haritası.",
   applicationName: "PULSE",
   manifest: "/manifest.json",
   formatDetection: {

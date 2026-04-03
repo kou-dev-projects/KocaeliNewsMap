@@ -21,15 +21,15 @@ interface EnhancedCategoryBarProps {
 }
 
 const categories = [
-  { id: null, label: "Tumu", icon: MapPin, color: "from-primary to-primary/80", textColor: "text-primary" },
+  { id: null, label: "Tümü", icon: MapPin, color: "from-primary to-primary/80", textColor: "text-primary" },
   { id: "breaking", label: "Son Dakika", icon: Zap, color: "from-red-500 to-red-600", textColor: "text-red-500" },
   { id: "traffic", label: "Trafik", icon: Car, color: "from-amber-500 to-amber-600", textColor: "text-amber-500" },
-  { id: "crime", label: "Asayis", icon: AlertTriangle, color: "from-red-600 to-red-700", textColor: "text-red-600" },
+  { id: "crime", label: "Asayiş", icon: AlertTriangle, color: "from-red-600 to-red-700", textColor: "text-red-600" },
   { id: "weather", label: "Hava", icon: Cloud, color: "from-sky-500 to-sky-600", textColor: "text-sky-500" },
   { id: "event", label: "Etkinlik", icon: Calendar, color: "from-emerald-500 to-emerald-600", textColor: "text-emerald-500" },
-  { id: "economy", label: "Gundem", icon: TrendingUp, color: "from-violet-500 to-violet-600", textColor: "text-violet-500" },
+  { id: "economy", label: "Gündem", icon: TrendingUp, color: "from-violet-500 to-violet-600", textColor: "text-violet-500" },
   { id: "sports", label: "Spor", icon: Trophy, color: "from-orange-500 to-orange-600", textColor: "text-orange-500" },
-  { id: "health", label: "Saglik", icon: Heart, color: "from-pink-500 to-pink-600", textColor: "text-pink-500" },
+  { id: "health", label: "Sağlık", icon: Heart, color: "from-pink-500 to-pink-600", textColor: "text-pink-500" },
 ]
 
 export function EnhancedCategoryBar({ selectedCategory, onCategoryChange, categoryCounts }: EnhancedCategoryBarProps) {

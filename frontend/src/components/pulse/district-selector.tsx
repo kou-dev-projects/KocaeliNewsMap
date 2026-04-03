@@ -1,16 +1,10 @@
 "use client"
 
-import { motion, AnimatePresence } from "framer-motion"
-import { cn } from "@/lib/utils"
-import { MapPin, ChevronDown, Check } from "lucide-react"
+import { AnimatePresence, motion } from "framer-motion"
+import { Check, ChevronDown, MapPin } from "lucide-react"
 import { useState } from "react"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+
+import { cn } from "@/lib/utils"
 
 export interface DistrictOption {
   id: string
@@ -32,72 +26,52 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
       if (selected.length === 1) {
         return
       }
-      onChange(selected.filter((d) => d !== id))
-    } else {
-      onChange([...selected, id])
+      onChange(selected.filter((district) => district !== id))
+      return
     }
+
+    onChange([...selected, id])
   }
 
   const selectAll = () => {
-    onChange(districts.map((d) => d.id))
-  }
-
-  const applyPreset = (value: string) => {
-    if (value === "all") {
-      selectAll()
-      return
-    }
-
-    if (value === "top5") {
-      onChange(districts.slice(0, 5).map((d) => d.id))
-      return
-    }
-
-    if (value === "izmit") {
-      const izmit = districts.find((d) => d.id === "izmit")
-      if (izmit) {
-        onChange([izmit.id])
-      }
-    }
+    onChange(districts.map((district) => district.id))
   }
 
   const selectedNames = districts
-    .filter((d) => selected.includes(d.id))
-    .map((d) => d.name)
+    .filter((district) => selected.includes(district.id))
+    .map((district) => district.name)
     .slice(0, 3)
+
+  const triggerLabel =
+    selected.length === 0
+      ? "İlçe seçin"
+      : selected.length === districts.length
+        ? "Tüm ilçeler"
+        : `${selectedNames.join(", ")}${selected.length > 3 ? ` +${selected.length - 3}` : ""}`
 
   return (
     <div className="relative">
       <motion.button
         type="button"
         className={cn(
-          "flex items-center gap-2 px-4 py-2 rounded-xl",
-          "bg-card border border-border",
-          "hover:bg-secondary transition-colors",
-          "text-sm font-medium",
+          "flex h-[42px] min-w-[196px] items-center gap-2 rounded-xl px-4",
+          "bg-transparent text-sm font-medium leading-none transition-colors hover:bg-secondary/60",
         )}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen((value) => !value)}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
-        <MapPin className="w-4 h-4 text-primary" />
-        <span className="max-w-[180px] truncate">
-          {selected.length === 0
-            ? "Ilce secin"
-            : selected.length === districts.length
-              ? "Tum ilceler"
-              : `${selectedNames.join(", ")}${selected.length > 3 ? ` +${selected.length - 3}` : ""}`}
+        <MapPin className="h-4 w-4 shrink-0 text-primary" />
+        <span className="max-w-[180px] truncate text-sm font-medium leading-none text-foreground">
+          {triggerLabel}
         </span>
-        <motion.div
-          animate={{ rotate: isOpen ? 180 : 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          <ChevronDown className="w-4 h-4" />
+        <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+          <ChevronDown className="h-4 w-4" />
         </motion.div>
       </motion.button>
 
       <AnimatePresence>
-        {isOpen && (
+        {isOpen ? (
           <>
             <motion.div
               className="fixed inset-0 z-40"
@@ -108,35 +82,22 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
             />
 
             <motion.div
-              className="absolute top-full left-0 mt-2 w-72 max-h-80 overflow-y-auto glass rounded-xl border border-border shadow-xl z-50"
-              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              className="absolute bottom-full left-0 z-50 mb-2 max-h-80 w-72 overflow-y-auto rounded-xl border border-border shadow-xl glass"
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
             >
-              <div className="sticky top-0 p-3 border-b border-border bg-card/90 backdrop-blur-sm">
+              <div className="sticky top-0 border-b border-border bg-card/90 p-3 backdrop-blur-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Kocaeli Ilceleri</span>
+                  <span className="text-sm font-medium">Kocaeli İlçeleri</span>
                   <button
                     type="button"
                     className="text-xs text-primary hover:underline"
                     onClick={selectAll}
                   >
-                    Tumunu sec
+                    Tümünü seç
                   </button>
-                </div>
-
-                <div className="mt-2">
-                  <Select onValueChange={applyPreset}>
-                    <SelectTrigger className="h-8 bg-background/70 text-xs">
-                      <SelectValue placeholder="Hazir secim" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tum ilceler</SelectItem>
-                      <SelectItem value="top5">En aktif 5 ilce</SelectItem>
-                      <SelectItem value="izmit">Sadece Izmit</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
 
@@ -149,11 +110,8 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
                       key={district.id}
                       type="button"
                       className={cn(
-                        "w-full flex items-center justify-between px-3 py-2 rounded-lg",
-                        "transition-colors text-left",
-                        isSelected
-                          ? "bg-primary/10 text-primary"
-                          : "hover:bg-secondary",
+                        "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors",
+                        isSelected ? "bg-primary/10 text-primary" : "hover:bg-secondary",
                       )}
                       onClick={() => toggleDistrict(district.id)}
                       initial={{ opacity: 0, x: -10 }}
@@ -164,24 +122,18 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
                       <div className="flex items-center gap-3">
                         <motion.div
                           className={cn(
-                            "w-5 h-5 rounded-md border-2 flex items-center justify-center",
-                            isSelected
-                              ? "bg-primary border-primary"
-                              : "border-border",
+                            "flex h-5 w-5 items-center justify-center rounded-md border-2",
+                            isSelected ? "border-primary bg-primary" : "border-border",
                           )}
                           animate={{ scale: isSelected ? [1, 1.2, 1] : 1 }}
                           transition={{ duration: 0.2 }}
                         >
                           <AnimatePresence>
-                            {isSelected && (
-                              <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                exit={{ scale: 0 }}
-                              >
-                                <Check className="w-3 h-3 text-primary-foreground" />
+                            {isSelected ? (
+                              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                                <Check className="h-3 w-3 text-primary-foreground" />
                               </motion.div>
-                            )}
+                            ) : null}
                           </AnimatePresence>
                         </motion.div>
                         <span className="text-sm font-medium">{district.name}</span>
@@ -189,10 +141,8 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
 
                       <motion.span
                         className={cn(
-                          "px-2 py-0.5 text-xs rounded-full",
-                          isSelected
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-secondary text-secondary-foreground",
+                          "rounded-full px-2 py-0.5 text-xs",
+                          isSelected ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground",
                         )}
                         key={district.newsCount}
                         initial={{ scale: 0.8 }}
@@ -205,19 +155,20 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
                 })}
               </div>
 
-              <div className="sticky bottom-0 p-3 border-t border-border bg-card/90 backdrop-blur-sm">
+              <div className="sticky bottom-0 border-t border-border bg-card/90 p-3 backdrop-blur-sm">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{selected.length} ilce aktif</span>
+                  <span>{selected.length} ilçe aktif</span>
                   <span>
                     {districts
-                      .filter((d) => selected.includes(d.id))
-                      .reduce((sum, d) => sum + d.newsCount, 0)} haber
+                      .filter((district) => selected.includes(district.id))
+                      .reduce((sum, district) => sum + district.newsCount, 0)}{" "}
+                    haber
                   </span>
                 </div>
               </div>
             </motion.div>
           </>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   )

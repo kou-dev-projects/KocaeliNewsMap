@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import type { PickingInfo } from "@deck.gl/core";
 import { HexagonLayer } from "@deck.gl/aggregation-layers";
-import { ScatterplotLayer } from "@deck.gl/layers";
+import type { Layer, LayersList } from "@deck.gl/core";
+import { IconLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import type { IControl, Map as MapLibreMap } from "maplibre-gl";
 
@@ -25,18 +25,26 @@ type DeckGLOverlayProps = {
   onBenchmarkRender?: () => void;
 };
 
+type PickingInfo<T> = {
+  object?: T;
+  x?: number;
+  y?: number;
+};
+
 function createLayers(
   points: DeckNewsPoint[],
   layerMode: MapLayerMode,
   handleScatterHover: (info: PickingInfo<DeckNewsPoint>) => void,
   handleScatterClick: (info: PickingInfo<DeckNewsPoint>) => void,
   handleHexHover: (info: PickingInfo<{ points?: DeckNewsPoint[] }>) => boolean,
-) {
-  const layers = [];
+): LayersList {
+  const layers: Array<Layer | null> = [];
+  const HexagonLayerCtor = HexagonLayer as unknown as new (props: Record<string, unknown>) => Layer;
+  const IconLayerCtor = IconLayer as unknown as new (props: Record<string, unknown>) => Layer;
 
   if (layerMode === "heatmap" || layerMode === "combined") {
     layers.push(
-      new HexagonLayer<DeckNewsPoint>({
+      new HexagonLayerCtor({
         id: "news-hexagon",
         data: points,
         pickable: true,
@@ -59,7 +67,7 @@ function createLayers(
           shininess: 24,
           specularColor: [180, 220, 255],
         },
-        getPosition: (point) => point.position,
+        getPosition: (point: DeckNewsPoint) => point.position,
         getColorWeight: () => 1,
         getElevationWeight: () => 1,
         elevationAggregation: "SUM",
@@ -71,21 +79,22 @@ function createLayers(
 
   if (layerMode === "markers" || layerMode === "combined") {
     layers.push(
-      new ScatterplotLayer<DeckNewsPoint>({
-        id: "news-scatterplot",
+      new IconLayerCtor({
+        id: "news-marker-pins",
         data: points,
         pickable: true,
-        stroked: true,
-        filled: true,
-        radiusUnits: "pixels",
-        lineWidthUnits: "pixels",
-        getPosition: (point) => point.position,
-        getRadius: (point) => point.radius,
-        getFillColor: (point) => point.color,
-        getLineColor: [255, 255, 255, 220],
-        getLineWidth: 1.5,
-        radiusScale: 1,
-        opacity: 0.92,
+        getPosition: (point: DeckNewsPoint) => point.position,
+        getIcon: (point: DeckNewsPoint) => ({
+          url: point.markerUrl,
+          width: 48,
+          height: 64,
+          anchorY: 60,
+        }),
+        getSize: (point: DeckNewsPoint) => Math.max(40, point.radius * 3.2),
+        sizeUnits: "pixels",
+        sizeScale: 1,
+        sizeMinPixels: 40,
+        sizeMaxPixels: 58,
         onHover: handleScatterHover,
         onClick: handleScatterClick,
       }),

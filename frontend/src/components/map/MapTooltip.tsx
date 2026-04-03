@@ -52,7 +52,7 @@ export default function MapTooltip({ tooltip }: MapTooltipProps) {
         ) : (
           <>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-              Yogunluk
+              Yoğunluk
             </p>
             <p className="mt-1 text-sm font-semibold">
               {tooltip.count} haber

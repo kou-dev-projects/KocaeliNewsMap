@@ -26,13 +26,6 @@ export type NewsDashboardResponse = {
   district_facets: Array<{ key: string; count: number }>;
 };
 
-export type NewsDetail = NewsMapItem & {
-  content_text: string;
-  image_url?: string | null;
-  source_base_url?: string | null;
-  source_domains: string[];
-};
-
 export const EMPTY_STATS: NewsStats = {
   total: 0,
   geocoded_total: 0,
@@ -170,16 +163,4 @@ export async function fetchNewsDashboard(
   }
 
   return (await response.json()) as NewsDashboardResponse;
-}
-
-export async function fetchNewsDetail(newsId: string): Promise<NewsDetail> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/news/${encodeURIComponent(newsId)}`, {
-    method: "GET",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Detail request failed with status ${response.status}`);
-  }
-
-  return (await response.json()) as NewsDetail;
 }

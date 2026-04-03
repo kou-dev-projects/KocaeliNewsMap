@@ -14,7 +14,7 @@ interface StatsPanelProps {
 const CARD_CONFIG = [
   {
     key: "total",
-    label: "Aktif Gorunum",
+    label: "Aktif Görünüm",
     icon: BarChart3,
     color: "text-primary",
     bgColor: "bg-primary/10",
@@ -28,7 +28,7 @@ const CARD_CONFIG = [
   },
   {
     key: "district",
-    label: "Yogun Bolge",
+    label: "Yoğun Bölge",
     icon: MapPin,
     color: "text-amber-500",
     bgColor: "bg-amber-500/10",
@@ -63,12 +63,12 @@ export function StatsPanel({
     {
       ...CARD_CONFIG[2],
       value: topDistrict,
-      helper: "En yogun ilce",
+      helper: "En yoğun ilçe",
     },
     {
       ...CARD_CONFIG[3],
       value: avgNewsPerHour.toLocaleString("tr-TR"),
-      helper: "Ortalama saatlik akis",
+      helper: "Ortalama saatlik akış",
     },
   ];
 
@@ -81,7 +81,7 @@ export function StatsPanel({
     >
       <div className="w-64 space-y-3 rounded-xl glass p-4">
         <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm font-semibold text-foreground">Gorunum Ozeti</span>
+          <span className="text-sm font-semibold text-foreground">Görünüm Özeti</span>
           <motion.div
             className="h-2 w-2 rounded-full bg-emerald-500"
             animate={{ scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}

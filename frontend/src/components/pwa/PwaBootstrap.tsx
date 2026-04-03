@@ -75,18 +75,18 @@ export function PwaBootstrap() {
     }
 
     if (isPromptPending) {
-      return "Kurulum istegi hazirlaniyor.";
+      return "Kurulum isteği hazırlanıyor.";
     }
 
     if (isDismissed) {
-      return "Kurulum bildirimi simdilik ertelendi.";
+      return "Kurulum bildirimi şimdilik ertelendi.";
     }
 
     if (!canPrompt) {
       return null;
     }
 
-    return "PULSE'u ana ekrana ekleyerek daha hizli acilis ve cevrimdisi destek alabilirsiniz.";
+    return "PULSE'u ana ekrana ekleyerek daha hızlı açılış ve çevrimdışı destek alabilirsiniz.";
   }, [canPrompt, isDismissed, isPromptPending, isStandalone]);
 
   const showPushControls =
@@ -112,8 +112,8 @@ export function PwaBootstrap() {
                   Offline mod
                 </p>
                 <p className="text-sm leading-6 text-slate-700">
-                  Baglanti yokken onbellekteki harita ve son gorulen ekranlar
-                  kullanilmaya devam eder.
+                  Bağlantı yokken önbellekteki harita ve son görülen ekranlar
+                  kullanılmaya devam eder.
                 </p>
               </>
             ) : null}
@@ -121,7 +121,7 @@ export function PwaBootstrap() {
             {canPrompt && installCopy ? (
               <>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
-                  Uygulama hazir
+                  Uygulama hazır
                 </p>
                 <p className="text-sm leading-6 text-slate-700">{installCopy}</p>
               </>
@@ -143,14 +143,14 @@ export function PwaBootstrap() {
                 </p>
                 <p className="text-sm leading-6 text-slate-700">
                   {pushPermission === "denied"
-                    ? "Bildirimler tarayici ayarlarinda engellenmis. Uyari almak icin once izin verin."
+                    ? "Bildirimler tarayıcı ayarlarında engellenmiş. Uyarı almak için önce izin verin."
                     : pushPermission === "granted"
                     ? isSubscribed
                       ? isPushTestEnabled
-                        ? "Bildirimler aktif. Test bildirimi gonderebilirsiniz."
+                        ? "Bildirimler aktif. Test bildirimi gönderebilirsiniz."
                         : "Bildirimler aktif."
-                      : "Bildirim izni verildi. Teslimati acmak icin aboneligi tamamlayin."
-                    : "Saha uyarilari ve scrape guncellemeleri icin bildirimleri acin."}
+                      : "Bildirim izni verildi. Teslimatı açmak için aboneliği tamamlayın."
+                    : "Saha uyarıları ve scrape güncellemeleri için bildirimleri açın."}
                 </p>
                 {pushMessage ? (
                   <p className="text-xs font-medium text-slate-500">{pushMessage}</p>
@@ -193,7 +193,7 @@ export function PwaBootstrap() {
               }}
               className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              Simdi degil
+              Şimdi değil
             </button>
           </div>
         ) : null}
@@ -212,8 +212,8 @@ export function PwaBootstrap() {
                 {pushPermission === "denied"
                   ? "Bildirimler engelli"
                   : isPushBusy
-                    ? "Etkinlestiriliyor..."
-                    : "Bildirimleri ac"}
+                    ? "Etkinleştiriliyor..."
+                    : "Bildirimleri aç"}
               </button>
             ) : isPushTestEnabled ? (
               <button
@@ -224,7 +224,7 @@ export function PwaBootstrap() {
                 disabled={isPushBusy}
                 className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isPushBusy ? "Gonderiliyor..." : "Test bildirimi gonder"}
+                {isPushBusy ? "Gönderiliyor..." : "Test bildirimi gönder"}
               </button>
             ) : null}
           </div>

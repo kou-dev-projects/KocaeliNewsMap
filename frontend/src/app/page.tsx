@@ -51,10 +51,10 @@ type FeedCategoryId = LiveNewsFeedItem["pulseCategory"];
 
 const CATEGORY_OPTIONS: PulseCategoryOption[] = [
   { id: "traffic", label: "Trafik", icon: <Car className="h-3.5 w-3.5" />, color: "bg-amber-500" },
-  { id: "crime", label: "Asayis", icon: <AlertTriangle className="h-3.5 w-3.5" />, color: "bg-red-500" },
+  { id: "crime", label: "Asayiş", icon: <AlertTriangle className="h-3.5 w-3.5" />, color: "bg-red-500" },
   { id: "weather", label: "Hava", icon: <CloudRain className="h-3.5 w-3.5" />, color: "bg-blue-500" },
   { id: "event", label: "Etkinlik", icon: <CalendarDays className="h-3.5 w-3.5" />, color: "bg-emerald-500" },
-  { id: "economy", label: "Gundem", icon: <BriefcaseBusiness className="h-3.5 w-3.5" />, color: "bg-purple-500" },
+  { id: "economy", label: "Gündem", icon: <BriefcaseBusiness className="h-3.5 w-3.5" />, color: "bg-purple-500" },
 ];
 
 const ALL_CATEGORY_IDS = CATEGORY_OPTIONS.map((option) => option.id);
@@ -62,12 +62,10 @@ const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "5000");
 const EMPTY_COUNTS: Record<FeedCategoryId, number> = {
   breaking: 0,
   traffic: 0,
-  crime: 0,
-  weather: 0,
+  fire: 0,
+  outage: 0,
+  theft: 0,
   event: 0,
-  economy: 0,
-  sports: 0,
-  health: 0,
 };
 const CATEGORY_FILTER_MAP: Record<PulseCategoryId, string[]> = {
   traffic: ["trafik_kazasi"],
@@ -77,29 +75,38 @@ const CATEGORY_FILTER_MAP: Record<PulseCategoryId, string[]> = {
   economy: ["unknown"],
 };
 
-function toPulseCategory(raw?: string | null): PulseCategoryId {
+function toFeedCategory(raw?: string | null): LiveNewsFeedItem["pulseCategory"] {
   switch (raw) {
     case "trafik_kazasi":
       return "traffic";
-    case "hirsizlik":
-      return "crime";
     case "yangin":
-      return "crime";
+      return "fire";
     case "elektrik_kesintisi":
-      return "weather";
+      return "outage";
+    case "hirsizlik":
+      return "theft";
     case "kulturel_etkinlik":
       return "event";
     default:
-      return "economy";
+      return "breaking";
   }
 }
 
-function toFeedCategory(raw?: string | null): LiveNewsFeedItem["pulseCategory"] {
-  if (raw === "yangin") {
-    return "breaking";
+function toCategoryBarCategory(raw?: string | null): Exclude<FeedCategoryId, "breaking"> | null {
+  switch (raw) {
+    case "trafik_kazasi":
+      return "traffic";
+    case "yangin":
+      return "fire";
+    case "elektrik_kesintisi":
+      return "outage";
+    case "hirsizlik":
+      return "theft";
+    case "kulturel_etkinlik":
+      return "event";
+    default:
+      return null;
   }
-
-  return toPulseCategory(raw);
 }
 
 function buildQueryFilters(input: {
@@ -140,7 +147,11 @@ function buildCategoryCountsFromStats(
   const counts = { ...EMPTY_COUNTS };
 
   buckets.forEach((bucket) => {
-    accumulateCategoryCounts(counts, toFeedCategory(bucket.key), bucket.count);
+    const category = toCategoryBarCategory(bucket.key);
+    if (!category) {
+      return;
+    }
+    accumulateCategoryCounts(counts, category, bucket.count);
   });
 
   return counts;
@@ -150,7 +161,13 @@ function buildCategoryCountsFromItems(items: NewsMapItem[]): Record<FeedCategory
   const counts = { ...EMPTY_COUNTS };
 
   items.forEach((item) => {
-    accumulateCategoryCounts(counts, toFeedCategory(item.category), 1);
+    const category = toCategoryBarCategory(item.category);
+    if (category) {
+      accumulateCategoryCounts(counts, category, 1);
+    }
+    if (isRecentNews(item)) {
+      accumulateCategoryCounts(counts, "breaking", 1);
+    }
   });
 
   return counts;
@@ -532,7 +549,10 @@ function HomeContent() {
     return baseFilteredItems
       .filter((item) => {
         if (selectedCategory) {
-          return toFeedCategory(item.category) === selectedCategory;
+          if (selectedCategory === "breaking") {
+            return isRecentNews(item);
+          }
+          return toCategoryBarCategory(item.category) === selectedCategory;
         }
         return true;
       })

@@ -5,12 +5,10 @@ import {
   Activity,
   Database,
   Filter,
-  Globe,
   Menu,
   Moon,
   Search,
   Sun,
-  Wifi,
   X,
   Zap,
 } from "lucide-react";
@@ -54,19 +52,8 @@ export function EnterpriseHeader({
     () => false,
   );
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
   const desktopSearchRef = useRef<HTMLInputElement | null>(null);
   const mobileSearchRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1_000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -107,59 +94,6 @@ export function EnterpriseHeader({
 
   return (
     <header className="absolute inset-x-0 top-0 z-30">
-      <motion.div
-        initial={{ opacity: 0, y: -16 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="border-b border-border bg-card/82 px-4 py-1.5 text-xs backdrop-blur-sm"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <motion.div
-                className="h-2 w-2 rounded-full bg-emerald-500"
-                animate={{ scale: [1, 1.2, 1], opacity: [1, 0.6, 1] }}
-                transition={{ duration: 1, repeat: Infinity }}
-              />
-              <span className="font-mono text-muted-foreground">SISTEM AKTIF</span>
-            </div>
-
-            <div className="hidden items-center gap-2 text-muted-foreground md:flex">
-              <Database className="h-3 w-3" />
-              <span className="font-mono">{totalNews.toLocaleString("tr-TR")} KAYIT</span>
-            </div>
-
-            <div className="hidden items-center gap-2 text-muted-foreground md:flex">
-              <Wifi className="h-3 w-3 text-emerald-500" />
-              <span className="font-mono">CANLI: {liveCount.toLocaleString("tr-TR")}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="hidden items-center gap-2 text-muted-foreground sm:flex">
-              <Globe className="h-3 w-3" />
-              <span className="font-mono">TR-41 KOCAELI</span>
-            </div>
-
-            <div
-              className="flex items-center gap-1 font-mono text-foreground"
-              suppressHydrationWarning
-            >
-              <span suppressHydrationWarning>
-                {currentTime.toLocaleDateString("tr-TR", {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                })}
-              </span>
-              <span className="text-muted-foreground">|</span>
-              <span className="font-semibold text-primary" suppressHydrationWarning>
-                {currentTime.toLocaleTimeString("tr-TR")}
-              </span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
       <div className="mx-4 mt-3 overflow-hidden rounded-2xl glass">
         <div className="flex items-center justify-between gap-4 px-5 py-4">
           <motion.div

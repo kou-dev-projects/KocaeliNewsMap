@@ -4,12 +4,9 @@ import { motion, AnimatePresence } from "framer-motion"
 import {
   Zap,
   Car,
-  AlertTriangle,
-  Cloud,
+  Flame,
+  ShieldAlert,
   Calendar,
-  TrendingUp,
-  Trophy,
-  Heart,
   MapPin,
   Clock,
   ChevronRight,
@@ -18,7 +15,7 @@ import {
 import type { NewsMapItem } from "@/components/map/MapView"
 
 export type LiveNewsFeedItem = NewsMapItem & {
-  pulseCategory: "traffic" | "crime" | "weather" | "event" | "economy" | "sports" | "health" | "breaking"
+  pulseCategory: "traffic" | "fire" | "outage" | "theft" | "event" | "breaking"
   timeLabel: string
   isRecent?: boolean
 }
@@ -32,12 +29,10 @@ interface LiveNewsFeedProps {
 const categoryConfig: Record<string, { bgColor: string; icon: React.ReactNode }> = {
   breaking: { bgColor: "bg-red-500", icon: <Zap className="w-3.5 h-3.5" /> },
   traffic: { bgColor: "bg-amber-500", icon: <Car className="w-3.5 h-3.5" /> },
-  crime: { bgColor: "bg-red-600", icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  weather: { bgColor: "bg-sky-500", icon: <Cloud className="w-3.5 h-3.5" /> },
+  fire: { bgColor: "bg-red-600", icon: <Flame className="w-3.5 h-3.5" /> },
+  outage: { bgColor: "bg-yellow-500", icon: <Zap className="w-3.5 h-3.5" /> },
+  theft: { bgColor: "bg-violet-500", icon: <ShieldAlert className="w-3.5 h-3.5" /> },
   event: { bgColor: "bg-emerald-500", icon: <Calendar className="w-3.5 h-3.5" /> },
-  economy: { bgColor: "bg-violet-500", icon: <TrendingUp className="w-3.5 h-3.5" /> },
-  sports: { bgColor: "bg-orange-500", icon: <Trophy className="w-3.5 h-3.5" /> },
-  health: { bgColor: "bg-pink-500", icon: <Heart className="w-3.5 h-3.5" /> },
 }
 
 export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsFeedProps) {

@@ -5,12 +5,9 @@ import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import DeckGLOverlay from "@/components/map/DeckGLOverlay";
-import MapLayerToggle from "@/components/map/MapLayerToggle";
 import MapTooltip, { type MapTooltipState } from "@/components/map/MapTooltip";
-import { FpsTracker, type FpsMetrics } from "@/components/map/mapFpsTracker";
 import {
   adaptNewsItemsToDeckPoints,
-  buildBenchmarkPoints,
   type DeckNewsPoint,
   type MapLayerMode,
 } from "@/components/map/mapLayerUtils";
@@ -46,12 +43,10 @@ const KOCAELI_CENTER: [number, number] = [29.9213, 40.7654];
 const INITIAL_ZOOM = 12;
 const BUILDING_SOURCE_ID = "openfreemap";
 const BUILDING_LAYER_ID = "kocaeli-3d-buildings";
-const BENCHMARK_DURATION_MS = 2800;
 
 const DEFAULT_STYLE_URL =
   process.env.NEXT_PUBLIC_MAP_STYLE_URL ??
   "https://tiles.openfreemap.org/styles/liberty";
-const SHOW_MAP_QA_CONTROLS = process.env.NEXT_PUBLIC_ENABLE_MAP_QA === "true";
 
 const FALLBACK_MAP_STYLE: Record<string, unknown> = {
   version: 8,
@@ -409,31 +404,6 @@ function applyMapThemePaint(map: MapLibreMap, mode: MapThemeMode) {
 
 }
 
-function waitForAnimationFrames(frameCount = 2) {
-  return new Promise<void>((resolve) => {
-    let remaining = frameCount;
-
-    const step = () => {
-      remaining -= 1;
-
-      if (remaining <= 0) {
-        resolve();
-        return;
-      }
-
-      window.requestAnimationFrame(step);
-    };
-
-    window.requestAnimationFrame(step);
-  });
-}
-
-function waitForMapEvent(map: MapLibreMap, eventName: string) {
-  return new Promise<void>((resolve) => {
-    map.once(eventName, () => resolve());
-  });
-}
-
 function isRemoteStyleUrl(value: string) {
   return value.startsWith("https://") || value.startsWith("http://");
 }
@@ -458,23 +428,13 @@ export default function MapView({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
-  const [layerMode, setLayerMode] = useState<MapLayerMode>("markers");
+  const layerMode: MapLayerMode = "markers";
   const [tooltip, setTooltip] = useState<MapTooltipState>(null);
-  const [benchmarkActive, setBenchmarkActive] = useState(false);
-  const [benchmarkRunning, setBenchmarkRunning] = useState(false);
-  const [benchmarkMetrics, setBenchmarkMetrics] = useState<FpsMetrics>();
+  const benchmarkActive = false;
   const deckPoints = useMemo<DeckNewsPoint[]>(
     () => adaptNewsItemsToDeckPoints(items),
     [items],
   );
-  const benchmarkPointCount = useMemo(
-    () => buildBenchmarkPoints(deckPoints).length,
-    [deckPoints],
-  );
-  const benchmarkTrackerRef = useRef<{
-    tracker: FpsTracker;
-    previousTimestamp?: number;
-  } | null>(null);
   const resolvedStyleRef = useRef<MapStyleDefinition | null>(null);
   const appliedStyleRef = useRef<MapStyleDefinition | null>(null);
   const activeThemeModeRef = useRef<MapThemeMode>(themeMode);
@@ -700,76 +660,11 @@ export default function MapView({
     activeMap.setStyle(resolvedStyle as never);
   }, [resolvedStyle]);
 
-  const handleBenchmarkRender = () => {
-    const activeBenchmark = benchmarkTrackerRef.current;
-    if (!activeBenchmark) {
-      return;
-    }
-
-    const now = performance.now();
-    if (activeBenchmark.previousTimestamp === undefined) {
-      activeBenchmark.previousTimestamp = now;
-      return;
-    }
-
-    activeBenchmark.tracker.record(now - activeBenchmark.previousTimestamp);
-    activeBenchmark.previousTimestamp = now;
-  };
-
-  const handleRunBenchmark = async () => {
-    const activeMap = mapRef.current;
-    if (!activeMap || benchmarkRunning || benchmarkPointCount === 0) {
-      return;
-    }
-
-    setBenchmarkRunning(true);
-    setBenchmarkActive(true);
-    setBenchmarkMetrics(undefined);
-    benchmarkTrackerRef.current = {
-      tracker: new FpsTracker(),
-    };
-
-    await waitForAnimationFrames(3);
-
-    const initialBearing = activeMap.getBearing();
-    const initialPitch = activeMap.getPitch();
-    activeMap.easeTo({
-      bearing: initialBearing + 22,
-      pitch: Math.min(58, initialPitch + 8),
-      duration: BENCHMARK_DURATION_MS,
-      essential: true,
-    });
-
-    await waitForMapEvent(activeMap, "moveend");
-
-    const metrics = benchmarkTrackerRef.current?.tracker.getMetrics();
-    benchmarkTrackerRef.current = null;
-    setBenchmarkActive(false);
-    setBenchmarkMetrics(metrics);
-    setBenchmarkRunning(false);
-
-    activeMap.easeTo({
-      bearing: initialBearing,
-      pitch: initialPitch,
-      duration: 450,
-      essential: true,
-    });
-  };
+  const handleBenchmarkRender = () => {};
 
   return (
     <div className={`relative ${className}`} data-testid="news-map-shell">
       <div ref={containerRef} className="h-full w-full" data-testid="news-map" />
-
-      <MapLayerToggle
-        layerMode={layerMode}
-        onLayerModeChange={setLayerMode}
-        onRunBenchmark={handleRunBenchmark}
-        benchmarkRunning={benchmarkRunning}
-        benchmarkMetrics={benchmarkMetrics}
-        pointCount={deckPoints.length}
-        benchmarkPointCount={benchmarkPointCount}
-        showBenchmark={SHOW_MAP_QA_CONTROLS}
-      />
       <MapTooltip tooltip={tooltip} />
       <DeckGLOverlay
         map={map}

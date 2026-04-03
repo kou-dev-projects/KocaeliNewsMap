@@ -1,16 +1,41 @@
-"use client";
+﻿"use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import {
+  AlertTriangle,
+  BriefcaseBusiness,
+  CalendarDays,
+  Car,
+  CloudRain,
+  Globe2,
+  Loader2,
+  MapPinned,
+  Newspaper,
+  TrendingUp,
+} from "lucide-react";
 
-import FilterSidebar, {
-  type FilterState,
-} from "@/components/filters/FilterSidebar";
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
+import {
+  CategoryFilter,
+  type PulseCategoryOption,
+} from "@/components/pulse/category-filter";
+import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector";
+import { EnhancedSidebar } from "@/components/pulse/enhanced-sidebar";
+import { EnterpriseHeader } from "@/components/pulse/enterprise-header";
+import { EnhancedCategoryBar } from "@/components/pulse/enhanced-category-bar";
+import { LiveNewsFeed, type LiveNewsFeedItem } from "@/components/pulse/live-news-feed";
+import { ScrapingLog, type PulseLogEntry } from "@/components/pulse/scraping-log";
+import { SplashScreen } from "@/components/pulse/splash-screen";
+import { StatsCard } from "@/components/pulse/stats-card";
+import { StatsPanel } from "@/components/pulse/stats-panel";
+import { TimelineSlider } from "@/components/pulse/timeline-slider";
 import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
+import type { NewsQueryFilters } from "@/lib/filter-state";
 import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
 import { newsKeys } from "@/lib/news-query-keys";
 import {
@@ -20,155 +45,354 @@ import {
   type ScrapeQueuedResponse,
 } from "@/lib/scrape-api";
 
-const EMPTY_FILTERS: FilterState = {
-  category: "",
-  district: "",
-  dateFrom: "",
-  dateTo: "",
+type PulseTone = "info" | "success" | "warning" | "error";
+type PulseCategoryId = "traffic" | "crime" | "weather" | "event" | "economy";
+type FeedCategoryId = LiveNewsFeedItem["pulseCategory"];
+
+const CATEGORY_OPTIONS: PulseCategoryOption[] = [
+  { id: "traffic", label: "Trafik", icon: <Car className="h-3.5 w-3.5" />, color: "bg-amber-500" },
+  { id: "crime", label: "Asayis", icon: <AlertTriangle className="h-3.5 w-3.5" />, color: "bg-red-500" },
+  { id: "weather", label: "Hava", icon: <CloudRain className="h-3.5 w-3.5" />, color: "bg-blue-500" },
+  { id: "event", label: "Etkinlik", icon: <CalendarDays className="h-3.5 w-3.5" />, color: "bg-emerald-500" },
+  { id: "economy", label: "Gundem", icon: <BriefcaseBusiness className="h-3.5 w-3.5" />, color: "bg-purple-500" },
+];
+
+const ALL_CATEGORY_IDS = CATEGORY_OPTIONS.map((option) => option.id);
+const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "5000");
+const EMPTY_COUNTS: Record<FeedCategoryId, number> = {
+  breaking: 0,
+  traffic: 0,
+  crime: 0,
+  weather: 0,
+  event: 0,
+  economy: 0,
+  sports: 0,
+  health: 0,
+};
+const CATEGORY_FILTER_MAP: Record<PulseCategoryId, string[]> = {
+  traffic: ["trafik_kazasi"],
+  crime: ["hirsizlik", "yangin"],
+  weather: ["elektrik_kesintisi"],
+  event: ["kulturel_etkinlik"],
+  economy: ["unknown"],
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  trafik_kazasi: "Trafik Kazasi",
-  yangin: "Yangin",
-  elektrik_kesintisi: "Elektrik Kesintisi",
-  hirsizlik: "Hirsizlik",
-  kulturel_etkinlik: "Kulturel Etkinlik",
-};
-
-const DISTRICT_LABELS: Record<string, string> = {
-  izmit: "Izmit",
-  gebze: "Gebze",
-  darica: "Darica",
-  golcuk: "Golcuk",
-  hereke: "Hereke",
-  korfez: "Korfez",
-  kartepe: "Kartepe",
-  basiskele: "Basiskele",
-  cayirova: "Cayirova",
-  dilovasi: "Dilovasi",
-  kandira: "Kandira",
-  karamursel: "Karamursel",
-  derince: "Derince",
-};
-
-type SearchParamsLike = {
-  get(name: string): string | null;
-};
-
-function filtersFromSearchParams(searchParams: SearchParamsLike) {
-  return {
-    category: searchParams.get("category") ?? "",
-    district: searchParams.get("district") ?? "",
-    dateFrom: searchParams.get("date_from") ?? "",
-    dateTo: searchParams.get("date_to") ?? "",
-  };
+function toPulseCategory(raw?: string | null): PulseCategoryId {
+  switch (raw) {
+    case "trafik_kazasi":
+      return "traffic";
+    case "hirsizlik":
+      return "crime";
+    case "yangin":
+      return "crime";
+    case "elektrik_kesintisi":
+      return "weather";
+    case "kulturel_etkinlik":
+      return "event";
+    default:
+      return "economy";
+  }
 }
 
-function formatFilterSummary(filters: FilterState) {
-  const parts: string[] = [];
-
-  if (filters.category) {
-    parts.push(`Tur: ${CATEGORY_LABELS[filters.category] ?? filters.category}`);
+function toFeedCategory(raw?: string | null): LiveNewsFeedItem["pulseCategory"] {
+  if (raw === "yangin") {
+    return "breaking";
   }
 
-  if (filters.district) {
-    parts.push(`Ilce: ${DISTRICT_LABELS[filters.district] ?? filters.district}`);
+  return toPulseCategory(raw);
+}
+
+function buildQueryFilters(input: {
+  categories?: string[];
+  districts?: string[];
+  search?: string;
+  limit?: number;
+}): NewsQueryFilters {
+  const filters: NewsQueryFilters = {};
+
+  if (input.categories && input.categories.length > 0) {
+    filters.categories = input.categories;
+  }
+  if (input.districts && input.districts.length > 0) {
+    filters.districts = input.districts;
+  }
+  if (input.search) {
+    filters.search = input.search;
+  }
+  if (input.limit) {
+    filters.limit = input.limit;
   }
 
-  if (filters.dateFrom || filters.dateTo) {
-    const from = filters.dateFrom || "baslangic yok";
-    const to = filters.dateTo || "bugune kadar";
-    parts.push(`Tarih: ${from} - ${to}`);
+  return filters;
+}
+
+function accumulateCategoryCounts(
+  target: Record<FeedCategoryId, number>,
+  category: FeedCategoryId,
+  count: number,
+) {
+  target[category] = (target[category] || 0) + count;
+}
+
+function buildCategoryCountsFromStats(
+  buckets: Array<{ key: string; count: number }>,
+): Record<FeedCategoryId, number> {
+  const counts = { ...EMPTY_COUNTS };
+
+  buckets.forEach((bucket) => {
+    accumulateCategoryCounts(counts, toFeedCategory(bucket.key), bucket.count);
+  });
+
+  return counts;
+}
+
+function buildCategoryCountsFromItems(items: NewsMapItem[]): Record<FeedCategoryId, number> {
+  const counts = { ...EMPTY_COUNTS };
+
+  items.forEach((item) => {
+    accumulateCategoryCounts(counts, toFeedCategory(item.category), 1);
+  });
+
+  return counts;
+}
+
+function normalizeDistrict(value?: string | null): string {
+  if (!value) {
+    return "";
   }
 
-  if (parts.length === 0) {
-    return "Aktif filtre yok. Tum haberler gosterilecek.";
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function formatDistrictName(value?: string | null): string {
+  if (!value) {
+    return "Bilinmeyen";
   }
 
-  return parts.join(" | ");
+  return value
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toLocaleUpperCase("tr-TR") + part.slice(1))
+    .join(" ");
+}
+
+function parseDateValue(value?: string | null): number {
+  if (!value) {
+    return 0;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 0;
+  }
+
+  return date.getTime();
+}
+
+function formatRelativeTime(value?: string | null): string {
+  const timestamp = parseDateValue(value);
+  if (!timestamp) {
+    return "Bilinmeyen";
+  }
+
+  const diffMinutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000));
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes} dk once`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours} saat once`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays} gun once`;
+}
+
+function isLikelyLive(item: NewsMapItem): boolean {
+  const timestamp = parseDateValue(item.published_at_raw);
+  if (!timestamp) {
+    return false;
+  }
+
+  return Date.now() - timestamp <= 6 * 60 * 60 * 1000;
+}
+
+function isRecentNews(item: NewsMapItem): boolean {
+  const timestamp = parseDateValue(item.published_at_raw);
+  if (!timestamp) {
+    return false;
+  }
+
+  return Date.now() - timestamp <= 90 * 60 * 1000;
+}
+
+function makeLogId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function HomeFallback() {
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:max-w-[1500px] lg:px-6">
-        <header className="rounded-2xl bg-white px-5 py-4 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
-            PULSE
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            Kocaeli Haber Haritasi
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Harita ve filtreler hazirlaniyor.
-          </p>
-        </header>
-
-        <section className="grid grid-cols-3 gap-3">
-          {[0, 1, 2].map((key) => (
-            <article
-              key={key}
-              className="rounded-xl bg-white px-4 py-3 shadow-sm"
-            >
-              <div className="h-4 w-20 rounded bg-slate-200" />
-              <div className="mt-3 h-8 w-14 rounded bg-slate-200" />
-            </article>
-          ))}
-        </section>
-
-        <section className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <div className="min-h-[320px] rounded-2xl bg-white shadow-sm" />
-          <div className="min-h-[560px] rounded-2xl bg-white shadow-sm" />
-        </section>
-      </main>
+    <div className="fixed inset-0 bg-background p-4">
+      <div className="h-16 w-full rounded-2xl glass animate-shimmer" />
+      <div className="mt-4 h-[calc(100%-6rem)] w-full rounded-2xl glass animate-shimmer" />
     </div>
   );
 }
 
 function HomeContent() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const initialFilters = filtersFromSearchParams(searchParams);
+  const { resolvedTheme } = useTheme();
   const hasTriggeredBootstrapRef = useRef(false);
+  const lastLoggedErrorRef = useRef("");
 
-  const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
-  const [appliedFilters, setAppliedFilters] =
-    useState<FilterState>(initialFilters);
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(ALL_CATEGORY_IDS);
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
+  const [timelineTime, setTimelineTime] = useState(new Date());
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [activeScrapeJobId, setActiveScrapeJobId] = useState<string | null>(null);
   const [scrapeStatusMessage, setScrapeStatusMessage] = useState("");
-  const [scrapeStatusTone, setScrapeStatusTone] = useState<
-    "info" | "success" | "warning" | "error"
-  >("info");
+  const [scrapeStatusTone, setScrapeStatusTone] = useState<PulseTone>("info");
   const [isRefreshPending, setIsRefreshPending] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+  const [timeTick, setTimeTick] = useState(() => Date.now());
+  const [logs, setLogs] = useState<PulseLogEntry[]>([]);
+  const deferredSearchKeyword = useDeferredValue(searchKeyword);
+  const normalizedSearchKeyword = deferredSearchKeyword.trim();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTimeTick(Date.now());
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const selectedServerCategories = useMemo(() => {
+    if (
+      selectedCategories.length === 0 ||
+      selectedCategories.length === ALL_CATEGORY_IDS.length
+    ) {
+      return undefined;
+    }
+
+    return selectedCategories.flatMap((category) => {
+      const categoryId = category as PulseCategoryId;
+      return CATEGORY_FILTER_MAP[categoryId] ?? [];
+    });
+  }, [selectedCategories]);
+
+  const districtStatsFilters = useMemo(
+    () =>
+      buildQueryFilters({
+        categories: selectedServerCategories,
+        search: normalizedSearchKeyword || undefined,
+      }),
+    [normalizedSearchKeyword, selectedServerCategories],
+  );
+  const {
+    data: districtStats = EMPTY_STATS,
+    error: districtStatsError,
+    isLoading: districtStatsLoading,
+  } = useNewsStats(districtStatsFilters);
+
+  const districtOptions = useMemo<DistrictOption[]>(
+    () =>
+      districtStats.districts.map((bucket) => ({
+        id: normalizeDistrict(bucket.key),
+        name: formatDistrictName(bucket.key),
+        newsCount: bucket.count,
+      })),
+    [districtStats.districts],
+  );
+
+  const districtSelectionIsExplicit = selectedDistricts.length > 0;
+  const selectedServerDistricts = useMemo(() => {
+    if (!districtSelectionIsExplicit) {
+      return undefined;
+    }
+
+    if (districtOptions.length > 0 && selectedDistricts.length >= districtOptions.length) {
+      return undefined;
+    }
+
+    return selectedDistricts;
+  }, [districtOptions.length, districtSelectionIsExplicit, selectedDistricts]);
+
+  const mapFilters = useMemo(
+    () =>
+      buildQueryFilters({
+        categories: selectedServerCategories,
+        districts: selectedServerDistricts,
+        search: normalizedSearchKeyword || undefined,
+        limit: DEFAULT_MAP_LIMIT,
+      }),
+    [normalizedSearchKeyword, selectedServerCategories, selectedServerDistricts],
+  );
+  const categoryStatsFilters = useMemo(
+    () =>
+      buildQueryFilters({
+        districts: selectedServerDistricts,
+        search: normalizedSearchKeyword || undefined,
+      }),
+    [normalizedSearchKeyword, selectedServerDistricts],
+  );
 
   const {
     data: stats = EMPTY_STATS,
+    error: statsError,
     isLoading: statsLoading,
-    isError: statsIsError,
-  } = useNewsStats(appliedFilters);
-
+  } = useNewsStats(mapFilters);
+  const {
+    data: categoryStats = EMPTY_STATS,
+    error: categoryStatsError,
+    isLoading: categoryStatsLoading,
+  } = useNewsStats(categoryStatsFilters);
   const {
     data: mapData = EMPTY_MAP_RESPONSE,
+    error: mapError,
     isLoading: mapLoading,
-    isError: mapIsError,
-  } = useNewsMap(appliedFilters);
+  } = useNewsMap(mapFilters);
 
-  const statsError = statsIsError ? "Istatistikler su anda yuklenemedi." : "";
-  const mapError = mapIsError ? "Harita verileri su anda yuklenemedi." : "";
-  const visibleSelectedNews =
-    selectedNews && mapData.items.some((item) => item.id === selectedNews.id)
-      ? selectedNews
-      : null;
-  const refreshDisabled = isRefreshPending || activeScrapeJobId !== null;
+  const appendLog = useCallback((type: PulseLogEntry["type"], message: string, source?: string) => {
+    setLogs((current) => [
+      ...current.slice(-79),
+      {
+        id: makeLogId(),
+        type,
+        message,
+        source,
+        timestamp: new Date(),
+      },
+    ]);
+  }, []);
 
-  const startQueuedScrape = (result: ScrapeQueuedResponse, message: string) => {
-    setActiveScrapeJobId(result.job_id);
-    setScrapeStatusTone("info");
-    setScrapeStatusMessage(message);
-  };
+  const updateScrapeStatus = useCallback(
+    (tone: PulseTone, message: string, source?: string) => {
+      setScrapeStatusTone(tone);
+      setScrapeStatusMessage(message);
+      appendLog(tone, message, source);
+    },
+    [appendLog],
+  );
+
+  const startQueuedScrape = useCallback(
+    (result: ScrapeQueuedResponse, message: string) => {
+      setActiveScrapeJobId(result.job_id);
+      updateScrapeStatus("info", message, "worker");
+    },
+    [updateScrapeStatus],
+  );
 
   useEffect(() => {
     if (hasTriggeredBootstrapRef.current) {
@@ -179,8 +403,7 @@ function HomeContent() {
     let cancelled = false;
 
     const runBootstrap = async () => {
-      setScrapeStatusTone("info");
-      setScrapeStatusMessage("Ilk veri kontrolu yapiliyor...");
+      updateScrapeStatus("info", "Ilk veri kontrolu yapiliyor...", "bootstrap");
 
       try {
         const result = await bootstrapScrape();
@@ -193,18 +416,16 @@ function HomeContent() {
           return;
         }
 
-        setScrapeStatusTone("success");
-        setScrapeStatusMessage("Veri zaten hazir.");
+        updateScrapeStatus("success", "Veri zaten hazir.", "bootstrap");
       } catch (error) {
         if (cancelled) {
           return;
         }
 
-        setScrapeStatusTone("error");
-        setScrapeStatusMessage(
-          error instanceof Error
-            ? error.message
-            : "Ilk veri kontrolu basarisiz oldu.",
+        updateScrapeStatus(
+          "error",
+          error instanceof Error ? error.message : "Ilk veri kontrolu basarisiz oldu.",
+          "bootstrap",
         );
       }
     };
@@ -214,7 +435,7 @@ function HomeContent() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [startQueuedScrape, updateScrapeStatus]);
 
   useEffect(() => {
     if (!activeScrapeJobId) {
@@ -231,22 +452,19 @@ function HomeContent() {
         }
 
         if (status.status === "pending") {
-          setScrapeStatusTone("info");
-          setScrapeStatusMessage("Scrape isi kuyruga alindi.");
+          updateScrapeStatus("info", "Scrape isi kuyruga alindi.", "queue");
           return;
         }
 
         if (status.status === "running") {
-          setScrapeStatusTone("info");
-          setScrapeStatusMessage("Scrape calisiyor.");
+          updateScrapeStatus("warning", "Scrape calisiyor.", "worker");
           return;
         }
 
         if (status.status === "completed") {
           setActiveScrapeJobId(null);
           setIsRefreshPending(false);
-          setScrapeStatusTone("success");
-          setScrapeStatusMessage("Scrape tamamlandi. Veriler yenileniyor.");
+          updateScrapeStatus("success", "Scrape tamamlandi. Veriler yenileniyor.", "worker");
           await queryClient.invalidateQueries({ queryKey: newsKeys.all });
           return;
         }
@@ -254,8 +472,7 @@ function HomeContent() {
         if (status.status === "failed") {
           setActiveScrapeJobId(null);
           setIsRefreshPending(false);
-          setScrapeStatusTone("error");
-          setScrapeStatusMessage(status.error || "Scrape basarisiz oldu.");
+          updateScrapeStatus("error", status.error || "Scrape basarisiz oldu.", "worker");
         }
       } catch (error) {
         if (cancelled) {
@@ -264,199 +481,330 @@ function HomeContent() {
 
         setActiveScrapeJobId(null);
         setIsRefreshPending(false);
-        setScrapeStatusTone("error");
-        setScrapeStatusMessage(
-          error instanceof Error
-            ? error.message
-            : "Scrape durumu su anda kontrol edilemiyor.",
+        updateScrapeStatus(
+          "error",
+          error instanceof Error ? error.message : "Scrape durumu su anda kontrol edilemiyor.",
+          "worker",
         );
       }
     };
 
     void syncJobStatus();
-    const pollTimer = window.setInterval(() => {
+    const timer = window.setInterval(() => {
       void syncJobStatus();
     }, 2_500);
 
     return () => {
       cancelled = true;
-      window.clearInterval(pollTimer);
+      window.clearInterval(timer);
     };
-  }, [activeScrapeJobId, queryClient]);
+  }, [activeScrapeJobId, queryClient, updateScrapeStatus]);
 
-  const handleDraftChange = (field: keyof FilterState, value: string) => {
-    setDraftFilters((current) => ({
-      ...current,
-      [field]: value,
+  const effectiveSelectedDistricts = useMemo(
+    () =>
+      selectedDistricts.length === 0
+        ? districtOptions.map((district) => district.id)
+        : selectedDistricts,
+    [districtOptions, selectedDistricts],
+  );
+
+  const baseFilteredItems = useMemo(() => {
+    return mapData.items
+      .filter((item) => {
+        const timestamp = parseDateValue(item.published_at_raw);
+        if (!timestamp) {
+          return true;
+        }
+        return timestamp <= timelineTime.getTime();
+      })
+      .sort((a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw));
+  }, [mapData.items, timelineTime]);
+
+  const categoryCounts = useMemo<Record<string, number>>(() => {
+    if (mapData.total > mapData.items.length) {
+      return buildCategoryCountsFromStats(categoryStats.categories);
+    }
+
+    return buildCategoryCountsFromItems(baseFilteredItems);
+  }, [baseFilteredItems, categoryStats.categories, mapData.items.length, mapData.total]);
+
+  const filteredMapItems = useMemo(() => {
+    return baseFilteredItems
+      .filter((item) => {
+        if (selectedCategory) {
+          return toFeedCategory(item.category) === selectedCategory;
+        }
+        return true;
+      })
+      .sort((a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw));
+  }, [baseFilteredItems, selectedCategory]);
+
+  const liveFeedItems = useMemo<LiveNewsFeedItem[]>(() => {
+    return filteredMapItems.slice(0, 8).map((item) => ({
+      ...item,
+      isRecent: isRecentNews(item),
+      pulseCategory: toFeedCategory(item.category),
+      timeLabel: formatRelativeTime(item.published_at_raw),
     }));
-  };
+  }, [filteredMapItems]);
 
-  const handleApplyFilters = () => {
-    setAppliedFilters(draftFilters);
+  const visibleSelectedNews =
+    selectedNews && filteredMapItems.some((item) => item.id === selectedNews.id)
+      ? selectedNews
+      : null;
 
-    const nextParams = new URLSearchParams(searchParams.toString());
+  const globalTotalNews = stats.total || mapData.total;
+  const liveCount = useMemo(() => mapData.items.filter(isLikelyLive).length, [mapData.items]);
+  const filteredLiveCount = useMemo(
+    () => filteredMapItems.filter(isLikelyLive).length,
+    [filteredMapItems],
+  );
 
-    if (draftFilters.category) {
-      nextParams.set("category", draftFilters.category);
-    } else {
-      nextParams.delete("category");
+  const topDistrict = useMemo(() => {
+    if (filteredMapItems.length === 0) {
+      if (stats.districts.length === 0) {
+        return "Izmit";
+      }
+
+      const top = [...stats.districts].sort((a, b) => b.count - a.count)[0];
+      return formatDistrictName(top?.key || "Izmit");
     }
 
-    if (draftFilters.district) {
-      nextParams.set("district", draftFilters.district);
-    } else {
-      nextParams.delete("district");
+    const counts = new Map<string, number>();
+    filteredMapItems.forEach((item) => {
+      const id = normalizeDistrict(item.district);
+      if (!id) {
+        return;
+      }
+      counts.set(id, (counts.get(id) || 0) + 1);
+    });
+
+    const topEntry = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    return formatDistrictName(topEntry?.[0] || "Izmit");
+  }, [filteredMapItems, stats.districts]);
+
+  const avgNewsPerHour = useMemo(() => {
+    if (filteredMapItems.length === 0) {
+      return 0;
     }
 
-    if (draftFilters.dateFrom) {
-      nextParams.set("date_from", draftFilters.dateFrom);
-    } else {
-      nextParams.delete("date_from");
+    return Math.round((filteredMapItems.length / 72) * 10) / 10;
+  }, [filteredMapItems.length]);
+
+  const refreshDisabled = isRefreshPending || activeScrapeJobId !== null;
+  const mapThemeMode = resolvedTheme === "dark" ? "dark" : "light";
+  const filteredGeocodeCount = useMemo(() => {
+    if (selectedCategory || timelineTime.getTime() < timeTick - 60_000) {
+      return filteredMapItems.length;
     }
 
-    if (draftFilters.dateTo) {
-      nextParams.set("date_to", draftFilters.dateTo);
-    } else {
-      nextParams.delete("date_to");
+    return stats.geocoded_total || filteredMapItems.length;
+  }, [filteredMapItems.length, selectedCategory, stats.geocoded_total, timeTick, timelineTime]);
+  const filteredSourceCount = useMemo(
+    () =>
+      new Set(
+        filteredMapItems
+          .map((item) => item.source_domain || item.source_name)
+          .filter(Boolean),
+      ).size,
+    [filteredMapItems],
+  );
+  const dataErrorMessage = useMemo(() => {
+    const currentError = mapError ?? statsError ?? districtStatsError ?? categoryStatsError;
+    if (!currentError) {
+      return "";
     }
 
-    const nextQuery = nextParams.toString();
-    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
-    router.replace(nextUrl, { scroll: false });
-  };
+    return currentError instanceof Error
+      ? currentError.message
+      : "Veri akisinda beklenmeyen bir hata olustu.";
+  }, [categoryStatsError, districtStatsError, mapError, statsError]);
 
-  const handleResetFilters = () => {
-    setDraftFilters(EMPTY_FILTERS);
-    setAppliedFilters(EMPTY_FILTERS);
-    router.replace(pathname, { scroll: false });
-  };
+  useEffect(() => {
+    if (!dataErrorMessage || lastLoggedErrorRef.current === dataErrorMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      lastLoggedErrorRef.current = dataErrorMessage;
+      appendLog("error", dataErrorMessage, "api");
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [appendLog, dataErrorMessage]);
 
   const handleRefresh = async () => {
     setSelectedNews(null);
     setIsRefreshPending(true);
-    setScrapeStatusTone("warning");
-    setScrapeStatusMessage("Veriler sifirlaniyor ve yeni scrape baslatiliyor...");
+    updateScrapeStatus("warning", "Veriler sifirlaniyor ve yeni scrape baslatiliyor...", "refresh");
 
     try {
       const result = await refreshScrape();
       startQueuedScrape(result, "Yenileme baslatildi.");
     } catch (error) {
       setIsRefreshPending(false);
-      setScrapeStatusTone("error");
-      setScrapeStatusMessage(
+      updateScrapeStatus(
+        "error",
         error instanceof Error ? error.message : "Yenileme baslatilamadi.",
+        "refresh",
       );
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:max-w-[1500px] lg:px-6">
-        <header className="rounded-2xl bg-white px-5 py-4 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
-            PULSE
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            Kocaeli Haber Haritasi
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Ilce ve mahalle odakli haberleri tek akista izlemek icin kontrol
-            paneli.
-          </p>
-        </header>
+    <>
+      {showSplash ? <SplashScreen onComplete={() => setShowSplash(false)} /> : null}
 
-        <section className="grid grid-cols-3 gap-3">
-          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">
-              Toplam Haber
-            </h2>
-            <p className="mt-1 text-xl font-bold sm:text-2xl">
-              {statsLoading ? "--" : stats.total}
-            </p>
-          </article>
-          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">
-              Aktif Kaynak
-            </h2>
-            <p className="mt-1 text-xl font-bold sm:text-2xl">
-              {statsLoading ? "--" : stats.active_sources}
-            </p>
-          </article>
-          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">Son 3 Gun</h2>
-            <p className="mt-1 text-xl font-bold sm:text-2xl">
-              {statsLoading ? "--" : stats.last_3d_total}
-            </p>
-          </article>
-        </section>
+      <main className="h-screen w-screen overflow-hidden relative bg-transparent">
+      <EnterpriseHeader
+        searchQuery={searchKeyword}
+        onSearchChange={setSearchKeyword}
+        onMenuToggle={() => setIsPanelOpen((current) => !current)}
+        isMenuOpen={isPanelOpen}
+        totalNews={globalTotalNews}
+        liveCount={liveCount}
+      />
 
-        {statsError ? (
-          <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {statsError}
-          </section>
+      <div className="absolute inset-0 z-0">
+        <motion.div
+          className="h-full w-full overflow-hidden"
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
+        >
+          <MapView
+            className="h-full w-full"
+            themeMode={mapThemeMode}
+            items={filteredMapItems}
+            onMarkerSelect={setSelectedNews}
+          />
+        </motion.div>
+
+        {(mapLoading || statsLoading || districtStatsLoading || categoryStatsLoading) && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="glass rounded-xl px-4 py-3 inline-flex items-center gap-2 text-sm">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              Veriler yukleniyor...
+            </div>
+          </div>
+        )}
+
+        {!mapLoading && !statsLoading && dataErrorMessage ? (
+          <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+            <div className="glass rounded-xl border border-destructive/30 px-4 py-3 text-sm text-destructive shadow-lg">
+              {dataErrorMessage}
+            </div>
+          </div>
         ) : null}
 
-        <section className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <FilterSidebar
-            values={draftFilters}
-            onChange={handleDraftChange}
-            onApply={handleApplyFilters}
-            onReset={handleResetFilters}
-            onRefresh={handleRefresh}
-            refreshDisabled={refreshDisabled}
-            refreshLabel={refreshDisabled ? "Yenileniyor..." : "Yenile"}
-            scrapeStatusMessage={scrapeStatusMessage}
-            scrapeStatusTone={scrapeStatusTone}
+        {!mapLoading && !statsLoading && !dataErrorMessage && filteredMapItems.length === 0 ? (
+          <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+            <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
+              Aktif filtrelere gore gosterilecek haber bulunamadi.
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} collapsed={isPanelOpen} />
+
+      <StatsPanel
+        totalNews={filteredMapItems.length}
+        liveCount={filteredLiveCount}
+        topDistrict={topDistrict}
+        avgNewsPerHour={avgNewsPerHour}
+        hidden={isPanelOpen}
+      />
+
+      <EnhancedCategoryBar
+        selectedCategory={selectedCategory}
+        onCategoryChange={setSelectedCategory}
+        categoryCounts={categoryCounts}
+      />
+
+      <EnhancedSidebar
+        isOpen={isPanelOpen}
+        onClose={() => setIsPanelOpen(false)}
+        onRefresh={handleRefresh}
+        refreshDisabled={refreshDisabled}
+        isRefreshing={refreshDisabled}
+        title="Canli Kontrol Paneli"
+        subtitle={scrapeStatusMessage || "Tarama sistemi hazir."}
+      >
+        {dataErrorMessage ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {dataErrorMessage}
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <StatsCard
+            title="Gorunum"
+            value={filteredMapItems.length}
+            icon={<Newspaper className="h-4 w-4" />}
+            color="bg-primary"
+            delay={0}
           />
+          <StatsCard
+            title="Geocode"
+            value={filteredGeocodeCount}
+            icon={<MapPinned className="h-4 w-4" />}
+            color="bg-emerald-500"
+            delay={0.05}
+          />
+          <StatsCard
+            title="Kaynak"
+            value={filteredSourceCount || stats.active_sources}
+            icon={<Globe2 className="h-4 w-4" />}
+            color="bg-sky-500"
+            delay={0.1}
+          />
+          <StatsCard
+            title="Son 6 Saat"
+            value={filteredLiveCount}
+            icon={<TrendingUp className="h-4 w-4" />}
+            color="bg-violet-500"
+            delay={0.15}
+          />
+        </div>
 
-          <article className="flex min-h-[560px] flex-col rounded-2xl bg-white p-4 shadow-sm lg:min-h-0 lg:overflow-hidden">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold">Harita Gorunumu</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Filtre sonuclari burada harita uzerinde goruntulenecek.
-                </p>
-              </div>
-            </div>
+          <div className="mt-4 space-y-3">
+            <CategoryFilter
+              selected={selectedCategories}
+              onChange={setSelectedCategories}
+              options={CATEGORY_OPTIONS}
+            />
+            <DistrictSelector
+              districts={districtOptions}
+              selected={effectiveSelectedDistricts}
+              onChange={setSelectedDistricts}
+            />
+        </div>
 
-            <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-                Aktif Filtreler
-              </p>
-              <p className="mt-2 text-sm text-slate-700">
-                {formatFilterSummary(appliedFilters)}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                {mapLoading
-                  ? "Harita haberleri yukleniyor..."
-                  : `${mapData.total} geocoded haber haritada gosteriliyor.`}
-              </p>
-            </div>
+        <div className="mt-4">
+          <TimelineSlider onTimeChange={setTimelineTime} />
+        </div>
 
-            {mapError ? (
-              <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                {mapError}
-              </section>
-            ) : null}
+        <div className="mt-4">
+          <ScrapingLog logs={logs} isExpanded />
+        </div>
 
-            <div className="mt-4 grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="min-h-0 overflow-hidden rounded-xl border border-slate-200">
-                <MapView
-                  className="h-[360px] w-full sm:h-[420px] lg:h-full"
-                  items={mapData.items}
-                  onMarkerSelect={setSelectedNews}
-                />
-              </div>
+        <div className="mt-4">
+          <InfoCard item={visibleSelectedNews} className="border-border/60 bg-card/90" />
+        </div>
 
-              <InfoCard
-                item={visibleSelectedNews}
-                className="lg:min-h-0 lg:overflow-auto"
-              />
-            </div>
-          </article>
-        </section>
-      </main>
-    </div>
+          <div
+            className="mt-4 rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+            data-testid="visible-news-count"
+          >
+            {filteredMapItems.length} / {stats.total || mapData.total} haber gosteriliyor
+            {scrapeStatusTone === "warning" && " - tarama devam ediyor"}
+          </div>
+      </EnhancedSidebar>
+    </main>
+    </>
   );
 }
 
@@ -467,3 +815,6 @@ export default function Home() {
     </Suspense>
   );
 }
+
+
+

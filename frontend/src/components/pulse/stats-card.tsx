@@ -7,7 +7,7 @@ import { useEffect, useState } from "react"
 
 interface StatsCardProps {
   title: string
-  value: number
+  value: number | string
   previousValue?: number
   suffix?: string
   icon: React.ReactNode
@@ -24,9 +24,14 @@ export function StatsCard({
   color = "bg-primary",
   delay = 0,
 }: StatsCardProps) {
-  const [displayValue, setDisplayValue] = useState(0)
+  const isNumericValue = typeof value === "number"
+  const [displayValue, setDisplayValue] = useState(isNumericValue ? value : 0)
 
   useEffect(() => {
+    if (!isNumericValue) {
+      return
+    }
+
     const duration = 1500
     const steps = 60
     const increment = value / steps
@@ -45,9 +50,9 @@ export function StatsCard({
     }, duration / steps)
 
     return () => clearInterval(timer)
-  }, [value])
+  }, [isNumericValue, value])
 
-  const change = previousValue ? ((value - previousValue) / previousValue) * 100 : 0
+  const change = isNumericValue && previousValue ? ((value - previousValue) / previousValue) * 100 : 0
   const trend = change > 0 ? "up" : change < 0 ? "down" : "neutral"
 
   return (
@@ -80,7 +85,7 @@ export function StatsCard({
             {icon}
           </motion.div>
 
-          {previousValue && (
+          {isNumericValue && previousValue && (
             <motion.div
               className={cn(
                 "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium",
@@ -102,10 +107,10 @@ export function StatsCard({
 
         <motion.div
           className="text-3xl font-bold text-card-foreground mb-1"
-          key={displayValue}
+          key={isNumericValue ? displayValue : value}
         >
-          {displayValue.toLocaleString("tr-TR")}
-          {suffix && <span className="text-lg text-muted-foreground ml-1">{suffix}</span>}
+          {isNumericValue ? displayValue.toLocaleString("tr-TR") : value}
+          {suffix && isNumericValue ? <span className="text-lg text-muted-foreground ml-1">{suffix}</span> : null}
         </motion.div>
 
         <p className="text-sm text-muted-foreground">{title}</p>

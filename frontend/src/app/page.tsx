@@ -15,6 +15,7 @@ import {
   MapPinned,
   Newspaper,
   TrendingUp,
+  X,
 } from "lucide-react";
 
 import InfoCard from "@/components/map/InfoCard";
@@ -28,7 +29,6 @@ import { LiveNewsFeed, type LiveNewsFeedItem } from "@/components/pulse/live-new
 import { ScrapingLog, type PulseLogEntry } from "@/components/pulse/scraping-log";
 import { SplashScreen } from "@/components/pulse/splash-screen";
 import { StatsCard } from "@/components/pulse/stats-card";
-import { StatsPanel } from "@/components/pulse/stats-panel";
 import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
 import type { NewsQueryFilters } from "@/lib/filter-state";
@@ -404,7 +404,7 @@ function HomeContent() {
     let cancelled = false;
 
     const runBootstrap = async () => {
-      updateScrapeStatus("info", "Ilk veri kontrolu yapiliyor...", "bootstrap");
+      updateScrapeStatus("info", "İlk veri kontrolü yapılıyor...", "bootstrap");
 
       try {
         const result = await bootstrapScrape();
@@ -413,11 +413,11 @@ function HomeContent() {
         }
 
         if ("job_id" in result) {
-          startQueuedScrape(result, "Ilk veri cekimi baslatildi.");
+          startQueuedScrape(result, "İlk veri çekimi başlatıldı.");
           return;
         }
 
-        updateScrapeStatus("success", "Veri zaten hazir.", "bootstrap");
+        updateScrapeStatus("success", "Veri zaten hazır.", "bootstrap");
       } catch (error) {
         if (cancelled) {
           return;
@@ -425,7 +425,7 @@ function HomeContent() {
 
         updateScrapeStatus(
           "error",
-          error instanceof Error ? error.message : "Ilk veri kontrolu basarisiz oldu.",
+          error instanceof Error ? error.message : "İlk veri kontrolü başarısız oldu.",
           "bootstrap",
         );
       }
@@ -453,19 +453,19 @@ function HomeContent() {
         }
 
         if (status.status === "pending") {
-          updateScrapeStatus("info", "Scrape isi kuyruga alindi.", "queue");
+          updateScrapeStatus("info", "Scrape işi kuyruğa alındı.", "queue");
           return;
         }
 
         if (status.status === "running") {
-          updateScrapeStatus("warning", "Scrape calisiyor.", "worker");
+          updateScrapeStatus("warning", "Scrape çalışıyor.", "worker");
           return;
         }
 
         if (status.status === "completed") {
           setActiveScrapeJobId(null);
           setIsRefreshPending(false);
-          updateScrapeStatus("success", "Scrape tamamlandi. Veriler yenileniyor.", "worker");
+          updateScrapeStatus("success", "Scrape tamamlandı. Veriler yenileniyor.", "worker");
           await queryClient.invalidateQueries({ queryKey: newsKeys.all });
           return;
         }
@@ -473,7 +473,7 @@ function HomeContent() {
         if (status.status === "failed") {
           setActiveScrapeJobId(null);
           setIsRefreshPending(false);
-          updateScrapeStatus("error", status.error || "Scrape basarisiz oldu.", "worker");
+          updateScrapeStatus("error", status.error || "Scrape başarısız oldu.", "worker");
         }
       } catch (error) {
         if (cancelled) {
@@ -484,7 +484,7 @@ function HomeContent() {
         setIsRefreshPending(false);
         updateScrapeStatus(
           "error",
-          error instanceof Error ? error.message : "Scrape durumu su anda kontrol edilemiyor.",
+          error instanceof Error ? error.message : "Scrape durumu şu anda kontrol edilemiyor.",
           "worker",
         );
       }
@@ -560,11 +560,11 @@ function HomeContent() {
   const topDistrict = useMemo(() => {
     if (filteredMapItems.length === 0) {
       if (stats.districts.length === 0) {
-        return "Izmit";
+        return "İzmit";
       }
 
       const top = [...stats.districts].sort((a, b) => b.count - a.count)[0];
-      return formatDistrictName(top?.key || "Izmit");
+      return formatDistrictName(top?.key || "İzmit");
     }
 
     const counts = new Map<string, number>();
@@ -577,7 +577,7 @@ function HomeContent() {
     });
 
     const topEntry = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-    return formatDistrictName(topEntry?.[0] || "Izmit");
+    return formatDistrictName(topEntry?.[0] || "İzmit");
   }, [filteredMapItems, stats.districts]);
 
   const avgNewsPerHour = useMemo(() => {
@@ -614,7 +614,7 @@ function HomeContent() {
 
     return currentError instanceof Error
       ? currentError.message
-      : "Veri akisinda beklenmeyen bir hata olustu.";
+      : "Veri akışında beklenmeyen bir hata oluştu.";
   }, [categoryStatsError, districtStatsError, mapError, statsError]);
 
   useEffect(() => {
@@ -635,16 +635,16 @@ function HomeContent() {
   const handleRefresh = async () => {
     setSelectedNews(null);
     setIsRefreshPending(true);
-    updateScrapeStatus("warning", "Veriler sifirlaniyor ve yeni scrape baslatiliyor...", "refresh");
+    updateScrapeStatus("warning", "Veriler sıfırlanıyor ve yeni scrape başlatılıyor...", "refresh");
 
     try {
       const result = await refreshScrape();
-      startQueuedScrape(result, "Yenileme baslatildi.");
+      startQueuedScrape(result, "Yenileme başlatıldı.");
     } catch (error) {
       setIsRefreshPending(false);
       updateScrapeStatus(
         "error",
-        error instanceof Error ? error.message : "Yenileme baslatilamadi.",
+        error instanceof Error ? error.message : "Yenileme başlatılamadı.",
         "refresh",
       );
     }
@@ -683,7 +683,7 @@ function HomeContent() {
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="glass rounded-xl px-4 py-3 inline-flex items-center gap-2 text-sm">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              Veriler yukleniyor...
+              Veriler yükleniyor...
             </div>
           </div>
         )}
@@ -699,7 +699,7 @@ function HomeContent() {
         {!mapLoading && !statsLoading && !dataErrorMessage && filteredMapItems.length === 0 ? (
           <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
             <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
-              Aktif filtrelere gore gosterilecek haber bulunamadi.
+              Aktif filtrelere göre gösterilecek haber bulunamadı.
             </div>
           </div>
         ) : null}
@@ -707,19 +707,31 @@ function HomeContent() {
 
       <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
 
-      <StatsPanel
-        totalNews={filteredMapItems.length}
-        liveCount={filteredLiveCount}
-        topDistrict={topDistrict}
-        avgNewsPerHour={avgNewsPerHour}
-        hidden={isPanelOpen}
-      />
-
-      <EnhancedCategoryBar
-        selectedCategory={selectedCategory}
-        onCategoryChange={setSelectedCategory}
-        categoryCounts={categoryCounts}
-      />
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 w-full max-w-[96rem] -translate-x-1/2 px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: isPanelOpen ? 0 : 1, y: isPanelOpen ? 12 : 0, pointerEvents: isPanelOpen ? "none" : "auto" }}
+          transition={{ delay: 0.26 }}
+          className="pointer-events-auto hidden xl:block"
+        >
+          <div className="flex items-stretch rounded-2xl glass p-2 shadow-2xl">
+            <div className="flex items-center border-r border-border/60 pr-2">
+              <DistrictSelector
+                districts={districtOptions}
+                selected={effectiveSelectedDistricts}
+                onChange={setSelectedDistricts}
+              />
+            </div>
+            <EnhancedCategoryBar
+              selectedCategory={selectedCategory}
+              onCategoryChange={setSelectedCategory}
+              categoryCounts={categoryCounts}
+              className="flex-1 pl-2"
+              embedded
+            />
+          </div>
+        </motion.div>
+      </div>
 
       <EnhancedSidebar
         isOpen={isPanelOpen}
@@ -727,8 +739,8 @@ function HomeContent() {
         onRefresh={handleRefresh}
         refreshDisabled={refreshDisabled}
         isRefreshing={refreshDisabled}
-        title="Canli Kontrol Paneli"
-        subtitle={scrapeStatusMessage || "Tarama sistemi hazir."}
+        title="Canlı Kontrol Paneli"
+        subtitle={scrapeStatusMessage || "Tarama sistemi hazır."}
       >
         {dataErrorMessage ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -738,7 +750,7 @@ function HomeContent() {
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <StatsCard
-            title="Gorunum"
+            title="Görünüm"
             value={filteredMapItems.length}
             icon={<Newspaper className="h-4 w-4" />}
             color="bg-primary"
@@ -765,31 +777,58 @@ function HomeContent() {
             color="bg-violet-500"
             delay={0.15}
           />
-        </div>
-
-          <div className="mt-4 space-y-3">
-            <DistrictSelector
-              districts={districtOptions}
-              selected={effectiveSelectedDistricts}
-              onChange={setSelectedDistricts}
-            />
+          <StatsCard
+            title="Yoğun Bölge"
+            value={topDistrict}
+            icon={<AlertTriangle className="h-4 w-4" />}
+            color="bg-amber-500"
+            delay={0.2}
+          />
+          <StatsCard
+            title="Saatlik Tempo"
+            value={avgNewsPerHour}
+            icon={<TrendingUp className="h-4 w-4" />}
+            color="bg-cyan-500"
+            delay={0.25}
+          />
         </div>
         <div className="mt-4">
           <ScrapingLog logs={logs} isExpanded />
-        </div>
-
-        <div className="mt-4">
-          <InfoCard item={visibleSelectedNews} className="border-border/60 bg-card/90" />
         </div>
 
           <div
             className="mt-4 rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
             data-testid="visible-news-count"
           >
-            {filteredMapItems.length} / {stats.total || mapData.total} haber gosteriliyor
+            {filteredMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
             {scrapeStatusTone === "warning" && " - tarama devam ediyor"}
           </div>
       </EnhancedSidebar>
+
+      {visibleSelectedNews ? (
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 12, scale: 0.98 }}
+          transition={{ duration: 0.22 }}
+          className="pointer-events-none absolute inset-x-4 top-28 z-20 flex justify-center xl:inset-x-auto xl:right-6 xl:top-28"
+        >
+          <div className="pointer-events-auto relative w-full max-w-lg">
+            <button
+              type="button"
+              onClick={() => setSelectedNews(null)}
+              className="absolute top-3 right-3 z-10 rounded-full border border-border/70 bg-background/80 p-2 text-foreground shadow-sm backdrop-blur transition hover:bg-background"
+              aria-label="Haber detayını kapat"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <InfoCard
+              item={visibleSelectedNews}
+              className="shadow-[0_24px_60px_rgba(15,23,42,0.22)]"
+            />
+          </div>
+        </motion.div>
+      ) : null}
     </main>
     </>
   );

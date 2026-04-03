@@ -1,8 +1,9 @@
-import type { FilterState } from "@/lib/filter-state";
+import type { NewsQueryFilters } from "@/lib/filter-state";
 import type { NewsMapItem } from "@/components/map/MapView";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "5000");
 
 export type NewsStats = {
   total: number;
@@ -16,6 +17,13 @@ export type NewsStats = {
 export type NewsMapResponse = {
   items: NewsMapItem[];
   total: number;
+};
+
+export type NewsDetail = NewsMapItem & {
+  content_text: string;
+  image_url?: string | null;
+  source_base_url?: string | null;
+  source_domains: string[];
 };
 
 export const EMPTY_STATS: NewsStats = {
@@ -32,15 +40,27 @@ export const EMPTY_MAP_RESPONSE: NewsMapResponse = {
   total: 0,
 };
 
-export function buildStatsUrl(filters: FilterState) {
+function appendMultiValue(url: URL, key: string, values?: string[]) {
+  if (!values || values.length === 0) {
+    return;
+  }
+
+  values
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .forEach((value) => {
+      url.searchParams.append(key, value);
+    });
+}
+
+export function buildStatsUrl(filters: NewsQueryFilters) {
   const url = new URL("/api/v1/news/stats", API_BASE_URL);
 
-  if (filters.category) {
-    url.searchParams.set("category", filters.category);
-  }
+  appendMultiValue(url, "categories", filters.categories);
+  appendMultiValue(url, "districts", filters.districts);
 
-  if (filters.district) {
-    url.searchParams.set("district", filters.district);
+  if (filters.search) {
+    url.searchParams.set("search", filters.search);
   }
 
   if (filters.dateFrom) {
@@ -54,15 +74,14 @@ export function buildStatsUrl(filters: FilterState) {
   return url.toString();
 }
 
-export function buildMapUrl(filters: FilterState) {
+export function buildMapUrl(filters: NewsQueryFilters) {
   const url = new URL("/api/v1/news/map", API_BASE_URL);
 
-  if (filters.category) {
-    url.searchParams.set("category", filters.category);
-  }
+  appendMultiValue(url, "categories", filters.categories);
+  appendMultiValue(url, "districts", filters.districts);
 
-  if (filters.district) {
-    url.searchParams.set("district", filters.district);
+  if (filters.search) {
+    url.searchParams.set("search", filters.search);
   }
 
   if (filters.dateFrom) {
@@ -73,12 +92,12 @@ export function buildMapUrl(filters: FilterState) {
     url.searchParams.set("date_to", filters.dateTo);
   }
 
-  url.searchParams.set("limit", "500");
+  url.searchParams.set("limit", String(filters.limit ?? DEFAULT_MAP_LIMIT));
 
   return url.toString();
 }
 
-export async function fetchNewsStats(filters: FilterState): Promise<NewsStats> {
+export async function fetchNewsStats(filters: NewsQueryFilters): Promise<NewsStats> {
   const response = await fetch(buildStatsUrl(filters), {
     method: "GET",
   });
@@ -90,7 +109,7 @@ export async function fetchNewsStats(filters: FilterState): Promise<NewsStats> {
   return (await response.json()) as NewsStats;
 }
 
-export async function fetchNewsMap(filters: FilterState): Promise<NewsMapResponse> {
+export async function fetchNewsMap(filters: NewsQueryFilters): Promise<NewsMapResponse> {
   const response = await fetch(buildMapUrl(filters), {
     method: "GET",
   });
@@ -100,4 +119,16 @@ export async function fetchNewsMap(filters: FilterState): Promise<NewsMapRespons
   }
 
   return (await response.json()) as NewsMapResponse;
+}
+
+export async function fetchNewsDetail(newsId: string): Promise<NewsDetail> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/news/${encodeURIComponent(newsId)}`, {
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Detail request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as NewsDetail;
 }

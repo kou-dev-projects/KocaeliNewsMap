@@ -9,72 +9,135 @@ import {
 } from "./pwa-shared.mjs";
 
 const chromePath = await resolveChromePath();
-const WAIT_TIMEOUT_MS = 60000;
-const CATEGORY_IDS = [
-  "breaking",
-  "traffic",
-  "crime",
-  "weather",
-  "event",
-  "economy",
-  "sports",
-  "health",
-];
+const WAIT_TIMEOUT_MS = 45000;
+const EVENT_TITLE = "Sinema salonlarinda 6 yeni film";
+const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const BUILDING_SOURCE_URL = "https://tiles.openfreemap.org/planet";
+const SMOKE_TILE_URL = "https://smoke.invalid/buildings/{z}/{x}/{y}.pbf";
+const MAP_RESPONSE = {
+  total: 2,
+  items: [
+    {
+      id: "news-centered-event",
+      title: EVENT_TITLE,
+      summary: "Bu hafta sinema salonlarinda 6 yeni film vizyona giriyor.",
+      source_name: "Bizim Yaka Kocaeli",
+      source_domain: "bizimyaka.com.tr",
+      url: "https://example.com/sinema",
+      published_at_raw: "2026-04-02T20:00:00+03:00",
+      category: "kulturel_etkinlik",
+      category_confidence: 0.96,
+      district: "izmit",
+      geocode_status: "resolved",
+      latitude: 40.7654,
+      longitude: 29.9213,
+    },
+    {
+      id: "news-traffic-2",
+      title: "TEM otoyolunda trafik kazasi",
+      summary: "Gebze gecisinde zincirleme trafik kazasi meydana geldi.",
+      source_name: "Ozgur Kocaeli",
+      source_domain: "ozgurkocaeli.com.tr",
+      url: "https://example.com/trafik",
+      published_at_raw: "2026-04-02T19:30:00+03:00",
+      category: "trafik_kazasi",
+      category_confidence: 0.88,
+      district: "gebze",
+      geocode_status: "approximate",
+      latitude: 40.8004,
+      longitude: 29.4307,
+    },
+  ],
+};
 
-function parseVisibleCount(text) {
-  const match = text.match(/(\d+)\s*\/\s*(\d+)\s*haber/i);
-  if (!match) {
-    throw new Error(`Visible count text could not be parsed: ${text}`);
-  }
+const STATS_RESPONSE = {
+  total: 2,
+  geocoded_total: 2,
+  last_3d_total: 2,
+  active_sources: 2,
+  categories: [
+    { key: "kulturel_etkinlik", count: 1 },
+    { key: "trafik_kazasi", count: 1 },
+  ],
+  districts: [
+    { key: "izmit", count: 1 },
+    { key: "gebze", count: 1 },
+  ],
+};
 
+const MAP_STYLE_RESPONSE = {
+  version: 8,
+  name: "pulse-smoke-style",
+  sources: {},
+  layers: [
+    {
+      id: "background",
+      type: "background",
+      paint: {
+        "background-color": "#dbeafe",
+      },
+    },
+  ],
+};
+
+const BUILDING_SOURCE_RESPONSE = {
+  tilejson: "3.0.0",
+  name: "pulse-smoke-buildings",
+  minzoom: 15,
+  maxzoom: 15,
+  scheme: "xyz",
+  tiles: [SMOKE_TILE_URL],
+  vector_layers: [
+    {
+      id: "building",
+    },
+  ],
+};
+
+function jsonResponse(body) {
   return {
-    visible: Number(match[1]),
-    total: Number(match[2]),
+    status: 200,
+    contentType: "application/json",
+    headers: {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-headers": "*",
+    },
+    body: JSON.stringify(body),
   };
 }
 
-function parseChipCount(text) {
-  const match = text.match(/(\d+)\s*$/);
-  return match ? Number(match[1]) : 0;
-}
-
-async function waitForVisibleCount(page) {
+async function waitForTextFragment(page, testId, fragment) {
   await page.waitForFunction(
-    () => {
-      const node = document.querySelector('[data-testid="visible-news-count"]');
-      return Boolean(node?.textContent?.match(/\d+\s*\/\s*\d+\s*haber/i));
+    ([targetTestId, expected]) => {
+      const node = document.querySelector(`[data-testid="${targetTestId}"]`);
+      return node?.textContent?.includes(expected) ?? false;
     },
-    null,
+    [testId, fragment],
     { timeout: WAIT_TIMEOUT_MS },
   );
-
-  const text = (await page.getByTestId("visible-news-count").textContent()) || "";
-  return {
-    text,
-    ...parseVisibleCount(text),
-  };
 }
 
-async function pickCategoryToFilter(page, baselineVisible) {
-  for (const categoryId of CATEGORY_IDS) {
-    const locator = page.getByTestId(`category-chip-${categoryId}`);
-    const chipText = ((await locator.textContent()) || "").trim();
-    const count = parseChipCount(chipText);
-    if (count > 0 && count < baselineVisible) {
-      return { categoryId, count, chipText };
+async function clickCenteredMarker(page) {
+  const mapBox = await page.getByTestId("news-map").boundingBox();
+  if (!mapBox) {
+    throw new Error("Map bounding box could not be resolved.");
+  }
+
+  const clickX = mapBox.x + mapBox.width / 2;
+  const clickY = mapBox.y + mapBox.height / 2;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.mouse.click(clickX, clickY);
+    try {
+      await waitForTextFragment(page, "news-info-title", EVENT_TITLE);
+      return;
+    } catch {
+      await page.waitForTimeout(400);
     }
   }
 
-  for (const categoryId of CATEGORY_IDS) {
-    const locator = page.getByTestId(`category-chip-${categoryId}`);
-    const chipText = ((await locator.textContent()) || "").trim();
-    const count = parseChipCount(chipText);
-    if (count > 0) {
-      return { categoryId, count, chipText };
-    }
-  }
-
-  throw new Error("No category chip with live data could be found.");
+  throw new Error("Centered marker could not be selected.");
 }
 
 await withQaServer(async (baseUrl) => {
@@ -83,17 +146,68 @@ await withQaServer(async (baseUrl) => {
     headless: true,
   });
 
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 960 },
-  });
-  const page = await context.newPage();
+  const context = await browser.newContext();
   const seenRequests = [];
   const consoleMessages = [];
   const pageErrors = [];
 
-  page.on("request", (request) => {
-    seenRequests.push(request.url());
+  await context.route("**/api/v1/news/stats*", async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(jsonResponse(STATS_RESPONSE));
   });
+  await context.route(`${MAP_STYLE_URL}*`, async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(jsonResponse(MAP_STYLE_RESPONSE));
+  });
+  await context.route(`${BUILDING_SOURCE_URL}*`, async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(jsonResponse(BUILDING_SOURCE_RESPONSE));
+  });
+  await context.route(`${SMOKE_TILE_URL.replace("{z}/{x}/{y}", "**")}`, async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill({
+      status: 404,
+      body: "",
+    });
+  });
+  await context.route("**/api/v1/news/map*", async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(jsonResponse(MAP_RESPONSE));
+  });
+  await context.route("**/api/scrape/bootstrap", async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(
+      jsonResponse({
+        status: "already_initialized",
+        reason: "smoke_test",
+      }),
+    );
+  });
+  await context.route("**/api/scrape/refresh", async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(
+      jsonResponse({
+        job_id: "refresh-smoke",
+        status: "pending",
+        status_url: "/api/scrape/job-status?job_id=refresh-smoke",
+      }),
+    );
+  });
+  await context.route("**/api/scrape/job-status*", async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(
+      jsonResponse({
+        job_id: "refresh-smoke",
+        status: "completed",
+        source: null,
+        trigger_type: "manual",
+        created_at: Date.now(),
+        attempt_count: 1,
+      }),
+    );
+  });
+
+  const page = await context.newPage();
   page.on("console", (message) => {
     consoleMessages.push(`${message.type()}: ${message.text()}`);
   });
@@ -108,61 +222,29 @@ await withQaServer(async (baseUrl) => {
       null,
       { timeout: WAIT_TIMEOUT_MS },
     );
-
-    await page.getByTestId("live-news-item-0").waitFor({ timeout: WAIT_TIMEOUT_MS });
-    const firstFeedTitle = ((await page.getByTestId("live-news-item-title-0").textContent()) || "").trim();
-    if (!firstFeedTitle) {
-      throw new Error("Live news feed did not expose a clickable first item.");
-    }
-
-    await page.getByTestId("live-news-item-0").click();
     await page.getByTestId("control-panel-toggle").click();
     await page.getByTestId("news-info-card").waitFor({ timeout: WAIT_TIMEOUT_MS });
-    await page.waitForFunction(
-      (expected) => {
-        const node = document.querySelector('[data-testid="news-info-title"]');
-        return (node?.textContent || "").trim() === expected;
-      },
-      firstFeedTitle,
-      { timeout: WAIT_TIMEOUT_MS },
-    );
-    const selectedTitle = ((await page.getByTestId("news-info-title").textContent()) || "").trim();
-    const infoStatus = ((await page.getByTestId("news-info-status").textContent()) || "").trim();
+    await waitForTextFragment(page, "visible-news-count", "2 / 2 haber gosteriliyor");
+    await page.waitForTimeout(1200);
 
-    const initialCount = await waitForVisibleCount(page);
-    if (initialCount.visible < 1 || initialCount.total < 1) {
-      throw new Error(`Live dataset is empty: ${initialCount.text}`);
-    }
+    await clickCenteredMarker(page);
+    const infoStatus = (await page.getByTestId("news-info-status").textContent()) || "";
 
-    const selectedCategory = await pickCategoryToFilter(page, initialCount.visible);
-    await page.getByTestId(`category-chip-${selectedCategory.categoryId}`).click();
-    await page.waitForFunction(
-      (expectedVisible) => {
-        const node = document.querySelector('[data-testid="visible-news-count"]');
-        const text = node?.textContent || "";
-        const match = text.match(/(\d+)\s*\/\s*(\d+)\s*haber/i);
-        return Boolean(match) && Number(match[1]) === expectedVisible;
-      },
-      selectedCategory.count,
-      { timeout: WAIT_TIMEOUT_MS },
-    );
-
-    const filteredCount = await waitForVisibleCount(page);
+    await page.getByTestId("category-chip-event").click();
+    await waitForTextFragment(page, "visible-news-count", "1 / 2 haber gosteriliyor");
+    const visibleCountText =
+      (await page.getByTestId("visible-news-count").textContent()) || "";
 
     const summary = {
       passed:
         seenRequests.some((url) => url.includes("/api/v1/news/map")) &&
         seenRequests.some((url) => url.includes("/api/v1/news/stats")) &&
-        selectedTitle.length > 0 &&
-        filteredCount.visible === selectedCategory.count &&
-        filteredCount.total >= filteredCount.visible &&
-        infoStatus.length > 0,
+        infoStatus.includes("Dogrulanmis konum") &&
+        visibleCountText.includes("1 / 2 haber gosteriliyor"),
       baseUrl,
-      selectedTitle,
+      selectedTitle: (await page.getByTestId("news-info-title").textContent()) || "",
       infoStatus,
-      initialCount,
-      filteredCount,
-      selectedCategory,
+      visibleCountText,
       seenRequests,
     };
 
@@ -187,7 +269,6 @@ await withQaServer(async (baseUrl) => {
       pageErrors,
       bodyText: await page.locator("body").textContent().catch(() => ""),
     };
-
     await page.screenshot({
       path: resolveOutputPath("map-smoke-failure.png"),
       fullPage: true,

@@ -24,7 +24,12 @@ await withQaServer(async (baseUrl) => {
   const page = await context.newPage();
 
   async function waitForMapCanvas() {
-    await page.waitForSelector("text=Map View", { timeout: WAIT_TIMEOUT_MS });
+    await page.waitForSelector('[data-testid="news-map-shell"]', {
+      timeout: WAIT_TIMEOUT_MS,
+    });
+    await page.waitForSelector('[data-testid="control-panel-toggle"]', {
+      timeout: WAIT_TIMEOUT_MS,
+    });
     await page.waitForFunction(
       () => Boolean(document.querySelector(".maplibregl-canvas")),
       null,

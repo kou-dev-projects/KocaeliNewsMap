@@ -1,15 +1,27 @@
 import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 
 import QueryProvider from "@/components/providers/QueryProvider";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { PwaBootstrapClient } from "@/components/pwa/PwaBootstrapClient";
 import "./globals.css";
+
+const geist = Geist({
+  subsets: ["latin"],
+  variable: "--font-geist-sans",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+});
 
 export const metadata: Metadata = {
   title: {
     default: "PULSE",
     template: "%s | PULSE",
   },
-  description: "News intelligence, mapping, and field operations for Kocaeli.",
+  description: "Kocaeli sehir istihbarati, yerel haber haritasi ve canli scrape operasyon paneli.",
   applicationName: "PULSE",
   manifest: "/manifest.json",
   formatDetection: {
@@ -31,7 +43,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0a",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
+  ],
 };
 
 export default function RootLayout({
@@ -40,10 +55,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="tr">
-      <body className="font-sans antialiased">
-        <QueryProvider>{children}</QueryProvider>
-        <PwaBootstrapClient />
+    <html lang="tr" suppressHydrationWarning>
+      <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <QueryProvider>{children}</QueryProvider>
+          <PwaBootstrapClient />
+        </ThemeProvider>
       </body>
     </html>
   );

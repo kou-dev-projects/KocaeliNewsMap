@@ -43,7 +43,6 @@ const categoryConfig: Record<string, { bgColor: string; icon: React.ReactNode }>
 export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsFeedProps) {
   return (
     <motion.div
-      data-testid="live-news-feed"
       initial={{ opacity: 0, x: -30 }}
       animate={{ opacity: collapsed ? 0 : 1, x: collapsed ? -30 : 0, pointerEvents: collapsed ? "none" : "auto" }}
       transition={{ delay: 0.4 }}
@@ -87,7 +86,6 @@ export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsF
                 <motion.button
                   key={item.id}
                   type="button"
-                  data-testid={`live-news-item-${index}`}
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
@@ -101,10 +99,7 @@ export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsF
                       {config.icon}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p
-                        className="text-sm font-medium text-foreground line-clamp-2 group-hover:text-primary transition-colors"
-                        data-testid={`live-news-item-title-${index}`}
-                      >
+                      <p className="text-sm font-medium text-foreground line-clamp-2 group-hover:text-primary transition-colors">
                         {item.title}
                       </p>
                       <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">

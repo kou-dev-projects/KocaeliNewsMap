@@ -4,7 +4,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.scrape_reset import ScrapeResetResult, reset_scraped_news_data
+from app.services.scrape_reset import (
+    ScrapeRefreshCleanupResult,
+    cleanup_pending_refresh_data,
+    cleanup_stale_refresh_data,
+)
 from app.workers.job_manager import JobManager
 
 
@@ -17,7 +21,6 @@ class ScrapeTriggerResult:
     trigger_type: str
     job_id: str | None = None
     reason: str | None = None
-    reset_result: ScrapeResetResult | None = None
 
 
 def has_scraped_news_data(database: Any) -> bool:
@@ -55,20 +58,35 @@ def start_refresh_scrape(
     database: Any,
     manager: JobManager,
 ) -> ScrapeTriggerResult:
-    reset_result = reset_scraped_news_data(database)
     job_id = manager.submit_job(trigger_type="refresh")
     logger.info(
         "scrape.refresh.started",
-        extra={
-            "job_id": job_id,
-            "trigger_type": "refresh",
-            "deleted_counts": reset_result.deleted_counts,
-            "total_deleted": reset_result.total_deleted,
-        },
+        extra={"job_id": job_id, "trigger_type": "refresh"},
     )
     return ScrapeTriggerResult(
         status="started",
         trigger_type="refresh",
         job_id=job_id,
-        reset_result=reset_result,
+    )
+
+
+def cleanup_refresh_data(
+    database: Any,
+    *,
+    active_generation: str,
+) -> ScrapeRefreshCleanupResult:
+    return cleanup_stale_refresh_data(
+        database,
+        active_generation=active_generation,
+    )
+
+
+def discard_refresh_generation(
+    database: Any,
+    *,
+    pending_generation: str,
+) -> ScrapeRefreshCleanupResult:
+    return cleanup_pending_refresh_data(
+        database,
+        pending_generation=pending_generation,
     )

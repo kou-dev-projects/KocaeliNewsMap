@@ -1,5 +1,6 @@
 from .news import (
     NewsCreate,
+    NewsDashboardResponse,
     NewsListItem,
     NewsListResponse,
     NewsMapItem,
@@ -11,6 +12,7 @@ from .news import (
 
 __all__ = [
     "NewsCreate",
+    "NewsDashboardResponse",
     "NewsListItem",
     "NewsListResponse",
     "NewsMapItem",

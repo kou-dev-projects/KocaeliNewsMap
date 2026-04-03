@@ -7,7 +7,13 @@ import pytest
 from bson import ObjectId
 from fastapi import HTTPException
 
-from app.routes.news import get_news_detail, get_news_stats, list_news, list_news_map
+from app.routes.news import (
+    get_news_dashboard,
+    get_news_detail,
+    get_news_stats,
+    list_news,
+    list_news_map,
+)
 
 
 class FakeCursor:
@@ -92,6 +98,10 @@ class FakeCollection:
                             return False
                     else:
                         return False
+                if "$exists" in expected:
+                    exists = actual is not None
+                    if bool(expected["$exists"]) != exists:
+                        return False
                 if "$regex" in expected:
                     flags = re.IGNORECASE if "i" in str(expected.get("$options", "")) else 0
                     if actual is None or re.search(expected["$regex"], str(actual), flags=flags) is None:
@@ -169,6 +179,23 @@ class FakeCollection:
             if "$count" in stage:
                 current = [{stage["$count"]: len(current)}]
                 continue
+            if "$skip" in stage:
+                current = current[stage["$skip"] :]
+                continue
+            if "$limit" in stage:
+                current = current[: stage["$limit"]]
+                continue
+            if "$project" in stage:
+                projection = stage["$project"]
+                projected: list[dict] = []
+                for doc in current:
+                    projected_doc = {"_id": doc.get("_id")}
+                    for field, include in projection.items():
+                        if include:
+                            projected_doc[field] = doc.get(field)
+                    projected.append(projected_doc)
+                current = projected
+                continue
             raise NotImplementedError(stage)
 
         return current
@@ -205,10 +232,21 @@ class FakeCollection:
         return None
 
 
+class FakeMetaCollection:
+    def __init__(self, document: dict | None = None):
+        self.document = document or {}
+
+    def find_one(self, query: dict):
+        if query.get("_id") == "news_feed":
+            return self.document or None
+        return None
+
+
 class FakeDB:
-    def __init__(self, source_records: list[dict]):
+    def __init__(self, source_records: list[dict], *, dataset_state: dict | None = None):
         self._collections = {
             "source_records": FakeCollection(source_records),
+            "dataset_state": FakeMetaCollection(dataset_state),
         }
 
     def __getitem__(self, name: str):
@@ -402,6 +440,77 @@ def test_get_news_stats_returns_facets(monkeypatch, sample_docs):
     assert response.active_sources == 1
     assert response.categories[0].key in {"trafik_kazasi", "yangin"}
     assert {bucket.key for bucket in response.districts} == {"gebze", "izmit"}
+
+
+def test_get_news_dashboard_returns_combined_payload(monkeypatch, sample_docs):
+    monkeypatch.setattr("app.routes.news.db", FakeDB(sample_docs))
+
+    response = get_news_dashboard(
+        source=None,
+        category=None,
+        categories=None,
+        district=None,
+        districts=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        limit=500,
+        offset=0,
+    )
+
+    assert response.map.total == 1
+    assert response.stats.total == 2
+    assert response.stats.geocoded_total == 1
+    assert {bucket.key for bucket in response.category_facets} == {"trafik_kazasi", "yangin"}
+    assert {bucket.key for bucket in response.district_facets} == {"gebze", "izmit"}
+
+
+def test_news_routes_only_return_active_dataset_generation(monkeypatch, sample_docs):
+    active_doc = dict(sample_docs[0], dataset_generation="gen-active")
+    stale_doc = dict(
+        sample_docs[1],
+        _id=ObjectId("65f1b5f1b5f1b5f1b5f1b5f9"),
+        dataset_generation="gen-stale",
+        geocode_point={"type": "Point", "coordinates": [29.95, 40.75]},
+        geocode_status="resolved",
+    )
+    monkeypatch.setattr(
+        "app.routes.news.db",
+        FakeDB(
+            [active_doc, stale_doc],
+            dataset_state={"_id": "news_feed", "active_generation": "gen-active"},
+        ),
+    )
+
+    list_response = list_news(
+        source=None,
+        category=None,
+        categories=None,
+        district=None,
+        districts=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        limit=20,
+        offset=0,
+    )
+    map_response = list_news_map(
+        source=None,
+        category=None,
+        categories=None,
+        district=None,
+        districts=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        limit=500,
+        offset=0,
+    )
+
+    assert list_response.total == 1
+    assert list_response.items[0].id == str(active_doc["_id"])
+    assert map_response.total == 1
+    assert map_response.items[0].id == str(active_doc["_id"])
 
 
 def test_get_news_detail_returns_enriched_payload(monkeypatch, sample_docs):

@@ -1,8 +1,6 @@
-import pytest
 
 from app.services.mcp.config import MCPConfig
 from app.services.mcp.dead_letter import DeadLetterStore
-from app.services.mcp.idempotency import IdempotencyStore
 from app.services.mcp.queue import WriteQueue
 from app.services.mcp.schemas import NewsWriteRequest, WriteStatus
 from app.services.mcp.write_service import NewsWriteService
@@ -402,6 +400,33 @@ def test_invalid_image_url_is_dropped_from_raw_document():
     svc.write(request)
 
     assert mongo.raw_documents.last_update["$set"]["image_urls_raw"] == []
+
+
+def test_dataset_generation_is_written_to_raw_and_source_records():
+    idem = DummyIdempotency()
+    mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=DummyMaterializer(),
+    )
+
+    request = NewsWriteRequest(
+        title="Snapshot write",
+        url="https://example.com/snapshot",
+        source="example.com",
+        content="icerik",
+        dataset_generation="generation-42",
+    )
+
+    svc.write(request)
+
+    assert mongo.raw_documents.last_filter["dataset_generation"] == "generation-42"
+    assert mongo.raw_documents.last_update["$set"]["dataset_generation"] == "generation-42"
+    assert mongo.source_records.last_update["$set"]["dataset_generation"] == "generation-42"
 
 
 class FakeUpdateResult:

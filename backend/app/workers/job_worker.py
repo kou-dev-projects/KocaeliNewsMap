@@ -8,6 +8,15 @@ import time
 from typing import Any
 
 from app.scheduler.orchestrator import ScrapeOrchestrator
+from app.services.dataset_generation import (
+    activate_generation,
+    begin_refresh_generation,
+    clear_pending_refresh_generation,
+)
+from app.services.scrape_orchestrator import (
+    cleanup_refresh_data,
+    discard_refresh_generation,
+)
 from app.services.scrape_events import ScrapeEvent, get_scrape_event_publisher
 from app.workers.job_manager import JobManager, JobQueueUnavailableError, JobInfo
 from app.settings import settings
@@ -64,14 +73,153 @@ def _publish(event: ScrapeEvent) -> None:
 
 
 def _run_scrape_job(orchestrator: ScrapeOrchestrator, source: str | None, trigger_type: str) -> dict[str, Any]:
-    if source:
-        result = orchestrator.crawl_source(source, trigger_type=trigger_type)
-    else:
-        result = orchestrator.crawl_active_sources(trigger_type=trigger_type)
+    refresh_generation: str | None = None
+
+    if trigger_type == "refresh" and source is None:
+        refresh_generation = begin_refresh_generation(orchestrator.database)
+
+    try:
+        if source:
+            result = orchestrator.crawl_source(source, trigger_type=trigger_type)
+        else:
+            result = orchestrator.crawl_active_sources(
+                trigger_type=trigger_type,
+                dataset_generation=refresh_generation,
+            )
+    except Exception:
+        if refresh_generation is not None:
+            _abort_refresh_generation(orchestrator, refresh_generation)
+        raise
+
+    if refresh_generation is not None:
+        result["dataset_generation"] = refresh_generation
+        result["refresh_cleanup"] = _finalize_refresh_cleanup(
+            orchestrator,
+            summary=result,
+            refresh_generation=refresh_generation,
+        )
 
     drain_result = orchestrator.drain_pending_writes(batch_size=50)
     result["queue_drain"] = drain_result
     return result
+
+
+def _collect_refresh_success(summary: dict[str, Any]) -> str | None:
+    active_sources = int(summary.get("active_sources") or 0)
+    processed_sources = int(summary.get("processed_sources") or 0)
+    skipped_sources = int(summary.get("skipped_sources") or 0)
+    sessions = summary.get("sessions")
+
+    if active_sources <= 0:
+        return "no_active_sources"
+    if skipped_sources > 0:
+        return "refresh_skipped_sources_present"
+    if processed_sources != active_sources:
+        return "refresh_source_count_mismatch"
+    if not isinstance(sessions, list) or len(sessions) != processed_sources:
+        return "refresh_session_count_mismatch"
+
+    for session in sessions:
+        if not isinstance(session, dict):
+            return "invalid_refresh_session_summary"
+        if session.get("status") != "success":
+            return "refresh_not_fully_successful"
+
+    return None
+
+
+def _abort_refresh_generation(
+    orchestrator: ScrapeOrchestrator,
+    refresh_generation: str,
+) -> dict[str, Any]:
+    cleanup_result = discard_refresh_generation(
+        orchestrator.database,
+        pending_generation=refresh_generation,
+    )
+    clear_pending_refresh_generation(
+        orchestrator.database,
+        expected_generation=refresh_generation,
+    )
+    return {
+        "status": "discarded",
+        "generation": cleanup_result.generation,
+        "deleted_counts": cleanup_result.deleted_counts,
+        "total_deleted": cleanup_result.total_deleted,
+    }
+
+
+def _finalize_refresh_cleanup(
+    orchestrator: ScrapeOrchestrator,
+    summary: dict[str, Any],
+    refresh_generation: str,
+) -> dict[str, Any]:
+    skip_reason = _collect_refresh_success(summary)
+    if skip_reason is not None:
+        discard_result = _abort_refresh_generation(orchestrator, refresh_generation)
+        _publish(
+            ScrapeEvent(
+                event="refresh_cleanup_skipped",
+                message="Refresh candidate discarded to preserve the active dataset after a partial run",
+                trigger_type="refresh",
+                status="skipped",
+                details={
+                    "reason": skip_reason,
+                    "generation": refresh_generation,
+                    "deleted_counts": discard_result["deleted_counts"],
+                    "total_deleted": discard_result["total_deleted"],
+                },
+            )
+        )
+        return {
+            "status": "discarded",
+            "reason": skip_reason,
+            "generation": refresh_generation,
+            "deleted_counts": discard_result["deleted_counts"],
+            "total_deleted": discard_result["total_deleted"],
+        }
+
+    try:
+        activate_generation(orchestrator.database, refresh_generation)
+        cleanup_result = cleanup_refresh_data(
+            orchestrator.database,
+            active_generation=refresh_generation,
+        )
+    except Exception as exc:
+        error_message = f"{type(exc).__name__}: {exc}"
+        logger.exception("worker.refresh_cleanup.failed", extra={"error": error_message[:200]})
+        _publish(
+            ScrapeEvent(
+                event="refresh_cleanup_failed",
+                message="Refresh cleanup failed after crawl completion",
+                trigger_type="refresh",
+                status="error",
+                details={"error": error_message},
+            )
+        )
+        return {
+            "status": "failed",
+            "error": error_message,
+        }
+
+    _publish(
+        ScrapeEvent(
+            event="refresh_cleanup_completed",
+            message="Refresh cutover activated the new dataset generation and removed stale news records",
+            trigger_type="refresh",
+            status="completed",
+            details={
+                "generation": cleanup_result.generation,
+                "deleted_counts": cleanup_result.deleted_counts,
+                "total_deleted": cleanup_result.total_deleted,
+            },
+        )
+    )
+    return {
+        "status": "completed",
+        "generation": cleanup_result.generation,
+        "deleted_counts": cleanup_result.deleted_counts,
+        "total_deleted": cleanup_result.total_deleted,
+    }
 
 
 def _execute_job_with_heartbeat(

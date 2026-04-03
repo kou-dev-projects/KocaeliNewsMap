@@ -75,3 +75,10 @@ class NewsStatsResponse(BaseModel):
     active_sources: int
     categories: list[StatsBucket]
     districts: list[StatsBucket]
+
+
+class NewsDashboardResponse(BaseModel):
+    map: NewsMapResponse
+    stats: NewsStatsResponse
+    category_facets: list[StatsBucket]
+    district_facets: list[StatsBucket]

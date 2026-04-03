@@ -8,6 +8,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 from app.pipelines import SourceRecordMaterializer
+from app.services.dataset_generation import resolve_write_generation
 from app.scrapers.base.date_utils import parse_published_at_raw
 from app.utils.content_hash import compute_content_hash
 
@@ -135,12 +136,17 @@ class NewsWriteService:
         database = self._mongo[self._cfg.mongo_db]
         source_doc = self._get_source_document(database, request.source)
         crawl_session_id = self._resolve_crawl_session_id(database, request, source_doc)
+        dataset_generation = resolve_write_generation(
+            database,
+            requested_generation=request.dataset_generation,
+        )
 
         raw_documents = database["raw_documents"]
         raw_document = self._build_raw_document(
             request=request,
             source_doc=source_doc,
             crawl_session_id=crawl_session_id,
+            dataset_generation=dataset_generation,
         )
         raw_document_update = {
             key: value for key, value in raw_document.items() if key != "created_at"
@@ -149,6 +155,8 @@ class NewsWriteService:
             "source_id": source_doc["_id"],
             "canonical_url": request.url,
         }
+        if dataset_generation is not None:
+            raw_filter["dataset_generation"] = dataset_generation
         raw_result = raw_documents.update_one(
             raw_filter,
             {
@@ -168,6 +176,8 @@ class NewsWriteService:
             raw_document=saved_raw_document,
             source_document=source_doc,
         )
+        if dataset_generation is not None:
+            source_record["dataset_generation"] = dataset_generation
         source_record_update = {
             key: value for key, value in source_record.items() if key != "created_at"
         }
@@ -246,6 +256,7 @@ class NewsWriteService:
         request: NewsWriteRequest,
         source_doc: dict,
         crawl_session_id: ObjectId,
+        dataset_generation: str | None,
     ) -> dict:
         now = datetime.now(timezone.utc)
         published_at = parse_published_at_raw(request.published_at)
@@ -258,7 +269,7 @@ class NewsWriteService:
             resolved_url=request.resolved_url or request.url,
         )
 
-        return {
+        raw_document = {
             "source_id": source_doc["_id"],
             "crawl_session_id": crawl_session_id,
             "canonical_url": request.url,
@@ -278,6 +289,9 @@ class NewsWriteService:
             "created_at": now,
             "updated_at": now,
         }
+        if dataset_generation is not None:
+            raw_document["dataset_generation"] = dataset_generation
+        return raw_document
 
     def _content_hash(self, title: str, text_raw: str) -> str:
         return compute_content_hash(title=title, body=text_raw)

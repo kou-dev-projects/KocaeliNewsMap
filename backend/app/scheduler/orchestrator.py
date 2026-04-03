@@ -119,6 +119,10 @@ class ScrapeOrchestrator:
         worker_label = settings.worker_id or "worker"
         self._worker_id = f"{worker_label}:{gethostname()}:{os.getpid()}"
 
+    @property
+    def database(self):
+        return self._db
+
     def drain_pending_writes(self, *, batch_size: int = 50) -> dict[str, Any]:
         try:
             result = self._write_service.process_queue_batch(batch_size=batch_size)
@@ -135,7 +139,12 @@ class ScrapeOrchestrator:
                 "status": "failed",
             }
 
-    def crawl_active_sources(self, *, trigger_type: str = "scheduled") -> dict[str, Any]:
+    def _crawl_active_sources(
+        self,
+        *,
+        trigger_type: str = "scheduled",
+        dataset_generation: str | None = None,
+    ) -> dict[str, Any]:
         active_sources = self._list_active_sources()
 
         summary = {
@@ -144,6 +153,8 @@ class ScrapeOrchestrator:
             "skipped_sources": 0,
             "sessions": [],
         }
+        if dataset_generation:
+            summary["dataset_generation"] = dataset_generation
 
         for source_document in active_sources:
             domain = source_document["domain"]
@@ -151,6 +162,7 @@ class ScrapeOrchestrator:
                 session_result = self._crawl_single_source(
                     source_document=source_document,
                     trigger_type=trigger_type,
+                    dataset_generation=dataset_generation,
                 )
             except Exception as exc:
                 logger.exception(
@@ -177,6 +189,17 @@ class ScrapeOrchestrator:
 
         return summary
 
+    def crawl_active_sources(
+        self,
+        *,
+        trigger_type: str = "scheduled",
+        dataset_generation: str | None = None,
+    ) -> dict[str, Any]:
+        return self._crawl_active_sources(
+            trigger_type=trigger_type,
+            dataset_generation=dataset_generation,
+        )
+
     def crawl_source(self, domain: str, *, trigger_type: str = "manual") -> dict[str, Any]:
         source_document = self._db["sources"].find_one(
             {"domain": domain, "active": True},
@@ -187,9 +210,16 @@ class ScrapeOrchestrator:
         return self._crawl_single_source(
             source_document=source_document,
             trigger_type=trigger_type,
+            dataset_generation=None,
         )
 
-    def _crawl_single_source(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
+    def _crawl_single_source(
+        self,
+        *,
+        source_document: dict[str, Any],
+        trigger_type: str,
+        dataset_generation: str | None,
+    ) -> dict[str, Any]:
         domain = source_document["domain"]
 
         if domain.lower() in self._config.skipped_domains:
@@ -204,9 +234,17 @@ class ScrapeOrchestrator:
             }
 
         if domain in STATIC_SOURCE_REGISTRY:
-            return self._crawl_single_source_static(source_document=source_document, trigger_type=trigger_type)
+            return self._crawl_single_source_static(
+                source_document=source_document,
+                trigger_type=trigger_type,
+                dataset_generation=dataset_generation,
+            )
         if domain in DYNAMIC_SOURCE_REGISTRY:
-            return self._crawl_single_source_dynamic(source_document=source_document, trigger_type=trigger_type)
+            return self._crawl_single_source_dynamic(
+                source_document=source_document,
+                trigger_type=trigger_type,
+                dataset_generation=dataset_generation,
+            )
 
         logger.info(
             "scheduler.source.unsupported",
@@ -218,7 +256,13 @@ class ScrapeOrchestrator:
             "reason": "unsupported_source",
         }
 
-    def _write_news_record(self, record: dict[str, Any], crawl_session_id: str, parser_version: str) -> dict[str, Any]:
+    def _write_news_record(
+        self,
+        record: dict[str, Any],
+        crawl_session_id: str,
+        parser_version: str,
+        dataset_generation: str | None,
+    ) -> dict[str, Any]:
         request = NewsWriteRequest(
             title=record["title"],
             url=record["url"],
@@ -228,6 +272,7 @@ class ScrapeOrchestrator:
             image_url=record.get("image_url", ""),
             published_at=record.get("published_at_raw", ""),
             crawl_session_id=crawl_session_id,
+            dataset_generation=dataset_generation,
             resolved_url=record["url"],
             scraped_at=record.get("scraped_at", ""),
             parser_version=parser_version,
@@ -251,7 +296,13 @@ class ScrapeOrchestrator:
         threshold = datetime.now(timezone.utc) - timedelta(days=self._config.lookback_days)
         return published_at >= threshold
 
-    def _crawl_single_source_static(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
+    def _crawl_single_source_static(
+        self,
+        *,
+        source_document: dict[str, Any],
+        trigger_type: str,
+        dataset_generation: str | None,
+    ) -> dict[str, Any]:
         domain = source_document["domain"]
         trace_id = uuid4().hex[:16]
 
@@ -285,6 +336,7 @@ class ScrapeOrchestrator:
                 lookback_days=self._config.lookback_days,
                 worker_version="scheduler_v1",
                 trace_id=trace_id,
+                dataset_generation=dataset_generation,
             )
 
             definition = STATIC_SOURCE_REGISTRY[domain]
@@ -326,6 +378,7 @@ class ScrapeOrchestrator:
                         record=record,
                         crawl_session_id=str(session_id),
                         parser_version=parser.__class__.__name__,
+                        dataset_generation=dataset_generation,
                     )
 
                     if write_result["status"] in {"inserted", "duplicate_merged"}:
@@ -393,7 +446,13 @@ class ScrapeOrchestrator:
             **self._summarize_error_details(stats["error_summary"]),
         }
 
-    def _crawl_single_source_dynamic(self, *, source_document: dict[str, Any], trigger_type: str) -> dict[str, Any]:
+    def _crawl_single_source_dynamic(
+        self,
+        *,
+        source_document: dict[str, Any],
+        trigger_type: str,
+        dataset_generation: str | None,
+    ) -> dict[str, Any]:
         if sys.platform == "win32":
             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -401,6 +460,7 @@ class ScrapeOrchestrator:
             self._crawl_single_source_dynamic_async(
                 source_document=source_document,
                 trigger_type=trigger_type,
+                dataset_generation=dataset_generation,
             )
         )
 
@@ -409,6 +469,7 @@ class ScrapeOrchestrator:
         *,
         source_document: dict[str, Any],
         trigger_type: str,
+        dataset_generation: str | None,
     ) -> dict[str, Any]:
         domain = source_document["domain"]
         trace_id = uuid4().hex[:16]
@@ -444,6 +505,7 @@ class ScrapeOrchestrator:
                 lookback_days=self._config.lookback_days,
                 worker_version="scheduler_v1",
                 trace_id=trace_id,
+                dataset_generation=dataset_generation,
             )
 
             try:
@@ -503,6 +565,7 @@ class ScrapeOrchestrator:
                             record=record,
                             crawl_session_id=str(session_id),
                             parser_version=detail_scraper.__class__.__name__,
+                            dataset_generation=dataset_generation,
                         )
 
                         if write_result["status"] in {"inserted", "duplicate_merged"}:

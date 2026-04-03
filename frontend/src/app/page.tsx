@@ -1,8 +1,7 @@
-﻿"use client";
+"use client";
 
-import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import {
   AlertTriangle,
@@ -24,28 +23,18 @@ import {
   type PulseCategoryOption,
 } from "@/components/pulse/category-filter";
 import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector";
+import { EnhancedCategoryBar } from "@/components/pulse/enhanced-category-bar";
 import { EnhancedSidebar } from "@/components/pulse/enhanced-sidebar";
 import { EnterpriseHeader } from "@/components/pulse/enterprise-header";
-import { EnhancedCategoryBar } from "@/components/pulse/enhanced-category-bar";
 import { LiveNewsFeed, type LiveNewsFeedItem } from "@/components/pulse/live-news-feed";
-import { ScrapingLog, type PulseLogEntry } from "@/components/pulse/scraping-log";
 import { SplashScreen } from "@/components/pulse/splash-screen";
 import { StatsCard } from "@/components/pulse/stats-card";
 import { StatsPanel } from "@/components/pulse/stats-panel";
 import { TimelineSlider } from "@/components/pulse/timeline-slider";
-import { useNewsMap } from "@/hooks/useNewsMap";
-import { useNewsStats } from "@/hooks/useNewsStats";
+import { useNewsDashboard } from "@/hooks/useNewsDashboard";
 import type { NewsQueryFilters } from "@/lib/filter-state";
-import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
-import { newsKeys } from "@/lib/news-query-keys";
-import {
-  bootstrapScrape,
-  fetchScrapeJobStatus,
-  refreshScrape,
-  type ScrapeQueuedResponse,
-} from "@/lib/scrape-api";
+import { EMPTY_DASHBOARD_RESPONSE } from "@/lib/news-api";
 
-type PulseTone = "info" | "success" | "warning" | "error";
 type PulseCategoryId = "traffic" | "crime" | "weather" | "event" | "economy";
 type FeedCategoryId = LiveNewsFeedItem["pulseCategory"];
 
@@ -58,7 +47,7 @@ const CATEGORY_OPTIONS: PulseCategoryOption[] = [
 ];
 
 const ALL_CATEGORY_IDS = CATEGORY_OPTIONS.map((option) => option.id);
-const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "5000");
+const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "1000");
 const EMPTY_COUNTS: Record<FeedCategoryId, number> = {
   breaking: 0,
   traffic: 0,
@@ -232,10 +221,6 @@ function isRecentNews(item: NewsMapItem): boolean {
   return Date.now() - timestamp <= 90 * 60 * 1000;
 }
 
-function makeLogId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
 function HomeFallback() {
   return (
     <div className="fixed inset-0 bg-background p-4">
@@ -246,11 +231,7 @@ function HomeFallback() {
 }
 
 function HomeContent() {
-  const queryClient = useQueryClient();
   const { resolvedTheme } = useTheme();
-  const hasTriggeredBootstrapRef = useRef(false);
-  const lastLoggedErrorRef = useRef("");
-
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(ALL_CATEGORY_IDS);
@@ -258,13 +239,8 @@ function HomeContent() {
   const [timelineTime, setTimelineTime] = useState(new Date());
   const [searchKeyword, setSearchKeyword] = useState("");
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [activeScrapeJobId, setActiveScrapeJobId] = useState<string | null>(null);
-  const [scrapeStatusMessage, setScrapeStatusMessage] = useState("");
-  const [scrapeStatusTone, setScrapeStatusTone] = useState<PulseTone>("info");
-  const [isRefreshPending, setIsRefreshPending] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [timeTick, setTimeTick] = useState(() => Date.now());
-  const [logs, setLogs] = useState<PulseLogEntry[]>([]);
   const deferredSearchKeyword = useDeferredValue(searchKeyword);
   const normalizedSearchKeyword = deferredSearchKeyword.trim();
 
@@ -292,213 +268,41 @@ function HomeContent() {
     });
   }, [selectedCategories]);
 
-  const districtStatsFilters = useMemo(
+  const districtSelectionIsExplicit = selectedDistricts.length > 0;
+  const dashboardFilters = useMemo(
     () =>
       buildQueryFilters({
         categories: selectedServerCategories,
+        districts: districtSelectionIsExplicit ? selectedDistricts : undefined,
         search: normalizedSearchKeyword || undefined,
+        limit: DEFAULT_MAP_LIMIT,
       }),
-    [normalizedSearchKeyword, selectedServerCategories],
+    [
+      districtSelectionIsExplicit,
+      normalizedSearchKeyword,
+      selectedDistricts,
+      selectedServerCategories,
+    ],
   );
+
   const {
-    data: districtStats = EMPTY_STATS,
-    error: districtStatsError,
-    isLoading: districtStatsLoading,
-  } = useNewsStats(districtStatsFilters);
+    data: dashboardData = EMPTY_DASHBOARD_RESPONSE,
+    error: dashboardError,
+    isLoading: dashboardLoading,
+  } = useNewsDashboard(dashboardFilters);
+
+  const stats = dashboardData.stats;
+  const mapData = dashboardData.map;
 
   const districtOptions = useMemo<DistrictOption[]>(
     () =>
-      districtStats.districts.map((bucket) => ({
+      dashboardData.district_facets.map((bucket) => ({
         id: normalizeDistrict(bucket.key),
         name: formatDistrictName(bucket.key),
         newsCount: bucket.count,
       })),
-    [districtStats.districts],
+    [dashboardData.district_facets],
   );
-
-  const districtSelectionIsExplicit = selectedDistricts.length > 0;
-  const selectedServerDistricts = useMemo(() => {
-    if (!districtSelectionIsExplicit) {
-      return undefined;
-    }
-
-    if (districtOptions.length > 0 && selectedDistricts.length >= districtOptions.length) {
-      return undefined;
-    }
-
-    return selectedDistricts;
-  }, [districtOptions.length, districtSelectionIsExplicit, selectedDistricts]);
-
-  const mapFilters = useMemo(
-    () =>
-      buildQueryFilters({
-        categories: selectedServerCategories,
-        districts: selectedServerDistricts,
-        search: normalizedSearchKeyword || undefined,
-        limit: DEFAULT_MAP_LIMIT,
-      }),
-    [normalizedSearchKeyword, selectedServerCategories, selectedServerDistricts],
-  );
-  const categoryStatsFilters = useMemo(
-    () =>
-      buildQueryFilters({
-        districts: selectedServerDistricts,
-        search: normalizedSearchKeyword || undefined,
-      }),
-    [normalizedSearchKeyword, selectedServerDistricts],
-  );
-
-  const {
-    data: stats = EMPTY_STATS,
-    error: statsError,
-    isLoading: statsLoading,
-  } = useNewsStats(mapFilters);
-  const {
-    data: categoryStats = EMPTY_STATS,
-    error: categoryStatsError,
-    isLoading: categoryStatsLoading,
-  } = useNewsStats(categoryStatsFilters);
-  const {
-    data: mapData = EMPTY_MAP_RESPONSE,
-    error: mapError,
-    isLoading: mapLoading,
-  } = useNewsMap(mapFilters);
-
-  const appendLog = useCallback((type: PulseLogEntry["type"], message: string, source?: string) => {
-    setLogs((current) => [
-      ...current.slice(-79),
-      {
-        id: makeLogId(),
-        type,
-        message,
-        source,
-        timestamp: new Date(),
-      },
-    ]);
-  }, []);
-
-  const updateScrapeStatus = useCallback(
-    (tone: PulseTone, message: string, source?: string) => {
-      setScrapeStatusTone(tone);
-      setScrapeStatusMessage(message);
-      appendLog(tone, message, source);
-    },
-    [appendLog],
-  );
-
-  const startQueuedScrape = useCallback(
-    (result: ScrapeQueuedResponse, message: string) => {
-      setActiveScrapeJobId(result.job_id);
-      updateScrapeStatus("info", message, "worker");
-    },
-    [updateScrapeStatus],
-  );
-
-  useEffect(() => {
-    if (hasTriggeredBootstrapRef.current) {
-      return;
-    }
-
-    hasTriggeredBootstrapRef.current = true;
-    let cancelled = false;
-
-    const runBootstrap = async () => {
-      updateScrapeStatus("info", "Ilk veri kontrolu yapiliyor...", "bootstrap");
-
-      try {
-        const result = await bootstrapScrape();
-        if (cancelled) {
-          return;
-        }
-
-        if ("job_id" in result) {
-          startQueuedScrape(result, "Ilk veri cekimi baslatildi.");
-          return;
-        }
-
-        updateScrapeStatus("success", "Veri zaten hazir.", "bootstrap");
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        updateScrapeStatus(
-          "error",
-          error instanceof Error ? error.message : "Ilk veri kontrolu basarisiz oldu.",
-          "bootstrap",
-        );
-      }
-    };
-
-    void runBootstrap();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [startQueuedScrape, updateScrapeStatus]);
-
-  useEffect(() => {
-    if (!activeScrapeJobId) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const syncJobStatus = async () => {
-      try {
-        const status = await fetchScrapeJobStatus(activeScrapeJobId);
-        if (cancelled) {
-          return;
-        }
-
-        if (status.status === "pending") {
-          updateScrapeStatus("info", "Scrape isi kuyruga alindi.", "queue");
-          return;
-        }
-
-        if (status.status === "running") {
-          updateScrapeStatus("warning", "Scrape calisiyor.", "worker");
-          return;
-        }
-
-        if (status.status === "completed") {
-          setActiveScrapeJobId(null);
-          setIsRefreshPending(false);
-          updateScrapeStatus("success", "Scrape tamamlandi. Veriler yenileniyor.", "worker");
-          await queryClient.invalidateQueries({ queryKey: newsKeys.all });
-          return;
-        }
-
-        if (status.status === "failed") {
-          setActiveScrapeJobId(null);
-          setIsRefreshPending(false);
-          updateScrapeStatus("error", status.error || "Scrape basarisiz oldu.", "worker");
-        }
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setActiveScrapeJobId(null);
-        setIsRefreshPending(false);
-        updateScrapeStatus(
-          "error",
-          error instanceof Error ? error.message : "Scrape durumu su anda kontrol edilemiyor.",
-          "worker",
-        );
-      }
-    };
-
-    void syncJobStatus();
-    const timer = window.setInterval(() => {
-      void syncJobStatus();
-    }, 2_500);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [activeScrapeJobId, queryClient, updateScrapeStatus]);
 
   const effectiveSelectedDistricts = useMemo(
     () =>
@@ -522,11 +326,11 @@ function HomeContent() {
 
   const categoryCounts = useMemo<Record<string, number>>(() => {
     if (mapData.total > mapData.items.length) {
-      return buildCategoryCountsFromStats(categoryStats.categories);
+      return buildCategoryCountsFromStats(dashboardData.category_facets);
     }
 
     return buildCategoryCountsFromItems(baseFilteredItems);
-  }, [baseFilteredItems, categoryStats.categories, mapData.items.length, mapData.total]);
+  }, [baseFilteredItems, dashboardData.category_facets, mapData.items.length, mapData.total]);
 
   const filteredMapItems = useMemo(() => {
     return baseFilteredItems
@@ -591,7 +395,6 @@ function HomeContent() {
     return Math.round((filteredMapItems.length / 72) * 10) / 10;
   }, [filteredMapItems.length]);
 
-  const refreshDisabled = isRefreshPending || activeScrapeJobId !== null;
   const mapThemeMode = resolvedTheme === "dark" ? "dark" : "light";
   const filteredGeocodeCount = useMemo(() => {
     if (selectedCategory || timelineTime.getTime() < timeTick - 60_000) {
@@ -610,165 +413,128 @@ function HomeContent() {
     [filteredMapItems],
   );
   const dataErrorMessage = useMemo(() => {
-    const currentError = mapError ?? statsError ?? districtStatsError ?? categoryStatsError;
-    if (!currentError) {
+    if (!dashboardError) {
       return "";
     }
 
-    return currentError instanceof Error
-      ? currentError.message
+    return dashboardError instanceof Error
+      ? dashboardError.message
       : "Veri akisinda beklenmeyen bir hata olustu.";
-  }, [categoryStatsError, districtStatsError, mapError, statsError]);
-
-  useEffect(() => {
-    if (!dataErrorMessage || lastLoggedErrorRef.current === dataErrorMessage) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      lastLoggedErrorRef.current = dataErrorMessage;
-      appendLog("error", dataErrorMessage, "api");
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [appendLog, dataErrorMessage]);
-
-  const handleRefresh = async () => {
-    setSelectedNews(null);
-    setIsRefreshPending(true);
-    updateScrapeStatus("warning", "Veriler sifirlaniyor ve yeni scrape baslatiliyor...", "refresh");
-
-    try {
-      const result = await refreshScrape();
-      startQueuedScrape(result, "Yenileme baslatildi.");
-    } catch (error) {
-      setIsRefreshPending(false);
-      updateScrapeStatus(
-        "error",
-        error instanceof Error ? error.message : "Yenileme baslatilamadi.",
-        "refresh",
-      );
-    }
-  };
+  }, [dashboardError]);
 
   return (
     <>
       {showSplash ? <SplashScreen onComplete={() => setShowSplash(false)} /> : null}
 
-      <main className="h-screen w-screen overflow-hidden relative bg-transparent">
-      <EnterpriseHeader
-        searchQuery={searchKeyword}
-        onSearchChange={setSearchKeyword}
-        onMenuToggle={() => setIsPanelOpen((current) => !current)}
-        isMenuOpen={isPanelOpen}
-        totalNews={globalTotalNews}
-        liveCount={liveCount}
-      />
+      <main className="relative h-screen w-screen overflow-hidden bg-transparent">
+        <EnterpriseHeader
+          searchQuery={searchKeyword}
+          onSearchChange={setSearchKeyword}
+          onMenuToggle={() => setIsPanelOpen((current) => !current)}
+          isMenuOpen={isPanelOpen}
+          totalNews={globalTotalNews}
+          liveCount={liveCount}
+        />
 
-      <div className="absolute inset-0 z-0">
-        <motion.div
-          className="h-full w-full overflow-hidden"
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4 }}
-        >
-          <MapView
-            className="h-full w-full"
-            themeMode={mapThemeMode}
-            items={filteredMapItems}
-            onMarkerSelect={setSelectedNews}
-          />
-        </motion.div>
+        <div className="absolute inset-0 z-0">
+          <motion.div
+            className="h-full w-full overflow-hidden"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+          >
+            <MapView
+              className="h-full w-full"
+              themeMode={mapThemeMode}
+              items={filteredMapItems}
+              onMarkerSelect={setSelectedNews}
+            />
+          </motion.div>
 
-        {(mapLoading || statsLoading || districtStatsLoading || categoryStatsLoading) && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="glass rounded-xl px-4 py-3 inline-flex items-center gap-2 text-sm">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              Veriler yukleniyor...
+          {dashboardLoading && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="glass inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                Veriler yukleniyor...
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {!mapLoading && !statsLoading && dataErrorMessage ? (
-          <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
-            <div className="glass rounded-xl border border-destructive/30 px-4 py-3 text-sm text-destructive shadow-lg">
+          {!dashboardLoading && dataErrorMessage ? (
+            <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+              <div className="glass rounded-xl border border-destructive/30 px-4 py-3 text-sm text-destructive shadow-lg">
+                {dataErrorMessage}
+              </div>
+            </div>
+          ) : null}
+
+          {!dashboardLoading && !dataErrorMessage && filteredMapItems.length === 0 ? (
+            <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+              <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
+                Aktif filtrelere gore gosterilecek haber bulunamadi.
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} collapsed={isPanelOpen} />
+
+        <StatsPanel
+          totalNews={filteredMapItems.length}
+          liveCount={filteredLiveCount}
+          topDistrict={topDistrict}
+          avgNewsPerHour={avgNewsPerHour}
+          hidden={isPanelOpen}
+        />
+
+        <EnhancedCategoryBar
+          selectedCategory={selectedCategory}
+          onCategoryChange={setSelectedCategory}
+          categoryCounts={categoryCounts}
+        />
+
+        <EnhancedSidebar
+          isOpen={isPanelOpen}
+          onClose={() => setIsPanelOpen(false)}
+          title="Harita Filtreleri"
+          subtitle="Kategori, ilce ve zaman filtreleri ile haber gorunumunu daralt."
+        >
+          {dataErrorMessage ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {dataErrorMessage}
             </div>
+          ) : null}
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <StatsCard
+              title="Gorunum"
+              value={filteredMapItems.length}
+              icon={<Newspaper className="h-4 w-4" />}
+              color="bg-primary"
+              delay={0}
+            />
+            <StatsCard
+              title="Geocode"
+              value={filteredGeocodeCount}
+              icon={<MapPinned className="h-4 w-4" />}
+              color="bg-emerald-500"
+              delay={0.05}
+            />
+            <StatsCard
+              title="Kaynak"
+              value={filteredSourceCount || stats.active_sources}
+              icon={<Globe2 className="h-4 w-4" />}
+              color="bg-sky-500"
+              delay={0.1}
+            />
+            <StatsCard
+              title="Son 6 Saat"
+              value={filteredLiveCount}
+              icon={<TrendingUp className="h-4 w-4" />}
+              color="bg-violet-500"
+              delay={0.15}
+            />
           </div>
-        ) : null}
-
-        {!mapLoading && !statsLoading && !dataErrorMessage && filteredMapItems.length === 0 ? (
-          <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
-            <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
-              Aktif filtrelere gore gosterilecek haber bulunamadi.
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} collapsed={isPanelOpen} />
-
-      <StatsPanel
-        totalNews={filteredMapItems.length}
-        liveCount={filteredLiveCount}
-        topDistrict={topDistrict}
-        avgNewsPerHour={avgNewsPerHour}
-        hidden={isPanelOpen}
-      />
-
-      <EnhancedCategoryBar
-        selectedCategory={selectedCategory}
-        onCategoryChange={setSelectedCategory}
-        categoryCounts={categoryCounts}
-      />
-
-      <EnhancedSidebar
-        isOpen={isPanelOpen}
-        onClose={() => setIsPanelOpen(false)}
-        onRefresh={handleRefresh}
-        refreshDisabled={refreshDisabled}
-        isRefreshing={refreshDisabled}
-        title="Canli Kontrol Paneli"
-        subtitle={scrapeStatusMessage || "Tarama sistemi hazir."}
-      >
-        {dataErrorMessage ? (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {dataErrorMessage}
-          </div>
-        ) : null}
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <StatsCard
-            title="Gorunum"
-            value={filteredMapItems.length}
-            icon={<Newspaper className="h-4 w-4" />}
-            color="bg-primary"
-            delay={0}
-          />
-          <StatsCard
-            title="Geocode"
-            value={filteredGeocodeCount}
-            icon={<MapPinned className="h-4 w-4" />}
-            color="bg-emerald-500"
-            delay={0.05}
-          />
-          <StatsCard
-            title="Kaynak"
-            value={filteredSourceCount || stats.active_sources}
-            icon={<Globe2 className="h-4 w-4" />}
-            color="bg-sky-500"
-            delay={0.1}
-          />
-          <StatsCard
-            title="Son 6 Saat"
-            value={filteredLiveCount}
-            icon={<TrendingUp className="h-4 w-4" />}
-            color="bg-violet-500"
-            delay={0.15}
-          />
-        </div>
 
           <div className="mt-4 space-y-3">
             <CategoryFilter
@@ -781,29 +547,24 @@ function HomeContent() {
               selected={effectiveSelectedDistricts}
               onChange={setSelectedDistricts}
             />
-        </div>
+          </div>
 
-        <div className="mt-4">
-          <TimelineSlider onTimeChange={setTimelineTime} />
-        </div>
+          <div className="mt-4">
+            <TimelineSlider onTimeChange={setTimelineTime} />
+          </div>
 
-        <div className="mt-4">
-          <ScrapingLog logs={logs} isExpanded />
-        </div>
-
-        <div className="mt-4">
-          <InfoCard item={visibleSelectedNews} className="border-border/60 bg-card/90" />
-        </div>
+          <div className="mt-4">
+            <InfoCard item={visibleSelectedNews} className="border-border/60 bg-card/90" />
+          </div>
 
           <div
             className="mt-4 rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
             data-testid="visible-news-count"
           >
             {filteredMapItems.length} / {stats.total || mapData.total} haber gosteriliyor
-            {scrapeStatusTone === "warning" && " - tarama devam ediyor"}
           </div>
-      </EnhancedSidebar>
-    </main>
+        </EnhancedSidebar>
+      </main>
     </>
   );
 }
@@ -815,6 +576,3 @@ export default function Home() {
     </Suspense>
   );
 }
-
-
-

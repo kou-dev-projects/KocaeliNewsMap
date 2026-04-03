@@ -154,6 +154,7 @@ ensureCollection("crawl_sessions", {
         },
         worker_version: { bsonType: "string" },
         trace_id: { bsonType: "string" },
+        dataset_generation: { bsonType: "string" },
         created_at: { bsonType: "date" },
         updated_at: { bsonType: "date" },
       },
@@ -224,6 +225,7 @@ ensureCollection("raw_documents", {
         fetch_status: { enum: ["success", "partial", "failed"] },
         parser_version: { bsonType: "string" },
         schema_version: { bsonType: "string" },
+        dataset_generation: { bsonType: "string" },
         scraped_at: { bsonType: "date" },
         created_at: { bsonType: "date" },
         updated_at: { bsonType: "date" },
@@ -237,8 +239,8 @@ ensureCollection("raw_documents", {
 ensureIndex("raw_documents", { canonical_url: 1 }, { name: "canonical_url" });
 ensureIndex(
   "raw_documents",
-  { source_id: 1, canonical_url: 1 },
-  { name: "source_canonical_url_unique", unique: true },
+  { source_id: 1, canonical_url: 1, dataset_generation: 1 },
+  { name: "source_canonical_url_generation_unique", unique: true },
 );
 ensureIndex(
   "raw_documents",
@@ -250,6 +252,11 @@ ensureIndex(
   "raw_documents",
   { crawl_session_id: 1 },
   { name: "crawl_session_id" },
+);
+ensureIndex(
+  "raw_documents",
+  { dataset_generation: 1, crawl_session_id: 1 },
+  { name: "dataset_generation_crawl_session", sparse: true },
 );
 
 // 4) SOURCE_RECORDS
@@ -440,6 +447,7 @@ ensureCollection("source_records", {
         },
         record_status: { enum: ["active", "hidden", "deleted", "review"] },
         pipeline_run_id: { bsonType: "string" },
+        dataset_generation: { bsonType: "string" },
         schema_version: { bsonType: "string" },
         created_at: { bsonType: "date" },
         updated_at: { bsonType: "date" },
@@ -467,8 +475,18 @@ ensureIndex(
 );
 ensureIndex(
   "source_records",
+  { dataset_generation: 1, published_at: -1 },
+  { name: "dataset_generation_published_at", sparse: true },
+);
+ensureIndex(
+  "source_records",
   { category_predicted: 1, district_predicted: 1, published_at: -1 },
   { name: "category_district_published_at" },
+);
+ensureIndex(
+  "source_records",
+  { dataset_generation: 1, category_predicted: 1, district_predicted: 1, published_at: -1 },
+  { name: "dataset_generation_category_district_published_at", sparse: true },
 );
 ensureIndex(
   "source_records",
@@ -531,75 +549,17 @@ ensureIndex(
   { name: "kaynak_listesi", sparse: true },
 );
 
-// 5) EVENTS
-ensureCollection("events", {
+// 5) DATASET_STATE
+ensureCollection("dataset_state", {
   validator: {
     $jsonSchema: {
       bsonType: "object",
       additionalProperties: false,
-      required: [
-        "event_type",
-        "title_canonical",
-        "summary_canonical",
-        "status",
-        "is_active",
-        "district",
-        "primary_location_text",
-        "centroid",
-        "time_start",
-        "latest_published_at",
-        "source_count",
-        "record_count",
-        "sources_summary",
-        "schema_version",
-        "created_at",
-        "updated_at",
-      ],
+      required: ["created_at", "updated_at"],
       properties: {
-        _id: { bsonType: "objectId" },
-        event_type: { enum: MANDATORY_CATEGORIES },
-        title_canonical: { bsonType: "string" },
-        summary_canonical: { bsonType: "string" },
-        description_canonical: { bsonType: "string" },
-        status: {
-          enum: ["open", "resolved", "monitoring", "archived", "review"],
-        },
-        is_active: { bsonType: "bool" },
-        district: { bsonType: "string" },
-        primary_location_text: { bsonType: "string" },
-        centroid: {
-          bsonType: "object",
-          additionalProperties: false,
-          required: ["type", "coordinates"],
-          properties: {
-            type: { enum: ["Point"] },
-            coordinates: {
-              bsonType: "array",
-              minItems: 2,
-              maxItems: 2,
-              items: { bsonType: ["double", "int", "long", "decimal"] },
-            },
-          },
-        },
-        time_start: { bsonType: "date" },
-        latest_published_at: { bsonType: "date" },
-        source_count: { bsonType: ["int", "long"], minimum: 1 },
-        record_count: { bsonType: ["int", "long"], minimum: 1 },
-        sources_summary: {
-          bsonType: "array",
-          minItems: 1,
-          items: {
-            bsonType: "object",
-            additionalProperties: false,
-            required: ["source_name", "source_url", "published_at"],
-            properties: {
-              source_name: { bsonType: "string" },
-              source_url: { bsonType: "string", pattern: "^https?://" },
-              published_at: { bsonType: "date" },
-            },
-          },
-        },
-        schema_version: { bsonType: "string" },
+        _id: { bsonType: "string" },
+        active_generation: { bsonType: "string" },
+        pending_refresh_generation: { bsonType: "string" },
         created_at: { bsonType: "date" },
         updated_at: { bsonType: "date" },
       },
@@ -609,93 +569,7 @@ ensureCollection("events", {
   validationAction: "error",
 });
 
-ensureIndex(
-  "events",
-  { event_type: 1, latest_published_at: -1 },
-  { name: "event_type_latest_published_at" },
-);
-ensureIndex(
-  "events",
-  { district: 1, latest_published_at: -1 },
-  { name: "district_latest_published_at" },
-);
-ensureIndex(
-  "events",
-  { is_active: 1, latest_published_at: -1 },
-  { name: "active_latest_published_at" },
-);
-ensureIndex(
-  "events",
-  { centroid: "2dsphere" },
-  { name: "centroid_2dsphere", sparse: true },
-);
-
-// 6) EVENT_RECORDS
-ensureCollection("event_records", {
-  validator: {
-    $jsonSchema: {
-      bsonType: "object",
-      additionalProperties: false,
-      required: [
-        "event_id",
-        "source_record_id",
-        "match_score",
-        "match_reason",
-        "is_primary",
-        "dedup_version",
-        "model_version",
-        "cluster_run_id",
-        "created_at",
-        "updated_at",
-      ],
-      properties: {
-        _id: { bsonType: "objectId" },
-        event_id: { bsonType: "objectId" },
-        source_record_id: { bsonType: "objectId" },
-        match_score: {
-          bsonType: ["double", "int", "decimal"],
-          minimum: 0,
-          maximum: 1,
-        },
-        match_reason: {
-          enum: [
-            "hash_exact",
-            "embedding_90_plus",
-            "title_similarity",
-            "manual_review",
-            "multimodal_duplicate_threshold",
-          ],
-        },
-        is_primary: { bsonType: "bool" },
-        dedup_version: { bsonType: "string" },
-        model_version: { bsonType: "string" },
-        cluster_run_id: { bsonType: "string" },
-        created_at: { bsonType: "date" },
-        updated_at: { bsonType: "date" },
-      },
-    },
-  },
-  validationLevel: "strict",
-  validationAction: "error",
-});
-
-ensureIndex(
-  "event_records",
-  { source_record_id: 1 },
-  { name: "source_record_id_unique", unique: true },
-);
-ensureIndex("event_records", { event_id: 1 }, { name: "event_id" });
-ensureIndex(
-  "event_records",
-  { event_id: 1, is_primary: 1 },
-  {
-    name: "one_primary_per_event",
-    unique: true,
-    partialFilterExpression: { is_primary: true },
-  },
-);
-
-// 7) GEOCODING_CACHE
+// 6) GEOCODING_CACHE
 ensureCollection("geocoding_cache", {
   validator: {
     $jsonSchema: {

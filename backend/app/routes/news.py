@@ -9,7 +9,9 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.db.database import db
 from app.domain.enums import normalize_kocaeli_district, normalize_news_category
+from app.services.dataset_generation import resolve_visible_generation_query
 from app.schemas import (
+    NewsDashboardResponse,
     NewsListItem,
     NewsListResponse,
     NewsMapItem,
@@ -110,40 +112,102 @@ def _stats_facet_pipeline(
         {"$match": query},
         {
             "$facet": {
-                "meta": [
-                    {
-                        "$group": {
-                            "_id": None,
-                            "total": {"$sum": 1},
-                            "active_sources": {"$addToSet": "$source_id"},
-                            "last_3d_total": {
-                                "$sum": {
-                                    "$cond": [
-                                        {"$gte": ["$published_at", last_3d_cutoff]},
-                                        1,
-                                        0,
-                                    ]
-                                }
-                            },
-                        }
-                    }
-                ],
-                "categories": [
-                    {"$match": {"category_predicted": {"$nin": [None, ""]}}},
-                    {"$group": {"_id": "$category_predicted", "count": {"$sum": 1}}},
-                    {"$sort": {"count": -1, "_id": 1}},
-                ],
-                "districts": [
-                    {"$match": {"district_predicted": {"$nin": [None, ""]}}},
-                    {"$group": {"_id": "$district_predicted", "count": {"$sum": 1}}},
-                    {"$sort": {"count": -1, "_id": 1}},
-                ],
-                "geocoded": [
-                    {"$match": _VALID_GEO_POINT_QUERY},
-                    {"$count": "total"},
-                ],
+                "meta": _stats_meta_pipeline(last_3d_cutoff=last_3d_cutoff),
+                "categories": _bucket_pipeline("category_predicted"),
+                "districts": _bucket_pipeline("district_predicted"),
+                "geocoded": _geocoded_total_pipeline(),
             }
         },
+    ]
+
+
+def _stats_meta_pipeline(*, last_3d_cutoff: datetime) -> list[dict[str, Any]]:
+    return [
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "active_sources": {"$addToSet": "$source_id"},
+                "last_3d_total": {
+                    "$sum": {
+                        "$cond": [
+                            {"$gte": ["$published_at", last_3d_cutoff]},
+                            1,
+                            0,
+                        ]
+                    }
+                },
+            }
+        }
+    ]
+
+
+def _bucket_pipeline(field: str) -> list[dict[str, Any]]:
+    return [
+        {"$match": {field: {"$nin": [None, ""]}}},
+        {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1, "_id": 1}},
+    ]
+
+
+def _geocoded_total_pipeline() -> list[dict[str, Any]]:
+    return [
+        {"$match": _VALID_GEO_POINT_QUERY},
+        {"$count": "total"},
+    ]
+
+
+def _map_items_pipeline(*, query: dict[str, Any], offset: int, limit: int) -> list[dict[str, Any]]:
+    return [
+        {"$match": query},
+        {"$sort": {"published_at": -1}},
+        {"$skip": offset},
+        {"$limit": limit},
+        {"$project": _NEWS_MAP_PROJECTION},
+    ]
+
+
+def _map_total_pipeline(*, query: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"$match": query},
+        {"$count": "total"},
+    ]
+
+
+def _visible_news_query(query: dict[str, Any]) -> dict[str, Any]:
+    visibility_query = resolve_visible_generation_query(db)
+    if not visibility_query:
+        return query
+    return _merge_query(query, visibility_query)
+
+
+def _stats_response_from_facet(facet: dict[str, Any]) -> NewsStatsResponse:
+    meta = facet.get("meta", [])
+    meta_row = meta[0] if meta else {}
+    total = int(meta_row.get("total", 0))
+    geocoded_rows = facet.get("geocoded", [])
+    geocoded_total = int(geocoded_rows[0].get("total", 0)) if geocoded_rows else 0
+    last_3d_total = int(meta_row.get("last_3d_total", 0))
+    active_sources = [
+        str(source_id)
+        for source_id in meta_row.get("active_sources", [])
+        if source_id is not None
+    ]
+
+    return NewsStatsResponse(
+        total=total,
+        geocoded_total=geocoded_total,
+        last_3d_total=last_3d_total,
+        active_sources=len(active_sources),
+        categories=_stats_buckets_from_rows(facet.get("categories", [])),
+        districts=_stats_buckets_from_rows(facet.get("districts", [])),
+    )
+
+
+def _stats_buckets_from_rows(rows: list[dict[str, Any]]) -> list[StatsBucket]:
+    return [
+        StatsBucket(key=str(bucket["_id"]), count=int(bucket["count"]))
+        for bucket in rows
     ]
 
 
@@ -355,7 +419,8 @@ def list_news(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> NewsListResponse:
-    query = _build_news_query(
+    query = _visible_news_query(
+        _build_news_query(
         source=source,
         category=category,
         categories=categories,
@@ -364,6 +429,7 @@ def list_news(
         search=search,
         date_from=date_from,
         date_to=date_to,
+        )
     )
 
     collection = db["source_records"]
@@ -391,7 +457,8 @@ def list_news_map(
     limit: int = Query(default=500, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> NewsMapResponse:
-    query = _build_news_query(
+    query = _visible_news_query(
+        _build_news_query(
         source=source,
         category=category,
         categories=categories,
@@ -401,6 +468,7 @@ def list_news_map(
         date_from=date_from,
         date_to=date_to,
         geocoded_only=True,
+        )
     )
 
     collection = db["source_records"]
@@ -420,6 +488,130 @@ def list_news_map(
     return NewsMapResponse(items=items, total=total)
 
 
+@router.get("/dashboard", response_model=NewsDashboardResponse)
+def get_news_dashboard(
+    source: Optional[str] = Query(default=None),
+    category: Optional[str] = Query(default=None),
+    categories: Optional[list[str]] = Query(default=None),
+    district: Optional[str] = Query(default=None),
+    districts: Optional[list[str]] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    date_from: Optional[datetime] = Query(default=None),
+    date_to: Optional[datetime] = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+) -> NewsDashboardResponse:
+    base_query = _build_news_query(
+        source=source,
+        category=category,
+        categories=categories,
+        district=district,
+        districts=districts,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    current_query = _visible_news_query(base_query)
+    current_map_query = _merge_query(current_query, _VALID_GEO_POINT_QUERY)
+    category_query = _visible_news_query(
+        _build_news_query(
+            source=source,
+            category=None,
+            categories=None,
+            district=district,
+            districts=districts,
+            search=search,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    )
+    district_query = _visible_news_query(
+        _build_news_query(
+            source=source,
+            category=category,
+            categories=categories,
+            district=None,
+            districts=None,
+            search=search,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    )
+
+    collection = db["source_records"]
+    now = datetime.now(timezone.utc)
+    last_3d_cutoff = now - timedelta(days=3)
+    facet = (
+        next(
+            iter(
+                collection.aggregate(
+                    [
+                        {
+                            "$facet": {
+                                "stats_meta": [
+                                    {"$match": current_query},
+                                    *_stats_meta_pipeline(last_3d_cutoff=last_3d_cutoff),
+                                ],
+                                "stats_categories": [
+                                    {"$match": current_query},
+                                    *_bucket_pipeline("category_predicted"),
+                                ],
+                                "stats_districts": [
+                                    {"$match": current_query},
+                                    *_bucket_pipeline("district_predicted"),
+                                ],
+                                "stats_geocoded": [
+                                    {"$match": current_query},
+                                    *_geocoded_total_pipeline(),
+                                ],
+                                "category_facets": [
+                                    {"$match": category_query},
+                                    *_bucket_pipeline("category_predicted"),
+                                ],
+                                "district_facets": [
+                                    {"$match": district_query},
+                                    *_bucket_pipeline("district_predicted"),
+                                ],
+                                "map_total": _map_total_pipeline(query=current_map_query),
+                                "map_items": _map_items_pipeline(
+                                    query=current_map_query,
+                                    offset=offset,
+                                    limit=limit,
+                                ),
+                            }
+                        }
+                    ]
+                )
+            ),
+            None,
+        )
+        or {}
+    )
+
+    stats = _stats_response_from_facet(
+        {
+            "meta": facet.get("stats_meta", []),
+            "categories": facet.get("stats_categories", []),
+            "districts": facet.get("stats_districts", []),
+            "geocoded": facet.get("stats_geocoded", []),
+        }
+    )
+    map_total_rows = facet.get("map_total", [])
+    map_total = int(map_total_rows[0].get("total", 0)) if map_total_rows else 0
+    map_items = [
+        map_doc_to_news_map_item(doc)
+        for doc in facet.get("map_items", [])
+        if _has_valid_coordinates(doc)
+    ]
+
+    return NewsDashboardResponse(
+        map=NewsMapResponse(items=map_items, total=map_total),
+        stats=stats,
+        category_facets=_stats_buckets_from_rows(facet.get("category_facets", [])),
+        district_facets=_stats_buckets_from_rows(facet.get("district_facets", [])),
+    )
+
+
 @router.get("/stats", response_model=NewsStatsResponse)
 def get_news_stats(
     source: Optional[str] = Query(default=None),
@@ -431,7 +623,8 @@ def get_news_stats(
     date_from: Optional[datetime] = Query(default=None),
     date_to: Optional[datetime] = Query(default=None),
 ) -> NewsStatsResponse:
-    query = _build_news_query(
+    query = _visible_news_query(
+        _build_news_query(
         source=source,
         category=category,
         categories=categories,
@@ -440,6 +633,7 @@ def get_news_stats(
         search=search,
         date_from=date_from,
         date_to=date_to,
+        )
     )
 
     collection = db["source_records"]
@@ -457,36 +651,7 @@ def get_news_stats(
         or {}
     )
 
-    meta = facet.get("meta", [])
-    meta_row = meta[0] if meta else {}
-    total = int(meta_row.get("total", 0))
-    geocoded_rows = facet.get("geocoded", [])
-    geocoded_total = (
-        int(geocoded_rows[0].get("total", 0)) if geocoded_rows else 0
-    )
-    last_3d_total = int(meta_row.get("last_3d_total", 0))
-    active_sources = [
-        str(source_id)
-        for source_id in meta_row.get("active_sources", [])
-        if source_id is not None
-    ]
-    categories_rows = facet.get("categories", [])
-    districts_rows = facet.get("districts", [])
-
-    return NewsStatsResponse(
-        total=total,
-        geocoded_total=geocoded_total,
-        last_3d_total=last_3d_total,
-        active_sources=len(active_sources),
-        categories=[
-            StatsBucket(key=str(bucket["_id"]), count=int(bucket["count"]))
-            for bucket in categories_rows
-        ],
-        districts=[
-            StatsBucket(key=str(bucket["_id"]), count=int(bucket["count"]))
-            for bucket in districts_rows
-        ],
-    )
+    return _stats_response_from_facet(facet)
 
 
 @router.get("/{news_id}", response_model=NewsResponse)
@@ -494,7 +659,9 @@ def get_news_detail(news_id: str) -> NewsResponse:
     if not ObjectId.is_valid(news_id):
         raise HTTPException(status_code=400, detail="Invalid news id")
 
-    doc = db["source_records"].find_one({"_id": ObjectId(news_id)})
+    detail_query: dict[str, Any] = {"_id": ObjectId(news_id)}
+    detail_query = _merge_query(detail_query, _visible_news_query({}))
+    doc = db["source_records"].find_one(detail_query)
     if doc is None:
         raise HTTPException(status_code=404, detail="News not found")
 

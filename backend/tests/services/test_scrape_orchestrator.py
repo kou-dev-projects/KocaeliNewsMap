@@ -1,5 +1,7 @@
 from app.services.scrape_orchestrator import (
     ScrapeTriggerResult,
+    cleanup_refresh_data,
+    discard_refresh_generation,
     has_scraped_news_data,
     start_bootstrap_scrape_if_needed,
     start_refresh_scrape,
@@ -72,19 +74,9 @@ def test_start_bootstrap_scrape_if_needed_submits_job_when_data_missing():
     assert manager.submitted == [(None, "bootstrap")]
 
 
-def test_start_refresh_scrape_resets_then_submits_job(monkeypatch):
+def test_start_refresh_scrape_submits_job_without_reset():
     database = FakeDatabase(source_records_count=5)
     manager = FakeJobManager()
-    fake_reset_result = type(
-        "FakeResetResult",
-        (),
-        {"deleted_counts": {"raw_documents": 5}, "total_deleted": 5},
-    )()
-
-    monkeypatch.setattr(
-        "app.services.scrape_orchestrator.reset_scraped_news_data",
-        lambda database: fake_reset_result,
-    )
 
     result = start_refresh_scrape(database, manager)
 
@@ -92,6 +84,33 @@ def test_start_refresh_scrape_resets_then_submits_job(monkeypatch):
         status="started",
         trigger_type="refresh",
         job_id="job_123",
-        reset_result=fake_reset_result,
     )
     assert manager.submitted == [(None, "refresh")]
+
+
+def test_cleanup_refresh_data_delegates_to_cleanup_service(monkeypatch):
+    database = FakeDatabase(source_records_count=0)
+    fake_result = object()
+
+    monkeypatch.setattr(
+        "app.services.scrape_orchestrator.cleanup_stale_refresh_data",
+        lambda db, active_generation: fake_result,
+    )
+
+    result = cleanup_refresh_data(database, active_generation="generation-live")
+
+    assert result is fake_result
+
+
+def test_discard_refresh_generation_delegates_to_cleanup_service(monkeypatch):
+    database = FakeDatabase(source_records_count=0)
+    fake_result = object()
+
+    monkeypatch.setattr(
+        "app.services.scrape_orchestrator.cleanup_pending_refresh_data",
+        lambda db, pending_generation: fake_result,
+    )
+
+    result = discard_refresh_generation(database, pending_generation="generation-candidate")
+
+    assert result is fake_result

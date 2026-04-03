@@ -254,8 +254,9 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
 
     orchestrator = _make_orchestrator(source_docs)
 
-    def fake_crawl_single_source(*, source_document, trigger_type):
+    def fake_crawl_single_source(*, source_document, trigger_type, dataset_generation=None):
         assert trigger_type == "scheduled"
+        assert dataset_generation is None
         if source_document["domain"] == "broken.example.com":
             raise RuntimeError("boom")
         return {

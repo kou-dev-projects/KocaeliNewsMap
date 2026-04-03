@@ -3,7 +3,7 @@ import type { NewsMapItem } from "@/components/map/MapView";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
-const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "5000");
+const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "1000");
 
 export type NewsStats = {
   total: number;
@@ -17,6 +17,13 @@ export type NewsStats = {
 export type NewsMapResponse = {
   items: NewsMapItem[];
   total: number;
+};
+
+export type NewsDashboardResponse = {
+  map: NewsMapResponse;
+  stats: NewsStats;
+  category_facets: Array<{ key: string; count: number }>;
+  district_facets: Array<{ key: string; count: number }>;
 };
 
 export type NewsDetail = NewsMapItem & {
@@ -38,6 +45,13 @@ export const EMPTY_STATS: NewsStats = {
 export const EMPTY_MAP_RESPONSE: NewsMapResponse = {
   items: [],
   total: 0,
+};
+
+export const EMPTY_DASHBOARD_RESPONSE: NewsDashboardResponse = {
+  map: EMPTY_MAP_RESPONSE,
+  stats: EMPTY_STATS,
+  category_facets: [],
+  district_facets: [],
 };
 
 function appendMultiValue(url: URL, key: string, values?: string[]) {
@@ -97,6 +111,29 @@ export function buildMapUrl(filters: NewsQueryFilters) {
   return url.toString();
 }
 
+export function buildDashboardUrl(filters: NewsQueryFilters) {
+  const url = new URL("/api/v1/news/dashboard", API_BASE_URL);
+
+  appendMultiValue(url, "categories", filters.categories);
+  appendMultiValue(url, "districts", filters.districts);
+
+  if (filters.search) {
+    url.searchParams.set("search", filters.search);
+  }
+
+  if (filters.dateFrom) {
+    url.searchParams.set("date_from", filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    url.searchParams.set("date_to", filters.dateTo);
+  }
+
+  url.searchParams.set("limit", String(filters.limit ?? DEFAULT_MAP_LIMIT));
+
+  return url.toString();
+}
+
 export async function fetchNewsStats(filters: NewsQueryFilters): Promise<NewsStats> {
   const response = await fetch(buildStatsUrl(filters), {
     method: "GET",
@@ -119,6 +156,20 @@ export async function fetchNewsMap(filters: NewsQueryFilters): Promise<NewsMapRe
   }
 
   return (await response.json()) as NewsMapResponse;
+}
+
+export async function fetchNewsDashboard(
+  filters: NewsQueryFilters,
+): Promise<NewsDashboardResponse> {
+  const response = await fetch(buildDashboardUrl(filters), {
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Dashboard request failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as NewsDashboardResponse;
 }
 
 export async function fetchNewsDetail(newsId: string): Promise<NewsDetail> {

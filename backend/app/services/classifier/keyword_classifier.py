@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 class KeywordClassifier:
     _TOKEN_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
     _WHITESPACE_PATTERN = re.compile(r"\s+")
+    _SEGMENT_WEIGHTS = {
+        "title": 3.0,
+        "summary": 1.5,
+        "content": 1.0,
+    }
     _TURKISH_SUFFIXES = tuple(
         sorted(
             {
@@ -45,26 +50,35 @@ class KeywordClassifier:
     def classify(
         self, input_data: ClassificationInput
     ) -> Optional[ClassificationResult]:
-        raw_text = input_data.full_text().lower()
-        text = self._normalize_text(raw_text)
-        tokens = set(self._TOKEN_PATTERN.findall(text))
+        segments = self._build_segments(input_data)
         matches: dict[NewsCategory, list[str]] = {}
+        scores: dict[NewsCategory, float] = {}
 
         for category, keywords in CATEGORY_KEYWORDS.items():
-            found = [
-                kw for kw in keywords
-                if self._matches_keyword(keyword=kw, text=text, tokens=tokens)
-            ]
+            found: list[str] = []
+            weighted_score = 0.0
+
+            for keyword in keywords:
+                keyword_score = 0.0
+                for segment_name, (text, tokens) in segments.items():
+                    if self._matches_keyword(keyword=keyword, text=text, tokens=tokens):
+                        keyword_score += self._SEGMENT_WEIGHTS[segment_name]
+                if keyword_score <= 0:
+                    continue
+
+                found.append(self._normalize_text(keyword.lower()))
+                weighted_score += keyword_score
+
             if found:
                 matches[category] = found
+                scores[category] = weighted_score
 
         if not matches:
             return None
 
-        
-        best_category = min(
+        best_category = max(
             matches.keys(),
-            key=lambda c: CATEGORY_PRIORITY.get(c, 99),
+            key=lambda c: (scores[c], -CATEGORY_PRIORITY.get(c, 99)),
         )
 
         result = ClassificationResult(
@@ -74,7 +88,7 @@ class KeywordClassifier:
             news_id=input_data.news_id,
             matched_keywords=matches[best_category],
             all_scores={
-                cat.value: 1.0 for cat in matches
+                cat.value: round(scores[cat], 3) for cat in matches
             },
         )
 
@@ -89,6 +103,21 @@ class KeywordClassifier:
 
         return result
 
+    def _build_segments(
+        self,
+        input_data: ClassificationInput,
+    ) -> dict[str, tuple[str, set[str]]]:
+        raw_segments = {
+            "title": input_data.title or "",
+            "summary": input_data.summary or "",
+            "content": (input_data.content or "")[:1000],
+        }
+        built: dict[str, tuple[str, set[str]]] = {}
+        for name, raw_value in raw_segments.items():
+            text = self._normalize_text(raw_value.lower())
+            built[name] = (text, set(self._TOKEN_PATTERN.findall(text)))
+        return built
+
     def _matches_keyword(self, *, keyword: str, text: str, tokens: set[str]) -> bool:
         normalized_keyword = self._normalize_text(keyword.lower())
 
@@ -100,7 +129,27 @@ class KeywordClassifier:
 
         escaped_keyword = re.escape(normalized_keyword)
         pattern = rf"(?<!\w){escaped_keyword}(?!\w)"
-        return re.search(pattern, text, flags=re.UNICODE) is not None
+        if re.search(pattern, text, flags=re.UNICODE) is not None:
+            return True
+
+        keyword_tokens = normalized_keyword.split()
+        text_tokens = self._TOKEN_PATTERN.findall(text)
+        window_size = len(keyword_tokens)
+        if len(text_tokens) < window_size:
+            return False
+
+        for start_index in range(len(text_tokens) - window_size + 1):
+            window = text_tokens[start_index : start_index + window_size]
+            if all(
+                self._token_matches_keyword(
+                    token=window[idx],
+                    keyword=keyword_tokens[idx],
+                )
+                for idx in range(window_size)
+            ):
+                return True
+
+        return False
 
     def _normalize_text(self, value: str) -> str:
         repaired = self._repair_mojibake(value)

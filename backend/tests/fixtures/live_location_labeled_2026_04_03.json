@@ -1,0 +1,73 @@
+{
+  "version": "labeled-live-2026-04-03.2",
+  "reviewed_on": "2026-04-03",
+  "samples": [
+    {
+      "id": "live_001",
+      "source": "cagdaskocaeli",
+      "url": "https://www.cagdaskocaeli.com.tr/haber/27737978/yuvacik-baraji-doldu-kapaklar-acildi-su-sapanca-golune-verilmeye-baslandi",
+      "title": "Yuvacik Baraji doldu, kapaklar acildi: Su Sapanca Golu'ne verilmeye baslandi",
+      "content": "Kocaeli'nin en kritik icme suyu kaynaklarindan Yuvacik Baraji'nda su seviyesi yuzde 97'ye kadar yukseldi. ISU tahliye kapaklarini acarak fazla suyu Sapanca Golu'ne aktarmaya basladi. Yuvacik Baraji Basiskele havzasinda yer alirken, Kandira hattindaki Namazgah Baraji da aciklamalarda ayri bir baslik olarak gundeme geldi.",
+      "expected": ["Basiskele"],
+      "label_method": "manual_review",
+      "expected_location_text": "Yuvacik Baraji",
+      "expected_geocode_status": "resolved"
+    },
+    {
+      "id": "live_002",
+      "source": "ozgurkocaeli",
+      "url": "https://www.ozgurkocaeli.com.tr/haber/27740693/derince-liman-yolu-bir-kez-daha-durdu",
+      "title": "Derince Liman Yolu bir kez daha durdu!",
+      "content": "Derince Safi Port Limani'ndan kaynaklanan trafik yogunlugunu azaltmak amaciyla Derince Limani D-100 ve TEM Otoyolu Baglanti Yolu Kavsak Projesi'nde calismalar yeniden durdu. Haberde calismalarin Derince Liman Yolu ve cevresindeki santiyede biraktigi etkiler anlatiliyor.",
+      "expected": ["Derince"],
+      "label_method": "manual_review",
+      "expected_location_text": "Anadolu Otoyolu",
+      "expected_geocode_status": "approximate",
+      "expected_location_resolution_method": "logic_highway_segment"
+    },
+    {
+      "id": "live_003",
+      "source": "yenikocaeli",
+      "url": "https://www.yenikocaeli.com/haber/guncel/daricada-ogrenciler-trafik-kurallarini-uygulamali-ogreniyor/193589.html",
+      "title": "Darica'da ogrenciler trafik kurallarini uygulamali ogreniyor",
+      "content": "Darica'da ogrencilere trafik kurallari uygulamali olarak anlatildi.",
+      "expected": ["Darica"],
+      "label_method": "manual_review",
+      "expected_location_text": "Darica",
+      "expected_geocode_status": "approximate"
+    },
+    {
+      "id": "live_004",
+      "source": "yenikocaeli",
+      "url": "https://www.yenikocaeli.com/haber/guncel/kartepede-yesil-alanlarda-bakim-ve-temizlik-calismalari-suruyor/193587.html",
+      "title": "Kartepe'de yesil alanlarda bakim ve temizlik calismalari suruyor",
+      "content": "Kartepe Belediyesi ekipleri yesil alanlarda bakim ve temizlik calismalarini surduruyor.",
+      "expected": ["Kartepe"],
+      "label_method": "manual_review",
+      "expected_location_text": "Kartepe",
+      "expected_geocode_status": "approximate"
+    },
+    {
+      "id": "live_005",
+      "source": "yenikocaeli",
+      "url": "https://www.yenikocaeli.com/haber/guncel/kartepede-sahada-iletisim-toplumda-farkindalik-egitimi/193576.html",
+      "title": "Kartepe'de Sahada Iletisim, Toplumda Farkindalik Egitimi",
+      "content": "Kartepe Belediyesi tarafindan duzenlenen egitimde personelin kriz anlarinda iletisim yonetimi ve bagimlilikla mucadele farkindaligi ele alindi.",
+      "expected": ["Kartepe"],
+      "label_method": "manual_review",
+      "expected_location_text": "Kartepe",
+      "expected_geocode_status": "approximate"
+    },
+    {
+      "id": "live_006",
+      "source": "yenikocaeli",
+      "url": "https://www.yenikocaeli.com/haber/guncel/gebzede-30-milyon-liralik-yatirimla-tamamlanan-sultanorhan-anaokulu-acildi/193572.html",
+      "title": "Gebze'de 30 milyon liralik yatirimla tamamlanan Sultanorhan Anaokulu acildi",
+      "content": "Gebze'de yapimi tamamlanan Sultanorhan Anaokulu acilis toreniyle hizmete alindi.",
+      "expected": ["Gebze"],
+      "label_method": "manual_review",
+      "expected_location_text": "Gebze",
+      "expected_geocode_status": "approximate"
+    }
+  ]
+}

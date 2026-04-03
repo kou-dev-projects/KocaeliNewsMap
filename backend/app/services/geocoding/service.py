@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
+
+from app.domain.enums import normalize_kocaeli_district
+
 from ..ner.schemas import NERResult
 from .cache import RedisGeoCache
 from .config import GeocodingConfig
@@ -19,24 +23,56 @@ logger = logging.getLogger(__name__)
 
 _LAT_MIN, _LAT_MAX = 40.35, 41.15
 _LNG_MIN, _LNG_MAX = 29.10, 30.90
+_MAX_LOCATION_CANDIDATES = 5
+_GENERIC_LOCATION_TOKENS = {
+    "belediyesi",
+    "belediye",
+    "buyuksehir belediyesi",
+    "valilik",
+    "kaymakamligi",
+    "mudurlugu",
+    "genel mudurlugu",
+    "bakanligi",
+}
 
 KOCAELI_DISTRICTS = frozenset(
     _normalize_for_compare(name)
     for name in (
-        "İzmit",
+        "Izmit",
         "Gebze",
-        "Darıca",
-        "Gölcük",
+        "Darica",
+        "Golcuk",
         "Hereke",
-        "Körfez",
+        "Korfez",
         "Kartepe",
-        "Başiskele",
-        "Çayırova",
-        "Dilovası",
-        "Kandıra",
-        "Karamürsel",
+        "Basiskele",
+        "Cayirova",
+        "Dilovasi",
+        "Kandira",
+        "Karamursel",
         "Derince",
     )
+)
+
+_PRECISE_LOCATION_HINTS = (
+    "mahallesi",
+    "mahalle",
+    "baraji",
+    "goleti",
+    "tesisi",
+    "aritma tesisi",
+    "aritma",
+    "icmesuyu",
+    "isale",
+    "iletim",
+    "tuneli",
+    "liman",
+    "hastanesi",
+    "cezaevi",
+    "stadyumu",
+    "terminali",
+    "kavsagi",
+    "meydani",
 )
 
 
@@ -56,7 +92,8 @@ class GeocodingService:
         self._cfg = config
 
     def geocode(
-        self, input_data: GeocodingInput
+        self,
+        input_data: GeocodingInput,
     ) -> GeocodingResult | GeocodingFailure:
         cached = self._cache.get(input_data)
         if cached:
@@ -81,39 +118,31 @@ class GeocodingService:
             )
             return GeocodingFailure(
                 address=input_data.address,
-                reason=(
-                    f"Rate limit — kuyruğa alındı ({exc.retry_after}s)"
-                    if queued
-                    else "Rate limit — kuyruk dolu, adres düşürüldü"
-                ),
+                reason=f"{exc.provider} rate limit",
                 failure_type="rate_limit" if queued else "queue_full",
                 news_id=input_data.news_id,
             )
         except ProviderUnavailableError as exc:
             self._metrics.record_failure(
                 input_data.address,
-                "provider_unavailable",
+                "provider_error",
                 str(exc),
             )
             return GeocodingFailure(
                 address=input_data.address,
-                reason=f"Provider yanıtsız: {type(exc).__name__}",
+                reason=str(exc),
                 failure_type="provider_error",
                 news_id=input_data.news_id,
             )
         except Exception as exc:
             self._metrics.record_failure(
                 input_data.address,
-                "unexpected_error",
-                type(exc).__name__,
-            )
-            logger.exception(
-                "geocoding.unexpected_error",
-                extra={"address": input_data.address[:60]},
+                "provider_error",
+                f"{type(exc).__name__}: {exc}",
             )
             return GeocodingFailure(
                 address=input_data.address,
-                reason=f"Beklenmedik hata: {type(exc).__name__}",
+                reason=f"{type(exc).__name__}: {exc}",
                 failure_type="provider_error",
                 news_id=input_data.news_id,
             )
@@ -122,12 +151,25 @@ class GeocodingService:
             self._metrics.record_failure(
                 input_data.address,
                 "not_found",
-                "Provider sonuç döndürmedi",
+                "No geocoding result",
             )
             return GeocodingFailure(
                 address=input_data.address,
-                reason="Adres bulunamadı",
+                reason="No geocoding result",
                 failure_type="not_found",
+                news_id=input_data.news_id,
+            )
+
+        if not self._in_kocaeli_bounds(result.lat, result.lng):
+            self._metrics.record_failure(
+                input_data.address,
+                "out_of_bounds",
+                result.display_name,
+            )
+            return GeocodingFailure(
+                address=input_data.address,
+                reason=result.display_name,
+                failure_type="out_of_bounds",
                 news_id=input_data.news_id,
             )
 
@@ -135,25 +177,12 @@ class GeocodingService:
             self._metrics.record_failure(
                 input_data.address,
                 "low_confidence",
-                f"confidence={result.confidence:.3f}",
+                f"{result.confidence:.3f} < {self._cfg.min_confidence:.3f}",
             )
             return GeocodingFailure(
                 address=input_data.address,
-                reason=f"Düşük güven skoru: {result.confidence:.3f}",
+                reason=f"Low confidence: {result.confidence:.3f}",
                 failure_type="low_confidence",
-                news_id=input_data.news_id,
-            )
-
-        if not self._is_kocaeli(result):
-            self._metrics.record_failure(
-                input_data.address,
-                "out_of_bounds",
-                f"({result.lat:.4f}, {result.lng:.4f})",
-            )
-            return GeocodingFailure(
-                address=input_data.address,
-                reason=f"Kocaeli dışı koordinat: {result.display_name[:60]}",
-                failure_type="out_of_bounds",
                 news_id=input_data.news_id,
             )
 
@@ -166,62 +195,148 @@ class GeocodingService:
         return result
 
     def metrics_summary(self) -> dict:
-        return {
-            **self._metrics.summary(),
-            "cache_available": self._cache.available,
-            "queue_size": self._queue.size,
-            "provider": self._provider.name,
-        }
+        summary = self._metrics.summary()
+        summary["cache_available"] = self._cache.available
+        summary["queue_size"] = self._queue.size
+        summary["provider"] = self._provider.name
+        return summary
 
-    def _is_kocaeli(self, result: GeocodingResult) -> bool:
-        display = _normalize_for_compare(result.display_name)
-        if "kocaeli" in display or "izmit" in display:
-            return True
-        if (
-            result.district
-            and _normalize_for_compare(result.district) in KOCAELI_DISTRICTS
-        ):
-            return True
-        if _LAT_MIN <= result.lat <= _LAT_MAX and _LNG_MIN <= result.lng <= _LNG_MAX:
-            return True
-        return False
-    
-    
+    @staticmethod
+    def _in_kocaeli_bounds(lat: float, lng: float) -> bool:
+        return _LAT_MIN <= lat <= _LAT_MAX and _LNG_MIN <= lng <= _LNG_MAX
+
+
 def build_geocoding_input_from_ner(
     ner_result: NERResult,
     news_id: str | None = None,
 ) -> GeocodingInput | None:
+    inputs = build_geocoding_inputs_from_ner(ner_result, news_id=news_id)
+    return inputs[0] if inputs else None
+
+
+def build_geocoding_inputs_from_ner(
+    ner_result: NERResult,
+    news_id: str | None = None,
+) -> list[GeocodingInput]:
     if not ner_result.location_candidates and not ner_result.validated_districts:
-        return None
+        return []
 
-    primary_candidate = None
-    for candidate in ner_result.location_candidates:
-        if candidate.neighborhood or candidate.original_text:
-            primary_candidate = candidate
-            break
+    deduped: OrderedDict[
+        tuple[str, str | None, str | None],
+        GeocodingInput,
+    ] = OrderedDict()
 
-    district = None
-    if primary_candidate and primary_candidate.district:
-        district = primary_candidate.district
-    elif ner_result.validated_districts:
-        district = ner_result.validated_districts[0]
+    def add_input(
+        *,
+        address: str | None,
+        district_hint: str | None = None,
+        neighborhood: str | None = None,
+    ) -> None:
+        if address is None:
+            return
 
-    neighborhood = primary_candidate.neighborhood if primary_candidate else None
+        clean_address = address.strip()
+        clean_district = district_hint.strip() if district_hint else None
+        clean_neighborhood = neighborhood.strip() if neighborhood else None
+        if not clean_address:
+            return
 
-    if neighborhood and district:
-        address = f"{neighborhood}, {district}"
-    elif neighborhood:
-        address = neighborhood
-    elif primary_candidate and primary_candidate.original_text:
-        address = primary_candidate.original_text
-    elif district:
-        address = district
-    else:
-        return None
+        key = (
+            _normalize_for_compare(clean_address),
+            _normalize_for_compare(clean_district) if clean_district else None,
+            _normalize_for_compare(clean_neighborhood)
+            if clean_neighborhood
+            else None,
+        )
+        if key in deduped:
+            return
 
-    return GeocodingInput(
-        address=address,
-        district_hint=district,
-        neighborhood=neighborhood,
-        news_id=news_id,
+        deduped[key] = GeocodingInput(
+            address=clean_address,
+            district_hint=clean_district,
+            neighborhood=clean_neighborhood,
+            news_id=news_id,
+        )
+
+    fallback_district = next(
+        (
+            candidate.district
+            for candidate in ner_result.location_candidates
+            if candidate.district
+        ),
+        None,
+    ) or (
+        ner_result.validated_districts[0]
+        if ner_result.validated_districts
+        else None
     )
+
+    for candidate in ner_result.location_candidates[:_MAX_LOCATION_CANDIDATES]:
+        district = candidate.district or fallback_district
+        original_text = (
+            candidate.original_text.strip() if candidate.original_text else None
+        )
+        should_geocode_candidate = bool(
+            district
+            or candidate.neighborhood
+            or candidate.is_kocaeli_district
+            or _looks_like_precise_location(original_text or "")
+        )
+        if original_text and _is_generic_location_text(original_text):
+            should_geocode_candidate = False
+
+        if candidate.neighborhood and district:
+            add_input(
+                address=f"{candidate.neighborhood}, {district}",
+                district_hint=district,
+                neighborhood=candidate.neighborhood,
+            )
+        elif candidate.neighborhood:
+            add_input(
+                address=candidate.neighborhood,
+                district_hint=district,
+                neighborhood=candidate.neighborhood,
+            )
+
+        if original_text and should_geocode_candidate:
+            add_input(address=original_text, district_hint=district)
+            if district and _normalize_for_compare(district) not in _normalize_for_compare(
+                original_text
+            ):
+                add_input(
+                    address=f"{original_text}, {district}",
+                    district_hint=district,
+                )
+
+        if district and _looks_like_precise_location(original_text or ""):
+            add_input(address=district, district_hint=district)
+
+    if fallback_district:
+        add_input(address=fallback_district, district_hint=fallback_district)
+
+    return list(deduped.values())
+
+
+def _looks_like_precise_location(value: str) -> bool:
+    normalized = _normalize_for_compare(value)
+    return any(hint in normalized for hint in _PRECISE_LOCATION_HINTS)
+
+
+def _is_generic_location_text(value: str) -> bool:
+    normalized = _normalize_for_compare(value)
+    if not normalized:
+        return True
+    return normalized in _GENERIC_LOCATION_TOKENS
+
+
+def is_district_level_geocoding_input(input_data: GeocodingInput) -> bool:
+    normalized_address = _normalize_for_compare(input_data.address)
+    if normalize_kocaeli_district(input_data.address):
+        return True
+
+    if input_data.district_hint:
+        normalized_hint = _normalize_for_compare(input_data.district_hint)
+        if normalized_address == normalized_hint:
+            return True
+
+    return False

@@ -7,7 +7,7 @@ from .schemas import GeocodingInput, GeocodingResult
 
 logger = logging.getLogger(__name__)
 
-_CACHE_KEY_PREFIX = "pulse:geo:v1"
+_CACHE_KEY_PREFIX = "pulse:geo:v2"
 
 try:
     import redis as redis_lib

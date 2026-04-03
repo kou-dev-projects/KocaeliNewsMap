@@ -1,4 +1,6 @@
-db = db.getSiblingDB("kocaeli_news");
+const DB_NAME = process.env.MONGO_DB || "kocaeli_news";
+
+db = db.getSiblingDB(DB_NAME);
 
 const MANDATORY_CATEGORIES = [
   "trafik_kazasi",
@@ -323,6 +325,12 @@ ensureCollection("source_records", {
           enum: ["pending", "resolved", "failed", "approximate", "not_needed"],
         },
         geocode_provider: { bsonType: "string" },
+        geocode_provider_version: { bsonType: "string" },
+        location_resolution_method: { bsonType: "string" },
+        location_pipeline_version: { bsonType: "string" },
+        gazetteer_version: { bsonType: "string" },
+        logical_catalog_version: { bsonType: "string" },
+        location_benchmark_version: { bsonType: "string" },
         geocode_point: {
           bsonType: ["object", "null"],
           additionalProperties: false,
@@ -464,10 +472,41 @@ ensureIndex(
 );
 ensureIndex(
   "source_records",
+  { location_pipeline_version: 1, updated_at: -1 },
+  { name: "location_pipeline_version_updated_at", sparse: true },
+);
+ensureIndex(
+  "source_records",
+  { geocode_provider: 1, geocode_provider_version: 1, updated_at: -1 },
+  { name: "geocode_provider_version_updated_at", sparse: true },
+);
+ensureIndex(
+  "source_records",
   { geocode_point: "2dsphere" },
   { name: "geocode_point_2dsphere", sparse: true },
 );
 ensureIndex("source_records", { text_hash: 1 }, { name: "text_hash" });
+ensureIndex(
+  "source_records",
+  {
+    title: "text",
+    summary: "text",
+    body: "text",
+    source_name_snapshot: "text",
+    location_text_extracted: "text",
+  },
+  {
+    name: "source_records_search_text",
+    default_language: "turkish",
+    weights: {
+      title: 10,
+      summary: 5,
+      location_text_extracted: 4,
+      source_name_snapshot: 2,
+      body: 1,
+    },
+  },
+);
 ensureIndex(
   "source_records",
   { duplicate_status: 1, published_at: -1 },
@@ -674,7 +713,8 @@ ensureCollection("geocoding_cache", {
       properties: {
         _id: { bsonType: "string" },
         normalized_query: { bsonType: "string" },
-        provider: { enum: ["nominatim", "pelias", "manual"] },
+        provider: { enum: ["nominatim", "opencage", "mock", "pelias", "manual"] },
+        provider_version: { bsonType: "string" },
         status: { enum: ["hit", "miss", "failed", "ambiguous"] },
         result_quality: {
           enum: ["exact", "approximate", "district", "city", "none"],

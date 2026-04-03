@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -36,9 +37,44 @@ class FakeCollection:
     def __init__(self, docs: list[dict]):
         self._docs = list(docs)
 
+    def _extract_value(self, doc: dict, field: str):
+        current = doc
+        for part in field.split("."):
+            if isinstance(current, dict):
+                current = current.get(part)
+                continue
+            if isinstance(current, list) and part.isdigit():
+                index = int(part)
+                if index >= len(current):
+                    return None
+                current = current[index]
+                continue
+            return None
+        return current
+
     def _matches(self, doc: dict, query: dict) -> bool:
         for field, expected in query.items():
-            actual = doc.get(field)
+            if field == "$or":
+                return any(self._matches(doc, branch) for branch in expected)
+            if field == "$text":
+                search_value = str(expected.get("$search", "")).casefold()
+                haystack = " ".join(
+                    str(doc.get(name, "") or "")
+                    for name in (
+                        "title",
+                        "summary",
+                        "body",
+                        "source_name_snapshot",
+                        "source_url_snapshot",
+                        "district_predicted",
+                        "location_text_extracted",
+                    )
+                ).casefold()
+                if search_value not in haystack:
+                    return False
+                continue
+
+            actual = self._extract_value(doc, field)
             if isinstance(expected, dict):
                 if "$gte" in expected and (actual is None or actual < expected["$gte"]):
                     return False
@@ -46,10 +82,114 @@ class FakeCollection:
                     return False
                 if "$ne" in expected and actual == expected["$ne"]:
                     return False
+                if "$in" in expected and actual not in expected["$in"]:
+                    return False
+                if "$nin" in expected and actual in expected["$nin"]:
+                    return False
+                if "$type" in expected:
+                    if expected["$type"] == "number":
+                        if not isinstance(actual, (int, float)) or isinstance(actual, bool):
+                            return False
+                    else:
+                        return False
+                if "$regex" in expected:
+                    flags = re.IGNORECASE if "i" in str(expected.get("$options", "")) else 0
+                    if actual is None or re.search(expected["$regex"], str(actual), flags=flags) is None:
+                        return False
                 continue
             if actual != expected:
                 return False
         return True
+
+    def _evaluate_expression(self, doc: dict, expression):
+        if isinstance(expression, str) and expression.startswith("$"):
+            return self._extract_value(doc, expression[1:])
+        if isinstance(expression, dict):
+            if "$cond" in expression:
+                condition, truthy, falsy = expression["$cond"]
+                return (
+                    self._evaluate_expression(doc, truthy)
+                    if self._evaluate_expression(doc, condition)
+                    else self._evaluate_expression(doc, falsy)
+                )
+            if "$gte" in expression:
+                left, right = expression["$gte"]
+                left_value = self._evaluate_expression(doc, left)
+                right_value = self._evaluate_expression(doc, right)
+                return (
+                    left_value is not None
+                    and right_value is not None
+                    and left_value >= right_value
+                )
+        return expression
+
+    def _apply_pipeline(self, docs: list[dict], pipeline: list[dict]) -> list[dict]:
+        current = list(docs)
+
+        for stage in pipeline:
+            if "$match" in stage:
+                current = [doc for doc in current if self._matches(doc, stage["$match"])]
+                continue
+            if "$group" in stage:
+                spec = stage["$group"]
+                grouped: dict[object, dict] = {}
+
+                for doc in current:
+                    group_key = self._evaluate_expression(doc, spec["_id"])
+                    bucket = grouped.setdefault(group_key, {"_id": group_key})
+
+                    for field, accumulator in spec.items():
+                        if field == "_id":
+                            continue
+                        if "$sum" in accumulator:
+                            bucket[field] = bucket.get(field, 0) + int(
+                                self._evaluate_expression(doc, accumulator["$sum"])
+                            )
+                            continue
+                        if "$addToSet" in accumulator:
+                            values = bucket.setdefault(field, [])
+                            candidate = self._evaluate_expression(
+                                doc, accumulator["$addToSet"]
+                            )
+                            if candidate not in values:
+                                values.append(candidate)
+                            continue
+                        raise NotImplementedError(accumulator)
+
+                current = list(grouped.values())
+                continue
+            if "$sort" in stage:
+                sort_spec = stage["$sort"]
+                for field, direction in reversed(list(sort_spec.items())):
+                    current.sort(
+                        key=lambda doc: doc.get(field),
+                        reverse=direction < 0,
+                    )
+                continue
+            if "$count" in stage:
+                current = [{stage["$count"]: len(current)}]
+                continue
+            raise NotImplementedError(stage)
+
+        return current
+
+    def aggregate(self, pipeline: list[dict]):
+        current = list(self._docs)
+
+        for stage in pipeline:
+            if "$match" in stage:
+                current = [doc for doc in current if self._matches(doc, stage["$match"])]
+                continue
+            if "$facet" in stage:
+                return [
+                    {
+                        name: self._apply_pipeline(current, facet_pipeline)
+                        for name, facet_pipeline in stage["$facet"].items()
+                    }
+                ]
+            raise NotImplementedError(stage)
+
+        return current
 
     def count_documents(self, query: dict) -> int:
         return len([doc for doc in self._docs if self._matches(doc, query)])
@@ -140,7 +280,10 @@ def test_list_news_returns_enriched_items(monkeypatch, sample_docs):
     response = list_news(
         source=None,
         category=None,
+        categories=None,
         district=None,
+        districts=None,
+        search=None,
         date_from=None,
         date_to=None,
         limit=20,
@@ -163,7 +306,10 @@ def test_list_news_honors_date_filters(monkeypatch, sample_docs):
     response = list_news(
         source=None,
         category=None,
+        categories=None,
         district=None,
+        districts=None,
+        search=None,
         date_from=cutoff,
         date_to=None,
         limit=20,
@@ -174,13 +320,35 @@ def test_list_news_honors_date_filters(monkeypatch, sample_docs):
     assert response.items[0].district == "izmit"
 
 
-def test_list_news_map_returns_only_geocoded_items(monkeypatch, sample_docs):
+def test_list_news_supports_multi_filters_and_search(monkeypatch, sample_docs):
     monkeypatch.setattr("app.routes.news.db", FakeDB(sample_docs))
 
+    response = list_news(
+        source=None,
+        category=None,
+        categories=["yangin,hirsizlik"],
+        district=None,
+        districts=["izmit", "gebze"],
+        search="yangin",
+        date_from=None,
+        date_to=None,
+        limit=20,
+        offset=0,
+    )
+
+    assert response.total == 1
+    assert response.items[0].title == "Izmit yangin"
+
+
+def test_list_news_map_returns_only_geocoded_items(monkeypatch, sample_docs):
+    monkeypatch.setattr("app.routes.news.db", FakeDB(sample_docs))
     response = list_news_map(
         source=None,
         category=None,
+        categories=None,
         district=None,
+        districts=None,
+        search=None,
         date_from=None,
         date_to=None,
         limit=500,
@@ -201,7 +369,10 @@ def test_list_news_map_skips_invalid_geocode_shape(monkeypatch, sample_docs):
     response = list_news_map(
         source=None,
         category=None,
+        categories=None,
         district=None,
+        districts=None,
+        search=None,
         date_from=None,
         date_to=None,
         limit=500,
@@ -214,11 +385,13 @@ def test_list_news_map_skips_invalid_geocode_shape(monkeypatch, sample_docs):
 
 def test_get_news_stats_returns_facets(monkeypatch, sample_docs):
     monkeypatch.setattr("app.routes.news.db", FakeDB(sample_docs))
-
     response = get_news_stats(
         source=None,
         category=None,
+        categories=None,
         district=None,
+        districts=None,
+        search=None,
         date_from=None,
         date_to=None,
     )

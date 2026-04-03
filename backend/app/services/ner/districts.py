@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unicodedata
 
 KOCAELI_DISTRICTS = {
@@ -58,9 +59,6 @@ KOCAELI_PLACE_ALIASES = {
     "cebeci": "Kandıra",
     "bagirganli": "Kandıra",
 
-    # Gebze
-    "istasyon mahallesi": "Gebze",
-    "yenikent": "Gebze",
 }
 
 _ALIAS_SUFFIXES = frozenset(
@@ -104,6 +102,27 @@ _DISTRICT_SUFFIXES = frozenset(
         "ilcesi",
         "ilcesinde",
     }
+)
+
+_DISTRICT_EXTENDED_SPAN_PREFIXES = tuple(
+    sorted(
+        {
+            "tem",
+            "d100",
+            "d 100",
+            "d-100",
+            "otoyolu",
+            "otoyolunda",
+            "sanayi",
+            "sanayi sitesi",
+            "sahil",
+            "sahilinde",
+            "liman",
+            "limani",
+        },
+        key=len,
+        reverse=True,
+    )
 )
 
 
@@ -155,9 +174,6 @@ def _matches_name_with_suffix(
     if normalized == key:
         return True
 
-    if normalized.startswith(key + " "):
-        return True
-
     if not normalized.startswith(key):
         return False
 
@@ -197,5 +213,25 @@ def recover_district_name(text: str) -> str | None:
     for key, canonical in KOCAELI_DISTRICTS.items():
         if _matches_name_with_suffix(normalized, key, _DISTRICT_SUFFIXES):
             return canonical
+        if _matches_extended_district_span(normalized, key):
+            return canonical
 
     return None
+
+
+def _matches_extended_district_span(normalized: str, key: str) -> bool:
+    prefix = f"{key} "
+    if not normalized.startswith(prefix):
+        return False
+
+    remainder = normalized[len(prefix):].strip()
+    if not remainder:
+        return False
+
+    if any(
+        remainder.startswith(candidate)
+        for candidate in _DISTRICT_EXTENDED_SPAN_PREFIXES
+    ):
+        return True
+
+    return re.match(r"^[a-z]*\d", remainder) is not None

@@ -1,24 +1,35 @@
 import pytest
-from app.services.geocoding.factory import build_geocoding_service
+
+from app.services.geocoding.cache import RedisGeoCache
 from app.services.geocoding.config import GeocodingConfig
 from app.services.geocoding.exceptions import ProviderRateLimitError
-from app.services.geocoding.schemas import GeocodingInput, GeocodingResult, GeocodingFailure
+from app.services.geocoding.factory import build_geocoding_service
 from app.services.geocoding.metrics import GeocodingMetrics
-from app.services.geocoding.cache import RedisGeoCache
-from app.services.geocoding.queue import GeocodingQueue
 from app.services.geocoding.providers.mock import MockGeocodingProvider
-from app.services.geocoding.service import GeocodingService, build_geocoding_input_from_ner
-from app.services.ner.schemas import NERResult, LocationCandidate
+from app.services.geocoding.queue import GeocodingQueue
+from app.services.geocoding.schemas import GeocodingFailure, GeocodingInput, GeocodingResult
+from app.services.geocoding.service import (
+    GeocodingService,
+    build_geocoding_input_from_ner,
+    build_geocoding_inputs_from_ner,
+)
+from app.services.ner.schemas import LocationCandidate, NERResult
 
 
 @pytest.fixture
 def cfg():
     return GeocodingConfig(
-        provider="mock", nominatim_url="", user_agent="test",
-        timeout=5, cache_ttl_seconds=3600,
+        provider="mock",
+        nominatim_url="",
+        user_agent="test",
+        timeout=5,
+        cache_ttl_seconds=3600,
         redis_url="redis://localhost:6379/0",
-        max_retries=1, min_confidence=0.3, opencage_api_key=None,
+        max_retries=1,
+        min_confidence=0.3,
+        opencage_api_key=None,
     )
+
 
 @pytest.fixture
 def svc(cfg):
@@ -46,59 +57,86 @@ def test_factory_builds_mock_service(cfg):
 
 
 def test_normalized_turkish_i_is_stable():
-    assert GeocodingInput(address="İzmit").normalized() == GeocodingInput(
+    assert GeocodingInput(address="Izmit").normalized() == GeocodingInput(
         address="izmit"
     ).normalized()
 
 
 def test_known_district_returns_result(svc):
-    r = svc.geocode(GeocodingInput(address="İzmit"))
-    assert isinstance(r, GeocodingResult)
-    assert r.lat == pytest.approx(40.7654, abs=0.001)
+    result = svc.geocode(GeocodingInput(address="Izmit"))
+    assert isinstance(result, GeocodingResult)
+    assert result.lat == pytest.approx(40.7654, abs=0.001)
+
 
 def test_all_13_districts(svc):
-    for d in ["İzmit","Gebze","Darıca","Gölcük","Hereke","Körfez",
-              "Kartepe","Başiskele","Çayırova","Dilovası",
-              "Kandıra","Karamürsel","Derince"]:
-        r = svc.geocode(GeocodingInput(address=d))
-        assert isinstance(r, GeocodingResult), f"{d} başarısız"
+    for district in [
+        "Izmit",
+        "Gebze",
+        "Darica",
+        "Golcuk",
+        "Hereke",
+        "Korfez",
+        "Kartepe",
+        "Basiskele",
+        "Cayirova",
+        "Dilovasi",
+        "Kandira",
+        "Karamursel",
+        "Derince",
+    ]:
+        result = svc.geocode(GeocodingInput(address=district))
+        assert isinstance(result, GeocodingResult), f"{district} basarisiz"
+
 
 def test_unknown_returns_failure(svc):
-    r = svc.geocode(GeocodingInput(address="Bilinmeyen XYZ 999"))
-    assert isinstance(r, GeocodingFailure)
-    assert r.failure_type == "not_found"
+    result = svc.geocode(GeocodingInput(address="Bilinmeyen XYZ 999"))
+    assert isinstance(result, GeocodingFailure)
+    assert result.failure_type == "not_found"
+
 
 def test_failure_has_failure_type(svc):
-    r = svc.geocode(GeocodingInput(address="Bilinmeyen yer"))
-    assert isinstance(r, GeocodingFailure)
-    assert r.failure_type in ("not_found", "low_confidence", "out_of_bounds", "provider_error")
+    result = svc.geocode(GeocodingInput(address="Bilinmeyen yer"))
+    assert isinstance(result, GeocodingFailure)
+    assert result.failure_type in (
+        "not_found",
+        "low_confidence",
+        "out_of_bounds",
+        "provider_error",
+    )
+
 
 def test_district_hint_resolves(svc):
-    r = svc.geocode(GeocodingInput(address="Yahya Kaptan Mah.", district_hint="İzmit"))
-    assert isinstance(r, GeocodingResult)
+    result = svc.geocode(
+        GeocodingInput(address="Yahya Kaptan Mah.", district_hint="Izmit")
+    )
+    assert isinstance(result, GeocodingResult)
+
 
 def test_result_in_kocaeli_bounds(svc):
-    r = svc.geocode(GeocodingInput(address="Gebze"))
-    assert isinstance(r, GeocodingResult)
-    assert 40.35 <= r.lat <= 41.15
-    assert 29.10 <= r.lng <= 30.90
+    result = svc.geocode(GeocodingInput(address="Gebze"))
+    assert isinstance(result, GeocodingResult)
+    assert 40.35 <= result.lat <= 41.15
+    assert 29.10 <= result.lng <= 30.90
+
 
 def test_metrics_incremented_on_success(svc):
-    svc.geocode(GeocodingInput(address="İzmit"))
+    svc.geocode(GeocodingInput(address="Izmit"))
     summary = svc.metrics_summary()
     assert isinstance(summary["cache_available"], bool)
     assert summary["queue_size"] == 0
 
+
 def test_result_has_provider_version(svc):
-    r = svc.geocode(GeocodingInput(address="Gölcük"))
-    assert isinstance(r, GeocodingResult)
-    assert r.provider_version  
+    result = svc.geocode(GeocodingInput(address="Golcuk"))
+    assert isinstance(result, GeocodingResult)
+    assert result.provider_version
 
 
 def test_news_id_propagated_to_failure(svc):
-    r = svc.geocode(GeocodingInput(address="Bilinmeyen", news_id="haber_123"))
-    assert isinstance(r, GeocodingFailure)
-    assert r.news_id == "haber_123"
+    result = svc.geocode(GeocodingInput(address="Bilinmeyen", news_id="haber_123"))
+    assert isinstance(result, GeocodingFailure)
+    assert result.news_id == "haber_123"
+
 
 def test_metrics_summary_has_required_keys(svc):
     summary = svc.metrics_summary()
@@ -110,7 +148,7 @@ def test_metrics_summary_has_required_keys(svc):
 def test_rate_limit_queue_full_returns_queue_full_failure(cfg):
     queue = GeocodingQueue()
     queue._MAX_SIZE = 0
-    svc = GeocodingService(
+    service = GeocodingService(
         provider=RateLimitedProvider(),
         cache=RedisGeoCache(cfg.redis_url, cfg.cache_ttl_seconds),
         queue=queue,
@@ -118,7 +156,7 @@ def test_rate_limit_queue_full_returns_queue_full_failure(cfg):
         config=cfg,
     )
 
-    result = svc.geocode(GeocodingInput(address="Bu Adres Kesinlikle Yok 12345"))
+    result = service.geocode(GeocodingInput(address="Bu Adres Kesinlikle Yok 12345"))
     assert isinstance(result, GeocodingFailure)
     assert result.failure_type == "queue_full"
 
@@ -132,21 +170,22 @@ def test_build_geocoding_input_prefers_neighborhood_and_district():
                 normalized_text="Cumhuriyet Mahallesi",
                 score=0.9,
                 is_kocaeli_district=False,
-                district="İzmit",
+                district="Izmit",
                 neighborhood="Cumhuriyet Mahallesi",
             )
         ],
-        validated_districts=["İzmit"],
+        validated_districts=["Izmit"],
         provider="stub",
     )
 
     result = build_geocoding_input_from_ner(ner_result, news_id="n1")
 
     assert result is not None
-    assert result.address == "Cumhuriyet Mahallesi, İzmit"
-    assert result.district_hint == "İzmit"
+    assert result.address == "Cumhuriyet Mahallesi, Izmit"
+    assert result.district_hint == "Izmit"
     assert result.neighborhood == "Cumhuriyet Mahallesi"
     assert result.news_id == "n1"
+    assert result.query_string() == "Cumhuriyet Mahallesi, Izmit, Kocaeli"
 
 
 def test_build_geocoding_input_uses_original_text_when_only_candidate_exists():
@@ -154,8 +193,8 @@ def test_build_geocoding_input_uses_original_text_when_only_candidate_exists():
         raw_entities=[],
         location_candidates=[
             LocationCandidate(
-                original_text="Yuvacık Barajı",
-                normalized_text="Yuvacık Barajı",
+                original_text="Yuvacik Baraji",
+                normalized_text="Yuvacik Baraji",
                 score=0.9,
                 is_kocaeli_district=False,
                 district=None,
@@ -169,5 +208,38 @@ def test_build_geocoding_input_uses_original_text_when_only_candidate_exists():
     result = build_geocoding_input_from_ner(ner_result)
 
     assert result is not None
-    assert result.address == "Yuvacık Barajı"
+    assert result.address == "Yuvacik Baraji"
     assert result.district_hint is None
+
+
+def test_build_geocoding_inputs_prioritize_precise_candidate_before_district():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Yuvacik Baraji",
+                normalized_text="Yuvacik Baraji",
+                score=0.95,
+                is_kocaeli_district=False,
+                district="Basiskele",
+            ),
+            LocationCandidate(
+                original_text="Basiskele",
+                normalized_text="Basiskele",
+                score=0.8,
+                is_kocaeli_district=True,
+                district="Basiskele",
+            ),
+        ],
+        validated_districts=["Basiskele"],
+        provider="stub",
+    )
+
+    results = build_geocoding_inputs_from_ner(ner_result, news_id="n2")
+
+    assert [item.address for item in results[:3]] == [
+        "Yuvacik Baraji",
+        "Yuvacik Baraji, Basiskele",
+        "Basiskele",
+    ]
+    assert results[0].news_id == "n2"

@@ -19,10 +19,7 @@ import {
 
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
-import {
-  CategoryFilter,
-  type PulseCategoryOption,
-} from "@/components/pulse/category-filter";
+import { type PulseCategoryOption } from "@/components/pulse/category-filter";
 import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector";
 import { EnhancedSidebar } from "@/components/pulse/enhanced-sidebar";
 import { EnterpriseHeader } from "@/components/pulse/enterprise-header";
@@ -32,7 +29,6 @@ import { ScrapingLog, type PulseLogEntry } from "@/components/pulse/scraping-log
 import { SplashScreen } from "@/components/pulse/splash-screen";
 import { StatsCard } from "@/components/pulse/stats-card";
 import { StatsPanel } from "@/components/pulse/stats-panel";
-import { TimelineSlider } from "@/components/pulse/timeline-slider";
 import { useNewsMap } from "@/hooks/useNewsMap";
 import { useNewsStats } from "@/hooks/useNewsStats";
 import type { NewsQueryFilters } from "@/lib/filter-state";
@@ -270,9 +266,8 @@ function HomeContent() {
 
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(ALL_CATEGORY_IDS);
+  const [selectedCategories] = useState<string[]>(ALL_CATEGORY_IDS);
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
-  const [timelineTime, setTimelineTime] = useState(new Date());
   const [searchKeyword, setSearchKeyword] = useState("");
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [activeScrapeJobId, setActiveScrapeJobId] = useState<string | null>(null);
@@ -280,20 +275,9 @@ function HomeContent() {
   const [scrapeStatusTone, setScrapeStatusTone] = useState<PulseTone>("info");
   const [isRefreshPending, setIsRefreshPending] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
-  const [timeTick, setTimeTick] = useState(() => Date.now());
   const [logs, setLogs] = useState<PulseLogEntry[]>([]);
   const deferredSearchKeyword = useDeferredValue(searchKeyword);
   const normalizedSearchKeyword = deferredSearchKeyword.trim();
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setTimeTick(Date.now());
-    }, 60_000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
 
   const selectedServerCategories = useMemo(() => {
     if (
@@ -527,15 +511,8 @@ function HomeContent() {
 
   const baseFilteredItems = useMemo(() => {
     return mapData.items
-      .filter((item) => {
-        const timestamp = parseDateValue(item.published_at_raw);
-        if (!timestamp) {
-          return true;
-        }
-        return timestamp <= timelineTime.getTime();
-      })
       .sort((a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw));
-  }, [mapData.items, timelineTime]);
+  }, [mapData.items]);
 
   const categoryCounts = useMemo<Record<string, number>>(() => {
     if (mapData.total > mapData.items.length) {
@@ -614,12 +591,12 @@ function HomeContent() {
   const refreshDisabled = isRefreshPending || activeScrapeJobId !== null;
   const mapThemeMode = resolvedTheme === "dark" ? "dark" : "light";
   const filteredGeocodeCount = useMemo(() => {
-    if (selectedCategory || timelineTime.getTime() < timeTick - 60_000) {
+    if (selectedCategory) {
       return filteredMapItems.length;
     }
 
     return stats.geocoded_total || filteredMapItems.length;
-  }, [filteredMapItems.length, selectedCategory, stats.geocoded_total, timeTick, timelineTime]);
+  }, [filteredMapItems.length, selectedCategory, stats.geocoded_total]);
   const filteredSourceCount = useMemo(
     () =>
       new Set(
@@ -791,22 +768,12 @@ function HomeContent() {
         </div>
 
           <div className="mt-4 space-y-3">
-            <CategoryFilter
-              selected={selectedCategories}
-              onChange={setSelectedCategories}
-              options={CATEGORY_OPTIONS}
-            />
             <DistrictSelector
               districts={districtOptions}
               selected={effectiveSelectedDistricts}
               onChange={setSelectedDistricts}
             />
         </div>
-
-        <div className="mt-4">
-          <TimelineSlider onTimeChange={setTimelineTime} />
-        </div>
-
         <div className="mt-4">
           <ScrapingLog logs={logs} isExpanded />
         </div>

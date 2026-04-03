@@ -1,22 +1,18 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Activity, Database, Filter, Menu, Moon, Sun, X, Zap } from "lucide-react"
+import { Filter, Menu, Moon, Sun, X, Zap } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useSyncExternalStore } from "react"
 
 interface EnterpriseHeaderProps {
   onMenuToggle?: () => void
   isMenuOpen?: boolean
-  totalNews: number
-  liveCount: number
 }
 
 export function EnterpriseHeader({
   onMenuToggle,
   isMenuOpen,
-  totalNews,
-  liveCount,
 }: EnterpriseHeaderProps) {
   const { resolvedTheme, setTheme } = useTheme()
   const mounted = useSyncExternalStore(
@@ -77,28 +73,7 @@ export function EnterpriseHeader({
             </div>
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="hidden flex-1 items-center justify-center gap-3 lg:flex"
-          >
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
-              <Activity className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                {liveCount.toLocaleString("tr-TR")}
-              </span>
-              <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Canlı</span>
-            </div>
-
-            <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2">
-              <Database className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold text-primary">
-                {totalNews.toLocaleString("tr-TR")}
-              </span>
-              <span className="text-xs text-primary/70">Toplam</span>
-            </div>
-          </motion.div>
+          <div className="hidden flex-1 lg:block" />
 
           <motion.div
             initial={{ opacity: 0, x: 20 }}

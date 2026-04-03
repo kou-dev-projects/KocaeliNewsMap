@@ -12,7 +12,7 @@ export function PwaBootstrap() {
   const shouldRegisterServiceWorker =
     process.env.NODE_ENV === "production" ||
     process.env.NEXT_PUBLIC_ENABLE_PWA_IN_DEV === "true";
-  const { canPrompt, isDismissed, isStandalone, promptInstall, dismissPrompt } =
+  const { canPrompt, isStandalone, promptInstall, dismissPrompt } =
     usePwaInstallPrompt();
   const {
     isEnabled: isPushEnabled,
@@ -75,19 +75,15 @@ export function PwaBootstrap() {
     }
 
     if (isPromptPending) {
-      return "Preparing installation prompt.";
-    }
-
-    if (isDismissed) {
-      return "Installation prompt dismissed for now.";
+      return "Kurulum penceresi hazırlanıyor.";
     }
 
     if (!canPrompt) {
       return null;
     }
 
-    return "Install PULSE on the home screen for faster startup and offline map support.";
-  }, [canPrompt, isDismissed, isPromptPending, isStandalone]);
+    return "PULSE'u uygulama gibi kullanmak için ana ekrana ekleyebilirsiniz.";
+  }, [canPrompt, isPromptPending, isStandalone]);
 
   const showPushControls =
     isOnline &&
@@ -95,25 +91,24 @@ export function PwaBootstrap() {
     isPushConfigured &&
     isPushSupported &&
     (pushPermission !== "granted" || isSubscribed);
-  const showBanner =
-    !isOnline || isDismissed || (canPrompt && !isStandalone) || showPushControls;
+  const showBanner = !isOnline || (canPrompt && !isStandalone) || showPushControls;
   if (!isMounted || !showBanner) {
     return null;
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 md:bottom-4 md:justify-end">
       <div className="pointer-events-auto w-full max-w-md rounded-[22px] border border-slate-900/10 bg-white/95 p-4 text-slate-900 shadow-[0_24px_60px_rgba(15,23,42,0.22)] backdrop-blur">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             {!isOnline ? (
               <>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-600">
-                  Offline mode
+                  Offline mod
                 </p>
                 <p className="text-sm leading-6 text-slate-700">
-                  Cached map tiles and recently visited screens remain available
-                  while the connection is down.
+                  Bağlantı yokken önbellekteki harita ve son görülen ekranlar
+                  kullanılmaya devam eder.
                 </p>
               </>
             ) : null}
@@ -121,16 +116,7 @@ export function PwaBootstrap() {
             {canPrompt && installCopy ? (
               <>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
-                  Installable app
-                </p>
-                <p className="text-sm leading-6 text-slate-700">{installCopy}</p>
-              </>
-            ) : null}
-
-            {!canPrompt && isDismissed ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Install prompt
+                  Ana ekrana ekle
                 </p>
                 <p className="text-sm leading-6 text-slate-700">{installCopy}</p>
               </>
@@ -139,18 +125,18 @@ export function PwaBootstrap() {
             {showPushControls ? (
               <>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
-                  Notifications
+                  Bildirimler
                 </p>
                 <p className="text-sm leading-6 text-slate-700">
                   {pushPermission === "denied"
-                    ? "Notifications are blocked in browser settings. Allow them first to receive alerts."
+                    ? "Bildirimler tarayıcı ayarlarında engellenmiş. Uyarı almak için önce izin verin."
                     : pushPermission === "granted"
                     ? isSubscribed
                       ? isPushTestEnabled
-                        ? "Push notifications are enabled. You can send a test notification now."
-                        : "Push notifications are enabled."
-                      : "Notification permission is granted. Finish the subscription to enable delivery."
-                    : "Enable push notifications to receive field alerts and scraper updates."}
+                        ? "Bildirimler aktif. Test bildirimi gönderebilirsiniz."
+                        : "Bildirimler aktif."
+                      : "Bildirim izni verildi. Teslimatı açmak için aboneliği tamamlayın."
+                    : "Saha uyarıları ve scrape güncellemeleri için bildirimleri açın."}
                 </p>
                 {pushMessage ? (
                   <p className="text-xs font-medium text-slate-500">{pushMessage}</p>
@@ -184,7 +170,7 @@ export function PwaBootstrap() {
               }}
               className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
-              Add to home screen
+              Ana ekrana ekle
             </button>
             <button
               type="button"
@@ -193,7 +179,7 @@ export function PwaBootstrap() {
               }}
               className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              Not now
+              Şimdi değil
             </button>
           </div>
         ) : null}
@@ -210,10 +196,10 @@ export function PwaBootstrap() {
                 className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {pushPermission === "denied"
-                  ? "Notifications blocked"
+                  ? "Bildirimler engelli"
                   : isPushBusy
-                    ? "Enabling..."
-                    : "Enable notifications"}
+                    ? "Etkinleştiriliyor..."
+                    : "Bildirimleri aç"}
               </button>
             ) : isPushTestEnabled ? (
               <button
@@ -224,7 +210,7 @@ export function PwaBootstrap() {
                 disabled={isPushBusy}
                 className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isPushBusy ? "Sending..." : "Send test notification"}
+                {isPushBusy ? "Gönderiliyor..." : "Test bildirimi gönder"}
               </button>
             ) : null}
           </div>

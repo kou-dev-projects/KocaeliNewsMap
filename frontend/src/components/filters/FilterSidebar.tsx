@@ -1,9 +1,4 @@
-type FilterState = {
-  category: string;
-  district: string;
-  dateFrom: string;
-  dateTo: string;
-};
+import type { FilterState } from "@/lib/filter-state";
 
 type FilterSidebarProps = {
   values: FilterState;
@@ -16,8 +11,6 @@ type FilterSidebarProps = {
   scrapeStatusMessage?: string;
   scrapeStatusTone?: "info" | "success" | "warning" | "error";
 };
-
-export type { FilterState };
 
 export default function FilterSidebar({
   values,

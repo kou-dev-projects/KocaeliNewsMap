@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 type MarkerTooltip = {
   type: "marker";
   x: number;
@@ -20,30 +22,37 @@ type MapTooltipProps = {
 };
 
 export default function MapTooltip({ tooltip }: MapTooltipProps) {
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const node = tooltipRef.current;
+    if (!node || !tooltip) {
+      return;
+    }
+
+    node.style.left = `${tooltip.x}px`;
+    node.style.top = `${tooltip.y}px`;
+  }, [tooltip]);
+
   if (!tooltip) {
     return null;
   }
 
-  const style = {
-    left: tooltip.x,
-    top: tooltip.y,
-  };
-
   return (
     <div
+      ref={tooltipRef}
       className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-[calc(100%+14px)]"
-      style={style}
     >
-      <div className="min-w-[220px] rounded-xl border border-slate-800/80 bg-slate-950/95 px-3 py-2 text-white shadow-2xl backdrop-blur">
+      <div className="min-w-[220px] rounded-xl border border-border/80 bg-card/95 px-3 py-2 text-card-foreground shadow-2xl backdrop-blur">
         {tooltip.type === "marker" ? (
           <>
             <p className="text-sm font-semibold leading-5">{tooltip.title}</p>
-            <p className="mt-1 text-xs text-slate-300">{tooltip.dateLabel}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{tooltip.dateLabel}</p>
           </>
         ) : (
           <>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-300">
-              Yogunluk
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              Yoğunluk
             </p>
             <p className="mt-1 text-sm font-semibold">
               {tooltip.count} haber

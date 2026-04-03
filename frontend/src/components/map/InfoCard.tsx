@@ -10,67 +10,59 @@ type InfoCardProps = {
 function formatCategory(category?: string | null) {
   switch (category) {
     case "trafik_kazasi":
-      return "Trafik Kazasi";
+      return "Trafik Kazası";
     case "yangin":
-      return "Yangin";
+      return "Yangın";
     case "elektrik_kesintisi":
       return "Elektrik Kesintisi";
     case "hirsizlik":
-      return "Hirsizlik";
+      return "Hırsızlık";
     case "kulturel_etkinlik":
-      return "Kulturel Etkinlik";
+      return "Kültürel Etkinlik";
     case "unknown":
       return "Bilinmiyor";
+    case "spor":
+      return "Spor";
+    case "saglik":
+      return "Sağlık";
     default:
-      return "--";
+      return formatTokenLabel(category);
   }
 }
 
-function formatDistrict(district?: string | null) {
-  switch (district) {
-    case "izmit":
-      return "Izmit";
-    case "gebze":
-      return "Gebze";
-    case "darica":
-      return "Darica";
-    case "golcuk":
-      return "Golcuk";
-    case "hereke":
-      return "Hereke";
-    case "korfez":
-      return "Korfez";
-    case "kartepe":
-      return "Kartepe";
-    case "basiskele":
-      return "Basiskele";
-    case "cayirova":
-      return "Cayirova";
-    case "dilovasi":
-      return "Dilovasi";
-    case "kandira":
-      return "Kandira";
-    case "karamursel":
-      return "Karamursel";
-    case "derince":
-      return "Derince";
-    default:
-      return "--";
+function formatTokenLabel(value?: string | null) {
+  if (!value) {
+    return "--";
   }
+
+  return value
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toLocaleUpperCase("tr-TR") + part.slice(1))
+    .join(" ");
+}
+
+function formatDistrict(district?: string | null) {
+  return formatTokenLabel(district);
 }
 
 function formatGeocodeStatus(status: string) {
   switch (status) {
     case "resolved":
-      return "Dogrulanmis konum";
+      return "Doğrulanmış konum";
     case "approximate":
-      return "Yaklasik konum";
+      return "Yaklaşık konum";
     case "pending":
       return "Konum bekleniyor";
     case "failed":
-      return "Konum cozulmedi";
+      return "Konum çözülmedi";
+    case "not_needed":
+      return "Harita dışı kayıt";
+    case "processing":
+      return "Konum işleniyor";
     default:
-      return status || "--";
+      return formatTokenLabel(status || "--");
   }
 }
 
@@ -95,7 +87,7 @@ function formatPublishedAt(value?: string | null) {
 
 function formatSummary(summary?: string | null) {
   if (!summary || !summary.trim()) {
-    return "Bu haber icin henuz ozet alani gelmedi.";
+    return "Bu haber için henüz özet alanı gelmedi.";
   }
 
   return summary.trim();
@@ -108,55 +100,56 @@ export default function InfoCard({
   if (!item) {
     return (
       <section
-        className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}
+        data-testid="news-info-card"
+        className={`glass rounded-2xl border border-border p-4 shadow-2xl ${className}`}
       >
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-            Haber Detayi
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+            Haber Detayı
           </p>
-          <h3 className="mt-2 text-lg font-semibold text-slate-900">
-            Haritadan bir haber secin
+          <h3 className="mt-2 text-lg font-semibold text-card-foreground">
+            Haritadan bir haber seçin
           </h3>
-          <p className="mt-2 text-sm text-slate-600">
-            Bir marker secildiginde kontrol icin gereken temel detaylar burada
-            gosterilecek.
+          <p className="mt-2 text-sm text-muted-foreground">
+            Bir marker seçildiğinde kontrol için gereken temel detaylar burada
+            gösterilecek.
           </p>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Kaynak
             </p>
-            <p className="mt-2 text-sm font-medium text-slate-900">--</p>
+            <p className="mt-2 text-sm font-medium text-card-foreground">--</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Kategori
             </p>
-            <p className="mt-2 text-sm font-medium text-slate-900">--</p>
+            <p className="mt-2 text-sm font-medium text-card-foreground">--</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Ilce
+          <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              İlçe
             </p>
-            <p className="mt-2 text-sm font-medium text-slate-900">--</p>
+            <p className="mt-2 text-sm font-medium text-card-foreground">--</p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Tarih
             </p>
-            <p className="mt-2 text-sm font-medium text-slate-900">--</p>
+            <p className="mt-2 text-sm font-medium text-card-foreground">--</p>
           </div>
         </div>
 
-        <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="mt-3 rounded-lg border border-dashed border-border/60 bg-background/35 px-4 py-4 backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Konum Bilgisi
           </p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Haritadaki bir haber secildiginde kontrol icin gereken bilgiler bu
-            alanda gosterilecek.
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Haritadaki bir haber seçildiğinde kontrol için gereken bilgiler bu
+            alanda gösterilecek.
           </p>
         </div>
       </section>
@@ -165,66 +158,73 @@ export default function InfoCard({
 
   return (
     <section
-      className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}
+      data-testid="news-info-card"
+      className={`glass rounded-2xl border border-border p-4 shadow-2xl ${className}`}
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-        Haber Detayi
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+        Haber Detayı
       </p>
-      <h3 className="mt-2 text-lg font-semibold leading-7 text-slate-900">
+      <h3
+        className="mt-2 text-lg font-semibold leading-7 text-card-foreground"
+        data-testid="news-info-title"
+      >
         {item.title}
       </h3>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Kaynak
           </p>
-          <p className="mt-2 text-sm font-medium text-slate-900">
+          <p className="mt-2 text-sm font-medium text-card-foreground">
             {item.source_name || item.source_domain || "--"}
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Kategori
           </p>
-          <p className="mt-2 text-sm font-medium text-slate-900">
+          <p className="mt-2 text-sm font-medium text-card-foreground">
             {formatCategory(item.category)}
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Ilce
+        <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            İlçe
           </p>
-          <p className="mt-2 text-sm font-medium text-slate-900">
+          <p className="mt-2 text-sm font-medium text-card-foreground">
             {formatDistrict(item.district)}
           </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="rounded-lg border border-border/60 bg-background/45 px-4 py-3 backdrop-blur-md">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Tarih
           </p>
-          <p className="mt-2 text-sm font-medium text-slate-900">
+          <p className="mt-2 text-sm font-medium text-card-foreground">
             {formatPublishedAt(item.published_at_raw)}
           </p>
         </div>
       </div>
 
-      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div className="mt-3 rounded-lg border border-border/60 bg-background/35 px-4 py-4 backdrop-blur-md">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Konum Bilgisi
         </p>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p
+          className="mt-2 text-sm leading-6 text-muted-foreground"
+          data-testid="news-info-status"
+        >
           Bu haber haritada{" "}
           <span className="font-medium">{formatGeocodeStatus(item.geocode_status)}</span>{" "}
-          durumunda gosteriliyor.
+          durumunda gösteriliyor.
         </p>
       </div>
 
-      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Ozet
+      <div className="mt-3 rounded-lg border border-border/60 bg-background/35 px-4 py-4 backdrop-blur-md">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Özet
         </p>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
           {formatSummary(item.summary)}
         </p>
       </div>
@@ -234,9 +234,9 @@ export default function InfoCard({
           href={item.url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex w-full items-center justify-center rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-800"
+          className="inline-flex w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
         >
-          Haberi ac
+          Haberi aç
         </a>
       </div>
     </section>

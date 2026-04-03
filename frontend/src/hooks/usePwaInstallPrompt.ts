@@ -9,8 +9,7 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
 
-const DISMISS_STORAGE_KEY = "pulse.pwa.install.dismissedAt";
-const DISMISS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DISMISS_STORAGE_KEY = "pulse.pwa.install.dismissed";
 
 export function usePwaInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] =
@@ -21,8 +20,7 @@ export function usePwaInstallPrompt() {
       return false;
     }
 
-    const dismissedAt = Number(window.localStorage.getItem(DISMISS_STORAGE_KEY));
-    return Number.isFinite(dismissedAt) && Date.now() - dismissedAt < DISMISS_TTL_MS;
+    return window.sessionStorage.getItem(DISMISS_STORAGE_KEY) === "true";
   });
 
   useEffect(() => {
@@ -41,7 +39,7 @@ export function usePwaInstallPrompt() {
     };
 
     const onInstalled = () => {
-      window.localStorage.removeItem(DISMISS_STORAGE_KEY);
+      window.sessionStorage.removeItem(DISMISS_STORAGE_KEY);
       setDeferredPrompt(null);
       setIsDismissed(false);
       updateStandalone();
@@ -86,7 +84,7 @@ export function usePwaInstallPrompt() {
   }
 
   function dismissPrompt(): void {
-    window.localStorage.setItem(DISMISS_STORAGE_KEY, String(Date.now()));
+    window.sessionStorage.setItem(DISMISS_STORAGE_KEY, "true");
     setIsDismissed(true);
   }
 

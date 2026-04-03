@@ -71,14 +71,14 @@ export function ScrapingLog({ logs, isExpanded = true }: ScrapingLogProps) {
         >
           <Terminal className="w-4 h-4 text-primary" />
         </motion.div>
-        <span className="text-sm font-medium">Canli Tarama Gunlugu</span>
+        <span className="text-sm font-medium">Canlı Tarama Günlüğü</span>
         <motion.div
           className="ml-auto flex items-center gap-1.5"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
         >
           <Database className="w-3 h-3 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">{logs.length} kayit</span>
+          <span className="text-xs text-muted-foreground">{logs.length} kayıt</span>
         </motion.div>
       </div>
 

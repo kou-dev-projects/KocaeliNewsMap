@@ -9,16 +9,16 @@ interface SplashScreenProps {
 
 export function SplashScreen({ onComplete }: SplashScreenProps) {
   const [progress, setProgress] = useState(0)
-  const [loadingText, setLoadingText] = useState('Sistem baslatiliyor')
+  const [loadingText, setLoadingText] = useState('Sistem başlatılıyor')
   const [isComplete, setIsComplete] = useState(false)
 
   useEffect(() => {
     const texts = [
-      'Sistem baslatiliyor',
-      'Veri kaynaklari baglaniyor',
-      'Harita yukleniyor',
-      'Canli akis hazirlaniyor',
-      'PULSE hazir',
+      'Sistem başlatılıyor',
+      'Veri kaynakları bağlanıyor',
+      'Harita yükleniyor',
+      'Canlı akış hazırlanıyor',
+      'PULSE hazır',
     ]
 
     const interval = window.setInterval(() => {
@@ -151,7 +151,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
               animate={{ opacity: 1 }}
               transition={{ delay: 0.7 }}
             >
-              Kocaeli Sehir Istihbarat Platformu
+              Kocaeli Şehir İstihbarat Platformu
             </motion.p>
 
             <motion.div

@@ -17,7 +17,7 @@ type MapLayerToggleProps = {
 
 const LAYER_OPTIONS: Array<{ value: MapLayerMode; label: string }> = [
   { value: "markers", label: "Markerlar" },
-  { value: "heatmap", label: "Yogunluk" },
+  { value: "heatmap", label: "Yoğunluk" },
   { value: "combined", label: "Birlikte" },
 ];
 

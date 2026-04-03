@@ -601,8 +601,6 @@ function HomeContent() {
       ? selectedNews
       : null;
 
-  const globalTotalNews = stats.total || mapData.total;
-  const liveCount = useMemo(() => mapData.items.filter(isLikelyLive).length, [mapData.items]);
   const filteredLiveCount = useMemo(
     () => filteredMapItems.filter(isLikelyLive).length,
     [filteredMapItems],
@@ -709,8 +707,6 @@ function HomeContent() {
       <EnterpriseHeader
         onMenuToggle={() => setIsPanelOpen((current) => !current)}
         isMenuOpen={isPanelOpen}
-        totalNews={globalTotalNews}
-        liveCount={liveCount}
       />
 
       <div className="absolute inset-0 z-0">
@@ -818,7 +814,7 @@ function HomeContent() {
             delay={0}
           />
           <StatsCard
-            title="Geocode"
+            title="Konumlu"
             value={filteredGeocodeCount}
             icon={<MapPinned className="h-4 w-4" />}
             color="bg-emerald-500"
@@ -852,49 +848,6 @@ function HomeContent() {
             color="bg-cyan-500"
             delay={0.25}
           />
-        </div>
-        <div className="mt-4 rounded-xl border border-border/60 bg-secondary/40 p-3">
-          <div className="mb-3 flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-primary" />
-            <p className="text-sm font-medium text-foreground">Tarih Aralığı</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor="sidebar-date-from" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Başlangıç
-              </label>
-              <input
-                id="sidebar-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(event) => setDateFrom(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-border bg-background/80 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-            <div>
-              <label htmlFor="sidebar-date-to" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Bitiş
-              </label>
-              <input
-                id="sidebar-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(event) => setDateTo(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-border bg-background/80 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setDateFrom(defaultDateRange.dateFrom);
-              setDateTo(defaultDateRange.dateTo);
-            }}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-secondary/80 px-3 py-2 text-xs font-medium text-foreground transition hover:bg-secondary"
-          >
-            <CalendarDays className="h-3.5 w-3.5" />
-            Son 3 Güne Dön
-          </button>
         </div>
         <div className="mt-4">
           <ScrapingLog logs={logs} isExpanded />

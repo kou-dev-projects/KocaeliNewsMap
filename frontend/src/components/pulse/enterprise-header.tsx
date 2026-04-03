@@ -64,7 +64,7 @@ export function EnterpriseHeader({
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold tracking-tight text-foreground">PULSE</h1>
                 <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
-                  Enterprise
+                  Sistem
                 </span>
               </div>
               <p className="mt-0.5 text-xs tracking-wide text-muted-foreground">

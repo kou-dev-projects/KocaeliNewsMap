@@ -1,96 +1,31 @@
-"use client";
+"use client"
 
-import { AnimatePresence, motion } from "framer-motion";
-import {
-  Activity,
-  Database,
-  Filter,
-  Menu,
-  Moon,
-  Search,
-  Sun,
-  X,
-  Zap,
-} from "lucide-react";
-import { useTheme } from "next-themes";
-import { useEffect, useRef, useSyncExternalStore, useState } from "react";
+import { motion } from "framer-motion"
+import { Activity, Database, Filter, Menu, Moon, Sun, X, Zap } from "lucide-react"
+import { useTheme } from "next-themes"
+import { useSyncExternalStore } from "react"
 
 interface EnterpriseHeaderProps {
-  searchQuery: string;
-  onSearchChange?: (query: string) => void;
-  onMenuToggle?: () => void;
-  isMenuOpen?: boolean;
-  totalNews: number;
-  liveCount: number;
-}
-
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (target.isContentEditable) {
-    return true;
-  }
-
-  const tagName = target.tagName.toLowerCase();
-  return tagName === "input" || tagName === "textarea" || tagName === "select";
+  onMenuToggle?: () => void
+  isMenuOpen?: boolean
+  totalNews: number
+  liveCount: number
 }
 
 export function EnterpriseHeader({
-  searchQuery,
-  onSearchChange,
   onMenuToggle,
   isMenuOpen,
   totalNews,
   liveCount,
 }: EnterpriseHeaderProps) {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme()
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
     () => false,
-  );
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const desktopSearchRef = useRef<HTMLInputElement | null>(null);
-  const mobileSearchRef = useRef<HTMLInputElement | null>(null);
+  )
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key !== "/" ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        isEditableTarget(event.target)
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      const targetInput = window.innerWidth >= 1024 ? desktopSearchRef.current : mobileSearchRef.current;
-      if (window.innerWidth < 1024) {
-        setIsSearchOpen(true);
-      }
-      targetInput?.focus();
-      targetInput?.select();
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsSearchOpen(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keydown", handleEscape);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, []);
-
-  const currentTheme = mounted && resolvedTheme === "dark" ? "dark" : "light";
+  const currentTheme = mounted && resolvedTheme === "dark" ? "dark" : "light"
 
   return (
     <header className="absolute inset-x-0 top-0 z-30">
@@ -146,41 +81,22 @@ export function EnterpriseHeader({
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="hidden max-w-2xl flex-1 items-center gap-4 lg:flex"
+            className="hidden flex-1 items-center justify-center gap-3 lg:flex"
           >
-            <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                ref={desktopSearchRef}
-                type="search"
-                placeholder="Haber, konum veya kaynak ara..."
-                value={searchQuery}
-                onChange={(event) => onSearchChange?.(event.target.value)}
-                className="w-full rounded-xl border border-border bg-secondary/50 py-3 pl-11 pr-14 text-sm transition-all placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-              <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                  /
-                </kbd>
-              </div>
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
+              <Activity className="h-4 w-4 text-emerald-500" />
+              <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                {liveCount.toLocaleString("tr-TR")}
+              </span>
+              <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Canlı</span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
-                <Activity className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
-                  {liveCount.toLocaleString("tr-TR")}
-                </span>
-                <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Canlı</span>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2">
-                <Database className="h-4 w-4 text-primary" />
-                <span className="text-sm font-semibold text-primary">
-                  {totalNews.toLocaleString("tr-TR")}
-                </span>
-                <span className="text-xs text-primary/70">Toplam</span>
-              </div>
+            <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2">
+              <Database className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold text-primary">
+                {totalNews.toLocaleString("tr-TR")}
+              </span>
+              <span className="text-xs text-primary/70">Toplam</span>
             </div>
           </motion.div>
 
@@ -190,19 +106,6 @@ export function EnterpriseHeader({
             transition={{ delay: 0.2 }}
             className="flex items-center gap-2"
           >
-            <button
-              type="button"
-              onClick={() => setIsSearchOpen((current) => !current)}
-              className="rounded-xl border border-border/50 bg-secondary/50 p-2.5 transition-colors hover:bg-secondary lg:hidden"
-              aria-label={isSearchOpen ? "Aramayı kapat" : "Aramayı aç"}
-            >
-              {isSearchOpen ? (
-                <X className="h-5 w-5 text-foreground" />
-              ) : (
-                <Search className="h-5 w-5 text-foreground" />
-              )}
-            </button>
-
             <motion.button
               type="button"
               whileHover={{ scale: 1.04 }}
@@ -237,33 +140,6 @@ export function EnterpriseHeader({
           </motion.div>
         </div>
       </div>
-
-      <AnimatePresence>
-        {isSearchOpen ? (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mx-4 overflow-hidden lg:hidden"
-          >
-            <div className="pt-2">
-              <div className="rounded-xl glass">
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    ref={mobileSearchRef}
-                    type="search"
-                    placeholder="Haber veya konum ara..."
-                    value={searchQuery}
-                    onChange={(event) => onSearchChange?.(event.target.value)}
-                    className="w-full rounded-xl bg-transparent py-3.5 pl-11 pr-4 text-sm placeholder:text-muted-foreground focus:outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
     </header>
-  );
+  )
 }

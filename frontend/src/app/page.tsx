@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -21,6 +21,7 @@ import {
 import InfoCard from "@/components/map/InfoCard";
 import MapView, { type NewsMapItem } from "@/components/map/MapView";
 import { type PulseCategoryOption } from "@/components/pulse/category-filter";
+import { DateRangeSelector } from "@/components/pulse/date-range-selector";
 import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector";
 import { EnhancedSidebar } from "@/components/pulse/enhanced-sidebar";
 import { EnterpriseHeader } from "@/components/pulse/enterprise-header";
@@ -109,6 +110,8 @@ function buildQueryFilters(input: {
   categories?: string[];
   districts?: string[];
   search?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
 }): NewsQueryFilters {
   const filters: NewsQueryFilters = {};
@@ -121,6 +124,12 @@ function buildQueryFilters(input: {
   }
   if (input.search) {
     filters.search = input.search;
+  }
+  if (input.dateFrom) {
+    filters.dateFrom = input.dateFrom;
+  }
+  if (input.dateTo) {
+    filters.dateTo = input.dateTo;
   }
   if (input.limit) {
     filters.limit = input.limit;
@@ -258,17 +267,54 @@ function HomeFallback() {
   );
 }
 
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultDateRange() {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+
+  const start = new Date(end);
+  start.setDate(end.getDate() - 2);
+
+  return {
+    dateFrom: formatDateInputValue(start),
+    dateTo: formatDateInputValue(end),
+  };
+}
+
+function normalizeDateRange(dateFrom: string, dateTo: string) {
+  if (!dateFrom && !dateTo) {
+    return { dateFrom: undefined, dateTo: undefined };
+  }
+
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    return { dateFrom: dateTo, dateTo: dateFrom };
+  }
+
+  return {
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  };
+}
+
 function HomeContent() {
   const queryClient = useQueryClient();
   const { resolvedTheme } = useTheme();
   const hasTriggeredBootstrapRef = useRef(false);
   const lastLoggedErrorRef = useRef("");
+  const defaultDateRange = useMemo(() => getDefaultDateRange(), []);
 
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedCategories] = useState<string[]>(ALL_CATEGORY_IDS);
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
-  const [searchKeyword, setSearchKeyword] = useState("");
+  const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom);
+  const [dateTo, setDateTo] = useState(defaultDateRange.dateTo);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [activeScrapeJobId, setActiveScrapeJobId] = useState<string | null>(null);
   const [scrapeStatusMessage, setScrapeStatusMessage] = useState("");
@@ -276,8 +322,10 @@ function HomeContent() {
   const [isRefreshPending, setIsRefreshPending] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [logs, setLogs] = useState<PulseLogEntry[]>([]);
-  const deferredSearchKeyword = useDeferredValue(searchKeyword);
-  const normalizedSearchKeyword = deferredSearchKeyword.trim();
+  const normalizedDateRange = useMemo(
+    () => normalizeDateRange(dateFrom, dateTo),
+    [dateFrom, dateTo],
+  );
 
   const selectedServerCategories = useMemo(() => {
     if (
@@ -297,9 +345,10 @@ function HomeContent() {
     () =>
       buildQueryFilters({
         categories: selectedServerCategories,
-        search: normalizedSearchKeyword || undefined,
+        dateFrom: normalizedDateRange.dateFrom,
+        dateTo: normalizedDateRange.dateTo,
       }),
-    [normalizedSearchKeyword, selectedServerCategories],
+    [normalizedDateRange.dateFrom, normalizedDateRange.dateTo, selectedServerCategories],
   );
   const {
     data: districtStats = EMPTY_STATS,
@@ -335,18 +384,20 @@ function HomeContent() {
       buildQueryFilters({
         categories: selectedServerCategories,
         districts: selectedServerDistricts,
-        search: normalizedSearchKeyword || undefined,
+        dateFrom: normalizedDateRange.dateFrom,
+        dateTo: normalizedDateRange.dateTo,
         limit: DEFAULT_MAP_LIMIT,
       }),
-    [normalizedSearchKeyword, selectedServerCategories, selectedServerDistricts],
+    [normalizedDateRange.dateFrom, normalizedDateRange.dateTo, selectedServerCategories, selectedServerDistricts],
   );
   const categoryStatsFilters = useMemo(
     () =>
       buildQueryFilters({
         districts: selectedServerDistricts,
-        search: normalizedSearchKeyword || undefined,
+        dateFrom: normalizedDateRange.dateFrom,
+        dateTo: normalizedDateRange.dateTo,
       }),
-    [normalizedSearchKeyword, selectedServerDistricts],
+    [normalizedDateRange.dateFrom, normalizedDateRange.dateTo, selectedServerDistricts],
   );
 
   const {
@@ -656,8 +707,6 @@ function HomeContent() {
 
       <main className="h-screen w-screen overflow-hidden relative bg-transparent">
       <EnterpriseHeader
-        searchQuery={searchKeyword}
-        onSearchChange={setSearchKeyword}
         onMenuToggle={() => setIsPanelOpen((current) => !current)}
         isMenuOpen={isPanelOpen}
         totalNews={globalTotalNews}
@@ -707,7 +756,7 @@ function HomeContent() {
 
       <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
 
-      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 w-full max-w-[96rem] -translate-x-1/2 px-4">
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 w-full max-w-[112rem] -translate-x-1/2 px-4">
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: isPanelOpen ? 0 : 1, y: isPanelOpen ? 12 : 0, pointerEvents: isPanelOpen ? "none" : "auto" }}
@@ -720,6 +769,18 @@ function HomeContent() {
                 districts={districtOptions}
                 selected={effectiveSelectedDistricts}
                 onChange={setSelectedDistricts}
+              />
+            </div>
+            <div className="flex items-center border-r border-border/60 px-2">
+              <DateRangeSelector
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onDateFromChange={setDateFrom}
+                onDateToChange={setDateTo}
+                onResetToDefault={() => {
+                  setDateFrom(defaultDateRange.dateFrom);
+                  setDateTo(defaultDateRange.dateTo);
+                }}
               />
             </div>
             <EnhancedCategoryBar
@@ -791,6 +852,49 @@ function HomeContent() {
             color="bg-cyan-500"
             delay={0.25}
           />
+        </div>
+        <div className="mt-4 rounded-xl border border-border/60 bg-secondary/40 p-3">
+          <div className="mb-3 flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-primary" />
+            <p className="text-sm font-medium text-foreground">Tarih Aralığı</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="sidebar-date-from" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Başlangıç
+              </label>
+              <input
+                id="sidebar-date-from"
+                type="date"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="mt-2 w-full rounded-lg border border-border bg-background/80 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            <div>
+              <label htmlFor="sidebar-date-to" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Bitiş
+              </label>
+              <input
+                id="sidebar-date-to"
+                type="date"
+                value={dateTo}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="mt-2 w-full rounded-lg border border-border bg-background/80 px-3 py-2 text-sm text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDateFrom(defaultDateRange.dateFrom);
+              setDateTo(defaultDateRange.dateTo);
+            }}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-secondary/80 px-3 py-2 text-xs font-medium text-foreground transition hover:bg-secondary"
+          >
+            <CalendarDays className="h-3.5 w-3.5" />
+            Son 3 Güne Dön
+          </button>
         </div>
         <div className="mt-4">
           <ScrapingLog logs={logs} isExpanded />

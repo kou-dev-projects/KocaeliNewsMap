@@ -1,9 +1,15 @@
 from __future__ import annotations
+
+import logging
+
 from .config import EmbeddingConfig, load_embedding_config
-from .providers.mock import MockTextProvider, MockImageProvider
 from .providers.bge_m3 import BGEM3Provider
+from .providers.mock import MockImageProvider, MockTextProvider
 from .providers.siglip2 import SigLIP2Provider
 from .service import EmbeddingService
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_embedding_service(
@@ -15,7 +21,17 @@ def build_embedding_service(
         case "mock":
             text = MockTextProvider()
         case "bge-m3":
-            text = BGEM3Provider()
+            try:
+                text = BGEM3Provider()
+            except Exception as exc:
+                logger.warning(
+                    "embedding.factory.optional_provider_unavailable",
+                    extra={
+                        "provider": "bge-m3",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+                text = MockTextProvider()
         case _:
             raise ValueError(f"Bilinmeyen text provider: {cfg.text_provider!r}")
 
@@ -23,7 +39,17 @@ def build_embedding_service(
         case "mock":
             image = MockImageProvider()
         case "siglip2":
-            image = SigLIP2Provider()
+            try:
+                image = SigLIP2Provider()
+            except Exception as exc:
+                logger.warning(
+                    "embedding.factory.optional_provider_unavailable",
+                    extra={
+                        "provider": "siglip2",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+                image = MockImageProvider()
         case _:
             raise ValueError(f"Bilinmeyen image provider: {cfg.image_provider!r}")
 

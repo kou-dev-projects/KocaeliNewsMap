@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.ner import build_ner_service
+from app.services.ner.factory import build_ner_service as build_ner_service_from_factory
 from app.services.ner.config import NERConfig
 from app.services.ner.districts import normalize_for_compare
 from app.services.ner.schemas import NERInput, RawEntity
@@ -217,3 +218,25 @@ def test_precise_location_candidates_rank_before_noisy_heuristics():
     assert "Ihsaniye Baraji" in top_candidates
     assert "Karamursel Icmesuyu Aritma Tesisi" in top_candidates
     assert top_candidates[0] != "Karamursel"
+
+
+def test_factory_falls_back_to_mock_when_optional_bertturk_missing(monkeypatch):
+    class MissingBERTTurkProvider:
+        def __init__(self, model_name: str):
+            raise ImportError("transformers missing")
+
+    monkeypatch.setattr(
+        "app.services.ner.factory.BERTTurkNERProvider",
+        MissingBERTTurkProvider,
+    )
+
+    service = build_ner_service_from_factory(
+        NERConfig(provider="bertturk", min_score=0.5, model_name="dummy-model")
+    )
+
+    result = service.extract_locations(NERInput(title="Izmit'te trafik kazasi"))
+
+    assert result.provider == "mock-ner"
+    assert "izmit" in {
+        normalize_for_compare(value) for value in result.validated_districts
+    }

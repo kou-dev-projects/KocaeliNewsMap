@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 
 from app.services.embedding import build_embedding_service
+from app.services.embedding.factory import build_embedding_service as build_embedding_service_from_factory
 from app.services.embedding.config import EmbeddingConfig
 from app.services.embedding.schemas import EmbeddingInput
 
@@ -135,3 +136,47 @@ def test_debug_field_populated(svc):
     assert result.debug is not None
     assert "threshold" in result.debug
     assert "candidate_count" in result.debug
+
+
+def test_factory_falls_back_to_mock_when_optional_embedding_providers_missing(monkeypatch, cfg):
+    class MissingTextProvider:
+        def __init__(self):
+            raise ImportError("FlagEmbedding missing")
+
+    class MissingImageProvider:
+        def __init__(self):
+            raise ImportError("SigLIP2 missing")
+
+    monkeypatch.setattr(
+        "app.services.embedding.factory.BGEM3Provider",
+        MissingTextProvider,
+    )
+    monkeypatch.setattr(
+        "app.services.embedding.factory.SigLIP2Provider",
+        MissingImageProvider,
+    )
+
+    service = build_embedding_service_from_factory(
+        EmbeddingConfig(
+            text_provider="bge-m3",
+            image_provider="siglip2",
+            text_dimension=1024,
+            image_dimension=768,
+            duplicate_threshold=0.90,
+            text_score_weight=0.85,
+            image_score_weight=0.15,
+            cost_log_path=cfg.cost_log_path,
+        )
+    )
+
+    text_emb, image_emb = service.embed(
+        EmbeddingInput(
+            title="Fallback test",
+            source="test.com",
+            image_url="https://example.com/image.jpg",
+        )
+    )
+
+    assert text_emb.provider == "mock-text"
+    assert image_emb is not None
+    assert image_emb.provider == "mock-image"

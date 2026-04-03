@@ -45,6 +45,26 @@ Notes:
 - `worker` consumes queued scrape jobs.
 - `scheduler` submits scheduled crawl jobs.
 - Frontend is optional for backend-only work.
+- `backend`, `worker`, and `scheduler` now share a single Docker image tag instead of
+  generating three separate backend-sized images.
+- Optional heavyweight dependency groups are off by default. If you explicitly need
+  ML providers or legacy integrations inside Docker, set these before rebuilding:
+
+```env
+DOCKER_INSTALL_ML=true
+DOCKER_INSTALL_DEV_TOOLS=true
+DOCKER_INSTALL_OPTIONAL_INTEGRATIONS=true
+```
+
+### Dependency Profiles
+
+The backend requirements are split by intent:
+
+- `backend/requirements.txt`: lean runtime dependencies
+- `backend/requirements-dev.txt`: runtime + optional ML + dev/test + legacy integrations
+
+This keeps local Docker images small by default while preserving a full install path
+for explicit development or experimentation.
 
 ### Verify Local Mongo Mode
 
@@ -68,6 +88,32 @@ Then verify the API:
 Expected:
 - `/livez` should return `{"status": "ok"}`
 - `/readyz` should report both Mongo and Redis as available
+
+Current note:
+- The app currently exposes `http://localhost:8000/docs` and the news API routes, not
+  dedicated `/livez` or `/readyz` endpoints.
+- For a real runtime check, prefer:
+  - `http://localhost:8000/docs`
+  - `http://localhost:8000/api/v1/news/stats`
+
+### Frontend QA
+
+Frontend smoke checks now default to the live local backend instead of fixture mocks:
+
+```powershell
+cd frontend
+npm run qa:map:smoke
+npm run qa:pwa:offline
+```
+
+The Playwright smoke server starts on `http://127.0.0.1:3101` by default, so backend
+`CORS_ORIGINS` should include `http://127.0.0.1:3101` for live QA.
+
+If you need the old deterministic fixture harness for UI-only debugging, use:
+
+```powershell
+npm run qa:map:smoke:mock
+```
 
 ## Manual Fallback
 

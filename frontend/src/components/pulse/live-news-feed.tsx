@@ -1,6 +1,7 @@
 "use client"
 
 import { motion, AnimatePresence } from "framer-motion"
+import { useState } from "react"
 import {
   Zap,
   Car,
@@ -9,7 +10,8 @@ import {
   Calendar,
   MapPin,
   Clock,
-  ChevronRight,
+  ChevronDown,
+  GripHorizontal,
   Radio,
 } from "lucide-react"
 import type { NewsMapItem } from "@/components/map/MapView"
@@ -23,7 +25,7 @@ export type LiveNewsFeedItem = NewsMapItem & {
 interface LiveNewsFeedProps {
   news: LiveNewsFeedItem[]
   onNewsClick: (news: NewsMapItem) => void
-  collapsed?: boolean
+  hidden?: boolean
 }
 
 const categoryConfig: Record<string, { bgColor: string; icon: React.ReactNode }> = {
@@ -35,96 +37,120 @@ const categoryConfig: Record<string, { bgColor: string; icon: React.ReactNode }>
   event: { bgColor: "bg-emerald-500", icon: <Calendar className="w-3.5 h-3.5" /> },
 }
 
-export function LiveNewsFeed({ news, onNewsClick, collapsed = false }: LiveNewsFeedProps) {
+export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeedProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false)
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -30 }}
-      animate={{ opacity: collapsed ? 0 : 1, x: collapsed ? -30 : 0, pointerEvents: collapsed ? "none" : "auto" }}
+      animate={{ opacity: hidden ? 0 : 1, x: hidden ? -30 : 0, pointerEvents: hidden ? "none" : "auto" }}
       transition={{ delay: 0.4 }}
       className="absolute top-36 left-4 z-20 hidden w-full max-w-xs xl:block"
+      drag
+      dragMomentum={false}
+      dragElastic={0.08}
+      whileDrag={{ scale: 1.01 }}
     >
-      <div className="w-full glass rounded-t-xl px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex w-full items-center justify-between rounded-t-xl glass px-4 py-3 active:cursor-grabbing cursor-grab">
+        <div className="min-w-0 flex items-center gap-3">
           <div className="relative">
-            <Radio className="w-5 h-5 text-primary" />
+            <Radio className="h-5 w-5 text-primary" />
             <motion.span
-              className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full"
+              className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500"
               animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
               transition={{ duration: 1, repeat: Infinity }}
             />
           </div>
           <div className="text-left">
-            <span className="font-semibold text-sm text-foreground">Canli Haber Akisi</span>
+            <span className="text-sm font-semibold text-foreground">Canlı Haber Akışı</span>
             <p className="text-xs text-muted-foreground">{news.length} haber</p>
           </div>
         </div>
-        <ChevronRight className="w-5 h-5 text-muted-foreground" />
+        <div className="flex items-center gap-2">
+          <GripHorizontal className="h-4 w-4 text-muted-foreground" />
+          <button
+            type="button"
+            onClick={() => setIsCollapsed((current) => !current)}
+            className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+            aria-label={isCollapsed ? "Canlı haber akışını aç" : "Canlı haber akışını kapat"}
+          >
+            <motion.span
+              animate={{ rotate: isCollapsed ? -90 : 0 }}
+              transition={{ duration: 0.2 }}
+              className="block"
+            >
+              <ChevronDown className="h-5 w-5" />
+            </motion.span>
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.3 }}
-          className="glass rounded-b-xl border-t border-border overflow-hidden"
-        >
-          <div className="p-2 space-y-2 max-h-80 overflow-y-auto">
-            {news.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border/70 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
-                Aktif filtrelere gore gosterilecek canli haber yok.
-              </div>
-            ) : news.map((item, index) => {
-              const config = categoryConfig[item.pulseCategory] || categoryConfig.breaking
+        {!isCollapsed ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden rounded-b-xl border-t border-border glass"
+          >
+            <div className="max-h-80 space-y-2 overflow-y-auto p-2">
+              {news.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border/70 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
+                  Aktif filtrelere göre gösterilecek canlı haber yok.
+                </div>
+              ) : news.map((item, index) => {
+                const config = categoryConfig[item.pulseCategory] || categoryConfig.breaking
 
-              return (
-                <motion.button
-                  key={item.id}
-                  type="button"
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  onClick={() => onNewsClick(item)}
-                  className="w-full text-left p-3 rounded-lg hover:bg-secondary/50 transition-all group relative"
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`${config.bgColor} w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0`}
-                    >
-                      {config.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground line-clamp-2 group-hover:text-primary transition-colors">
-                        {item.title}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
-                        <div className="flex items-center gap-0.5">
-                          <MapPin className="w-2.5 h-2.5" />
-                          <span>{item.district || "Bilinmeyen"}</span>
-                        </div>
-                        <span className="text-border">|</span>
-                        <div className="flex items-center gap-0.5">
-                          <Clock className="w-2.5 h-2.5" />
-                          <span>{item.timeLabel}</span>
+                return (
+                  <motion.button
+                    key={item.id}
+                    type="button"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    onClick={() => onNewsClick(item)}
+                    className="group relative w-full rounded-lg p-3 text-left transition-all hover:bg-secondary/50"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`${config.bgColor} flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white`}
+                      >
+                        {config.icon}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="line-clamp-2 text-sm font-medium text-foreground transition-colors group-hover:text-primary">
+                          {item.title}
+                        </p>
+                        <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <div className="flex items-center gap-0.5">
+                            <MapPin className="h-2.5 w-2.5" />
+                            <span>{item.district || "Bilinmeyen"}</span>
+                          </div>
+                          <span className="text-border">|</span>
+                          <div className="flex items-center gap-0.5">
+                            <Clock className="h-2.5 w-2.5" />
+                            <span>{item.timeLabel}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {item.isRecent && (
-                    <motion.div
-                      className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[8px] font-bold bg-primary text-primary-foreground"
-                      animate={{ opacity: [1, 0.7, 1] }}
-                      transition={{ duration: 1, repeat: Infinity }}
-                    >
-                      YENI
-                    </motion.div>
-                  )}
-                </motion.button>
-              )
-            })}
-          </div>
-        </motion.div>
+                    {item.isRecent ? (
+                      <motion.div
+                        className="absolute top-2 right-2 rounded bg-primary px-1.5 py-0.5 text-[8px] font-bold text-primary-foreground"
+                        animate={{ opacity: [1, 0.7, 1] }}
+                        transition={{ duration: 1, repeat: Infinity }}
+                      >
+                        YENİ
+                      </motion.div>
+                    ) : null}
+                  </motion.button>
+                )
+              })}
+            </div>
+          </motion.div>
+        ) : null}
       </AnimatePresence>
     </motion.div>
   )

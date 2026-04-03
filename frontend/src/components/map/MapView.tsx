@@ -508,7 +508,6 @@ export default function MapView({
 
     mapRef.current = nextMap;
     appliedStyleRef.current = resolvedStyle;
-    nextMap.addControl(new maplibregl.NavigationControl(), "top-right");
 
     const ensureBaseLayers = () => {
       if (disposed || !nextMap.isStyleLoaded()) {

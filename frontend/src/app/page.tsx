@@ -219,16 +219,16 @@ function formatRelativeTime(value?: string | null): string {
   const diffMinutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000));
 
   if (diffMinutes < 60) {
-    return `${diffMinutes} dk once`;
+    return `${diffMinutes} dk önce`;
   }
 
   const diffHours = Math.round(diffMinutes / 60);
   if (diffHours < 24) {
-    return `${diffHours} saat once`;
+    return `${diffHours} saat önce`;
   }
 
   const diffDays = Math.round(diffHours / 24);
-  return `${diffDays} gun once`;
+  return `${diffDays} gün önce`;
 }
 
 function isLikelyLive(item: NewsMapItem): boolean {
@@ -728,7 +728,7 @@ function HomeContent() {
         ) : null}
       </div>
 
-      <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} collapsed={isPanelOpen} />
+      <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
 
       <StatsPanel
         totalNews={filteredMapItems.length}

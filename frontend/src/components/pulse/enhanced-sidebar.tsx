@@ -2,7 +2,6 @@
 
 import type { ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X } from 'lucide-react'
 
 interface EnhancedSidebarProps {
   isOpen: boolean
@@ -38,22 +37,13 @@ export function EnhancedSidebar({
             className="fixed right-3 top-24 bottom-3 z-50 flex w-[min(25.5rem,calc(100vw-1rem))] max-w-[25.5rem] min-h-0 flex-col overflow-hidden rounded-[24px] border border-border/70 bg-background/92 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl"
           >
             <div className="border-b border-border/70 bg-background/85 px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
+              <div>
                 <div>
                   <h2 className="text-xl font-bold text-foreground">{title}</h2>
                   {subtitle ? (
                     <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
                   ) : null}
                 </div>
-
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-xl bg-secondary/70 p-2.5 transition-colors hover:bg-secondary"
-                  aria-label="Kontrol panelini kapat"
-                >
-                  <X className="h-4 w-4" />
-                </button>
               </div>
             </div>
 

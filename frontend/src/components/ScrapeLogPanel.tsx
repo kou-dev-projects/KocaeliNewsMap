@@ -469,19 +469,6 @@ export function ScrapeLogPanel({
         </span>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-border/70 bg-background/70 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              Scrape erişimi açık
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Son aktivite: {lastActivityLabel}
-            </p>
-          </div>
-        </div>
-      </div>
-
       <div className="mt-4 flex items-center gap-3">
         <button
           type="button"

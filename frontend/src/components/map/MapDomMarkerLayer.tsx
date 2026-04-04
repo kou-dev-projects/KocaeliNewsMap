@@ -379,6 +379,30 @@ export default function MapDomMarkerLayer({
     }
 
     const registrations: MarkerRegistration[] = [];
+    const scheduleRootUnmount = (root: Root) => {
+      const safeUnmount = () => {
+        try {
+          root.unmount();
+        } catch {
+          // Root might already be unmounted during rapid map re-renders.
+        }
+      };
+
+      const requestIdleCallback = (
+        window as Window & {
+          requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+        }
+      ).requestIdleCallback;
+
+      window.requestAnimationFrame(() => {
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(safeUnmount, { timeout: 200 });
+          return;
+        }
+
+        globalThis.setTimeout(safeUnmount, 16);
+      });
+    };
     let activeGroup: MarkerRegistration[] = [];
     let activeRegistration: MarkerRegistration | null = null;
     let collapseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -591,10 +615,6 @@ export default function MapDomMarkerLayer({
 
     return () => {
       clearCollapseTimer();
-      registerTooltipHoverHandlers?.({
-        hold: () => {},
-        release: () => {},
-      });
       onTooltipChange(null);
       map.off("move", handleMapMotion);
       map.off("zoom", handleMapMotion);
@@ -602,8 +622,8 @@ export default function MapDomMarkerLayer({
       map.off("pitch", handleMapMotion);
       registrations.forEach((registration) => {
         registration.cleanup();
-        registration.root.unmount();
         registration.marker.remove();
+        scheduleRootUnmount(registration.root);
       });
     };
   }, [

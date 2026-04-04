@@ -224,7 +224,6 @@ export function EnterpriseHeader({
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-secondary/90 hover:text-foreground",
                 ].join(" ")}
-                aria-pressed={mapThemeMode === "light"}
                 aria-label="Haritayı açık temaya al"
               >
                 <SunMedium className="h-3.5 w-3.5" />
@@ -239,7 +238,6 @@ export function EnterpriseHeader({
                     ? "bg-slate-900 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
                     : "text-muted-foreground hover:bg-secondary/90 hover:text-foreground",
                 ].join(" ")}
-                aria-pressed={mapThemeMode === "dark"}
                 aria-label="Haritayı koyu temaya al"
               >
                 <MoonStar className="h-3.5 w-3.5" />

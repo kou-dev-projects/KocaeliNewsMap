@@ -7,25 +7,25 @@ export const revalidate = 0;
 
 const overviewCards = [
   {
-    label: "Primary goal",
-    value: "Live scrape visibility",
-    detail: "Track queue, retries, failures, and completions in one place.",
+    label: "Ana hedef",
+    value: "Canlı scrape görünürlüğü",
+    detail: "Kuyruk, yeniden denemeler, hatalar ve tamamlanan işler tek yerde izlenir.",
   },
   {
-    label: "Transport",
-    value: "Fetch-based SSE",
-    detail: "Uses a resumable stream client instead of browser-only EventSource.",
+    label: "Taşıma katmanı",
+    value: "Fetch tabanlı SSE",
+    detail: "Tarayıcıya özel EventSource yerine devam edebilen bir akış istemcisi kullanılır.",
   },
   {
-    label: "Reconnect policy",
-    value: "3 attempts",
-    detail: "Automatic reconnect with backoff keeps the monitor resilient.",
+    label: "Yeniden bağlanma politikası",
+    value: "3 deneme",
+    detail: "Gecikmeli otomatik yeniden bağlanma izleme ekranını dayanıklı tutar.",
   },
 ];
 
 export const metadata: Metadata = {
-  title: "PULSE | Live Scrape Monitor",
-  description: "Real-time scrape activity and operations dashboard for PULSE.",
+  title: "PULSE | Canlı Scrape İzleyici",
+  description: "PULSE için gerçek zamanlı scrape etkinliği ve operasyon panosu.",
   robots: {
     index: false,
     follow: false,
@@ -46,23 +46,23 @@ export default function ScrapeLogPage() {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.34em] text-cyan-200/[0.70]">
-                PULSE operations
+                PULSE operasyonları
               </p>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                Live scrape logging for the Kocaeli news pipeline
+                Kocaeli haber hattı için canlı scrape günlüğü
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                This route focuses on one thing only: making crawler activity
-                observable in real time. The map work stays separate; this view
-                is the operations console.
+                Bu sayfa tek bir işe odaklanır: tarayıcı etkinliğini gerçek
+                zamanlı olarak görünür kılmak. Harita akışı ayrı kalır; bu
+                görünüm operasyon konsoludur.
               </p>
             </div>
 
             <div className="rounded-[24px] border border-cyan-400/20 bg-cyan-400/[0.08] px-5 py-4 text-sm text-cyan-50">
               <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-200/[0.70]">
-                Issue focus
+                Odak
               </p>
-              <p className="mt-2 font-medium">S2-B2 - SSE live scraping log</p>
+              <p className="mt-2 font-medium">S2-B2 - SSE canlı scrape günlüğü</p>
             </div>
           </div>
         </header>

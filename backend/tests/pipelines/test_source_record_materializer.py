@@ -474,8 +474,59 @@ def test_materializer_skips_generic_location_tokens_and_falls_back_to_district()
     )
 
     assert record["district_predicted"] == "kartepe"
-    assert record["location_text_extracted"] == "Kartepe"
+    assert record["location_text_extracted"] == "kartepe"
     assert record["geocode_status"] == "approximate"
+
+
+class BankOnlyNER:
+    def extract_locations(self, input_data):
+        return NERResult(
+            raw_entities=[],
+            location_candidates=[
+                LocationCandidate(
+                    original_text="Turkiye Halk Bankasi",
+                    normalized_text="turkiye halk bankasi",
+                    score=0.88,
+                    is_kocaeli_district=False,
+                    district=None,
+                )
+            ],
+            validated_districts=["Korfez"],
+            provider="fixed_ner",
+        )
+
+
+def test_materializer_drops_org_like_location_without_explicit_district_support():
+    materializer = SourceRecordMaterializer(
+        classifier_service=FixedClassifier(),
+        ner_service=BankOnlyNER(),
+        geocoding_service=FixedGeocoder(),
+    )
+
+    record = materializer.materialize(
+        raw_document={
+            "_id": "raw_6b",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/card",
+            "title_raw": "Kocaelispor'dan taraftara ozel kart projesi",
+            "content_raw": "Kulubun banka is birligi icin gorusmelerde sona geldigi ogrenildi.",
+            "text_raw": "Kulubun banka is birligi icin gorusmelerde sona geldigi ogrenildi.",
+            "published_at_raw": "2026-03-23T10:30:00+03:00",
+            "scraped_at": "2026-03-23T10:45:00+03:00",
+            "language": "tr",
+            "domain": "seskocaeli.com",
+            "resolved_url": "https://example.com/card",
+        },
+        source_document={
+            "_id": "source_1",
+            "display_name": "Ses Kocaeli",
+            "base_url": "https://seskocaeli.com",
+        },
+    )
+
+    assert record["district_predicted"] is None
+    assert record["location_text_extracted"] is None
+    assert record["geocode_status"] == "not_needed"
 
 
 def test_materializer_cleans_ui_artifacts_from_body_and_summary():

@@ -31,39 +31,39 @@ type InfoCardProps = {
 }
 
 const DISTRICT_LABELS: Record<string, string> = {
-  basiskele: "Basiskele",
-  cayirova: "Cayirova",
-  darica: "Darica",
+  basiskele: "Başiskele",
+  cayirova: "Çayırova",
+  darica: "Darıca",
   derince: "Derince",
-  dilovasi: "Dilovasi",
+  dilovasi: "Dilovası",
   gebze: "Gebze",
-  golcuk: "Golcuk",
+  golcuk: "Gölcük",
   hereke: "Hereke",
-  izmit: "Izmit",
-  kandira: "Kandira",
-  karamursel: "Karamursel",
+  izmit: "İzmit",
+  kandira: "Kandıra",
+  karamursel: "Karamürsel",
   kartepe: "Kartepe",
-  korfez: "Korfez",
+  korfez: "Körfez",
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  trafik_kazasi: "Trafik Kazasi",
-  yangin: "Yangin",
+  trafik_kazasi: "Trafik Kazası",
+  yangin: "Yangın",
   elektrik_kesintisi: "Elektrik Kesintisi",
-  hirsizlik: "Hirsizlik",
-  kulturel_etkinlik: "Kulturel Etkinlik",
-  unknown: "Gundem",
+  hirsizlik: "Hırsızlık",
+  kulturel_etkinlik: "Kültürel Etkinlik",
+  unknown: "Gündem",
   spor: "Spor",
-  saglik: "Saglik",
+  saglik: "Sağlık",
 }
 
 const GEOCODE_STATUS_LABELS: Record<string, string> = {
-  resolved: "Dogrulanmis konum",
-  approximate: "Yaklasik konum",
+  resolved: "Doğrulanmış konum",
+  approximate: "Yaklaşık konum",
   pending: "Konum bekleniyor",
-  failed: "Konum cozulemedi",
+  failed: "Konum çözülemedi",
   not_needed: "Haritada gosterilmiyor",
-  processing: "Konum isleniyor",
+  processing: "Konum işleniyor",
 }
 
 const CATEGORY_PRESENTATION: Record<
@@ -283,13 +283,13 @@ function buildExecutiveSummary(summary?: string | null, contentText?: string | n
     return trimBySentence(cleanSummary, HERO_SUMMARY_MAX)
   }
 
-  return "Bu haber icin ozet olusturulamadi."
+  return "Bu haber için özet oluşturulamadı."
 }
 
 function buildContentPreview(contentText?: string | null, expanded = false) {
   const cleanContent = normalizeText(contentText)
   if (!cleanContent) {
-    return "Bu haberin tam metni henuz gelmedi."
+    return "Bu haberin tam metni henüz gelmedi."
   }
 
   return expanded ? cleanContent : trimBySentence(cleanContent, CONTENT_PREVIEW_MAX)
@@ -389,7 +389,7 @@ function DetailStatusBadge({ isFetching, hasError }: { isFetching: boolean; hasE
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
         <AlertCircle className="h-3 w-3" />
-        Detay sinirli
+        Detay sınırlı
       </span>
     )
   }
@@ -401,7 +401,7 @@ function DetailStatusBadge({ isFetching, hasError }: { isFetching: boolean; hasE
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/70 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
       <Loader2 className="h-3 w-3 animate-spin" />
-      Guncelleniyor
+      Güncelleniyor
     </span>
   )
 }
@@ -419,10 +419,10 @@ function PlaceholderCard({ className }: { className: string }) {
             <Sparkles className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Haber Detayi</p>
-            <h3 className="mt-1 text-base font-semibold text-foreground">Haritadan bir kayit secin</h3>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">Haber Detayı</p>
+            <h3 className="mt-1 text-base font-semibold text-foreground">Haritadan bir kayıt seçin</h3>
             <p className="mt-1.5 text-xs text-muted-foreground">
-              Secilen habere ait ozet, konum ve kaynak bilgisi burada acilir.
+              Seçilen habere ait özet, konum ve kaynak bilgisi burada açılır.
             </p>
           </div>
         </div>
@@ -461,15 +461,15 @@ export default function InfoCard({ item, className = "" }: InfoCardProps) {
   const locationNarrative = (() => {
     const statusLabel = formatGeocodeStatus(activeItem.geocode_status)
     if (locationText && !hasRawLocationMismatch) {
-      return `Algilanan konum ifadesi "${locationText}". Harita karari: ${statusLabel.toLocaleLowerCase("tr-TR")}.`
+      return `Algılanan konum ifadesi "${locationText}". Harita kararı: ${statusLabel.toLocaleLowerCase("tr-TR")}.`
     }
     if (locationText && hasRawLocationMismatch) {
-      return `Harita isaretcisi ${displayedLocation} konumunda. Metinden gelen ifade "${locationText}" oldugu icin marker konumu esas alindi.`
+      return `Harita işaretçisi ${displayedLocation} konumunda. Metinden gelen ifade "${locationText}" olduğu için marker konumu esas alındı.`
     }
     if (activeItem.district) {
-      return `Konum karari ${formatDistrict(activeItem.district)} ilcesi uzerinden uretildi.`
+      return `Konum kararı ${formatDistrict(activeItem.district)} ilçesi üzerinden üretildi.`
     }
-    return `Bu kayit icin konum karari ${statusLabel.toLocaleLowerCase("tr-TR")} seviyesinde.`
+    return `Bu kayıt için konum kararı ${statusLabel.toLocaleLowerCase("tr-TR")} seviyesinde.`
   })()
 
   return (
@@ -538,7 +538,7 @@ export default function InfoCard({ item, className = "" }: InfoCardProps) {
 
           <div className="mt-2.5 grid gap-2 sm:grid-cols-2">
             <div className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
-              <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Algilanan konum</p>
+              <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Algılanan konum</p>
               <p className="mt-1 text-xs font-semibold text-foreground">{displayedLocation}</p>
               {hasRawLocationMismatch ? (
                 <p className="mt-1 text-[11px] text-muted-foreground">Metinden: {locationText}</p>
@@ -561,7 +561,7 @@ export default function InfoCard({ item, className = "" }: InfoCardProps) {
               className="mt-2.5 inline-flex items-center gap-1 rounded-md border border-border bg-background/70 px-2.5 py-1 text-xs font-semibold text-foreground transition hover:border-primary/45 hover:text-primary"
             >
               <ArrowUpRight className="h-3.5 w-3.5" />
-              {showFullContent ? "Metni daralt" : "Tam metni ac"}
+              {showFullContent ? "Metni daralt" : "Tam metni aç"}
             </button>
           ) : null}
         </div>
@@ -593,7 +593,7 @@ export default function InfoCard({ item, className = "" }: InfoCardProps) {
           className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition ${categoryPresentation.ctaClass} ${categoryPresentation.glowClass}`}
         >
           <ExternalLink className="h-4 w-4" />
-          Haberin tamamini oku
+          Haberin tamamını oku
         </a>
       </div>
       </div>

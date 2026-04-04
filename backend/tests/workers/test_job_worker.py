@@ -5,6 +5,7 @@ from app.workers.job_worker import (
     _collect_refresh_success,
     _execute_job_with_heartbeat,
     _is_retryable_error,
+    _run_scrape_job,
 )
 
 
@@ -53,6 +54,43 @@ class SlowOrchestrator:
     def crawl_source(self, source, *, trigger_type):
         time.sleep(1.1)
         return {"status": "success", "source": source, "trigger_type": trigger_type}
+
+    def drain_pending_writes(self, *, batch_size):
+        return {"dequeued": 0, "processed": 0, "requeued": 0, "dead_lettered": 0}
+
+
+class RefreshOrchestrator:
+    def __init__(self):
+        self.database = {"dataset_state": _FakeStateCollection()}
+
+    def crawl_active_sources(self, *, trigger_type, dataset_generation=None, progress_callback=None):
+        assert trigger_type == "refresh"
+        assert dataset_generation == "generation_1"
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "event": "source_crawl_started",
+                    "source": "ozgurkocaeli.com.tr",
+                    "status": "running",
+                    "message": "Source crawl started",
+                    "details": {"listing_count": 2},
+                }
+            )
+        return {
+            "active_sources": 1,
+            "processed_sources": 1,
+            "skipped_sources": 0,
+            "sessions": [
+                {
+                    "domain": "ozgurkocaeli.com.tr",
+                    "status": "success",
+                    "listing_count": 2,
+                    "fetched_count": 2,
+                    "parsed_count": 2,
+                    "failed_count": 0,
+                }
+            ],
+        }
 
     def drain_pending_writes(self, *, batch_size):
         return {"dequeued": 0, "processed": 0, "requeued": 0, "dead_lettered": 0}
@@ -116,3 +154,35 @@ def test_collect_refresh_success_rejects_unexpected_skipped_sources():
     }
 
     assert _collect_refresh_success(summary) == "refresh_skipped_sources_present"
+
+
+def test_run_scrape_job_refresh_preserves_active_dataset(monkeypatch):
+    published_events = []
+
+    class CleanupResult:
+        generation = "generation_1"
+        deleted_counts = {"raw_documents": 2, "source_records": 2}
+        total_deleted = 4
+
+    def fail_if_reset(_database):
+        raise AssertionError("refresh should not reset the active dataset upfront")
+
+    monkeypatch.setattr("app.workers.job_worker._publish", lambda event: published_events.append(event))
+    monkeypatch.setattr("app.workers.job_worker.reset_scraped_news_data", fail_if_reset)
+    monkeypatch.setattr("app.workers.job_worker.begin_refresh_generation", lambda _database: "generation_1")
+    monkeypatch.setattr("app.workers.job_worker.activate_generation", lambda _database, _generation: None)
+    monkeypatch.setattr("app.workers.job_worker.cleanup_refresh_data", lambda _database, active_generation: CleanupResult())
+
+    result = _run_scrape_job(
+        RefreshOrchestrator(),
+        None,
+        "refresh",
+        "job_refresh_1",
+    )
+
+    assert "pre_scrape_reset" not in result
+    assert result["refresh_cleanup"]["status"] == "completed"
+    event_names = [event.event for event in published_events]
+    assert "refresh_preserving_active_dataset" in event_names
+    assert "source_crawl_started" in event_names
+    assert "refresh_cleanup_completed" in event_names

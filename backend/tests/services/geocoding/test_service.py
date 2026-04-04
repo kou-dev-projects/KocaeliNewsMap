@@ -243,3 +243,53 @@ def test_build_geocoding_inputs_prioritize_precise_candidate_before_district():
         "Basiskele",
     ]
     assert results[0].news_id == "n2"
+
+
+def test_build_geocoding_inputs_skip_org_like_candidate_when_safe_fallback_is_none():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Turkiye Halk Bankasi",
+                normalized_text="turkiye halk bankasi",
+                score=0.91,
+                is_kocaeli_district=False,
+                district=None,
+            )
+        ],
+        validated_districts=["Korfez"],
+        provider="stub",
+    )
+
+    results = build_geocoding_inputs_from_ner(
+        ner_result,
+        news_id="n3",
+        fallback_district=None,
+    )
+
+    assert results == []
+
+
+def test_build_geocoding_inputs_treats_municipality_name_as_generic_even_with_district():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Izmit Belediyesi",
+                normalized_text="izmit belediyesi",
+                score=0.9,
+                is_kocaeli_district=False,
+                district="Izmit",
+            )
+        ],
+        validated_districts=["Izmit"],
+        provider="stub",
+    )
+
+    results = build_geocoding_inputs_from_ner(
+        ner_result,
+        news_id="n4",
+        fallback_district="Izmit",
+    )
+
+    assert [item.address for item in results] == ["Izmit"]

@@ -10,11 +10,15 @@ from typing import Any, AsyncIterator, Optional
 import redis
 import redis.asyncio as aioredis
 
+from app.db.database import db
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
 _SCRAPE_EVENT_STREAM_KEY = "pulse:scrape:events:v1"
+_LATEST_SCRAPE_RUN_COLLECTION = "scrape_runs"
+_LATEST_SCRAPE_RUN_ID = "latest"
+_MAX_PERSISTED_SCRAPE_EVENTS = 500
 _publisher: "ScrapeEventPublisher | None" = None
 
 
@@ -39,10 +43,12 @@ class ScrapeEventPublisher:
         redis_url: str,
         stream_maxlen: int,
         redis_client: redis.Redis | None = None,
+        scrape_run_collection=None,
     ) -> None:
         self._redis_url = redis_url
         self._stream_maxlen = max(stream_maxlen, 100)
         self._redis: redis.Redis | None = redis_client
+        self._scrape_run_collection = scrape_run_collection
 
     def _connect(self) -> redis.Redis | None:
         try:
@@ -68,6 +74,7 @@ class ScrapeEventPublisher:
         return self._redis
 
     def publish(self, event: ScrapeEvent) -> None:
+        _persist_latest_scrape_event(event, collection=self._scrape_run_collection)
         client = self._get_redis()
         if client is None:
             return
@@ -97,6 +104,139 @@ class ScrapeEventPublisher:
                 extra={"error": type(exc).__name__, "event": event.event},
             )
             self._redis = None
+
+
+def _get_scrape_run_collection():
+    return db[_LATEST_SCRAPE_RUN_COLLECTION]
+
+
+def _normalize_event_details(details: dict[str, Any] | None) -> dict[str, Any]:
+    return json.loads(json.dumps(details or {}, ensure_ascii=False, default=str))
+
+
+def _serialize_scrape_event(event: ScrapeEvent) -> dict[str, Any]:
+    return {
+        "event": event.event,
+        "message": event.message,
+        "timestamp": float(event.timestamp),
+        "job_id": event.job_id,
+        "source": event.source,
+        "trigger_type": event.trigger_type,
+        "status": event.status,
+        "attempt_count": event.attempt_count,
+        "details": _normalize_event_details(event.details),
+    }
+
+
+def _build_latest_scrape_run_document(event: ScrapeEvent) -> dict[str, Any]:
+    serialized_event = _serialize_scrape_event(event)
+    timestamp = serialized_event["timestamp"]
+    return {
+        "_id": _LATEST_SCRAPE_RUN_ID,
+        "job_id": event.job_id,
+        "source": event.source,
+        "trigger_type": event.trigger_type,
+        "status": event.status,
+        "started_at": timestamp,
+        "updated_at": timestamp,
+        "event_count": 1,
+        "events": [serialized_event],
+    }
+
+
+def _persist_latest_scrape_event(event: ScrapeEvent, collection=None) -> None:
+    if not event.job_id:
+        return
+
+    collection = collection or _get_scrape_run_collection()
+
+    try:
+        if event.event == "job_submitted":
+            collection.replace_one(
+                {"_id": _LATEST_SCRAPE_RUN_ID},
+                _build_latest_scrape_run_document(event),
+                upsert=True,
+            )
+            return
+
+        current_run = collection.find_one(
+            {"_id": _LATEST_SCRAPE_RUN_ID},
+            {"job_id": 1, "started_at": 1},
+        )
+
+        if current_run is None:
+            collection.replace_one(
+                {"_id": _LATEST_SCRAPE_RUN_ID},
+                _build_latest_scrape_run_document(event),
+                upsert=True,
+            )
+            return
+
+        if current_run.get("job_id") != event.job_id:
+            return
+
+        serialized_event = _serialize_scrape_event(event)
+        collection.update_one(
+            {"_id": _LATEST_SCRAPE_RUN_ID, "job_id": event.job_id},
+            {
+                "$set": {
+                    "source": event.source,
+                    "trigger_type": event.trigger_type,
+                    "status": event.status,
+                    "started_at": current_run.get("started_at", serialized_event["timestamp"]),
+                    "updated_at": serialized_event["timestamp"],
+                },
+                "$push": {
+                    "events": {
+                        "$each": [serialized_event],
+                        "$slice": -_MAX_PERSISTED_SCRAPE_EVENTS,
+                    }
+                },
+                "$inc": {"event_count": 1},
+            },
+            upsert=False,
+        )
+    except Exception as exc:
+        logger.warning(
+            "scrape_events.persist_latest_failed",
+            extra={"error": type(exc).__name__, "event": event.event},
+        )
+
+
+def get_latest_scrape_run() -> dict[str, Any] | None:
+    try:
+        document = _get_scrape_run_collection().find_one(
+            {"_id": _LATEST_SCRAPE_RUN_ID},
+            {"_id": 0},
+        )
+    except Exception as exc:
+        logger.warning(
+            "scrape_events.read_latest_failed",
+            extra={"error": type(exc).__name__},
+        )
+        return None
+
+    if document is None:
+        return None
+
+    document["events"] = [
+        {
+            "event": event.get("event"),
+            "message": event.get("message"),
+            "timestamp": event.get("timestamp"),
+            "job_id": event.get("job_id"),
+            "source": event.get("source"),
+            "trigger_type": event.get("trigger_type"),
+            "status": event.get("status"),
+            "attempt_count": event.get("attempt_count"),
+            "details": event.get("details") if isinstance(event.get("details"), dict) else {},
+        }
+        for event in document.get("events", [])
+        if isinstance(event, dict)
+    ]
+
+    document["event_count"] = len(document["events"])
+    return document
 
 
 def get_scrape_event_publisher() -> ScrapeEventPublisher:

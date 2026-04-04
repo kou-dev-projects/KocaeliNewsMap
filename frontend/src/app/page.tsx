@@ -369,7 +369,7 @@ function HomeContent() {
 
         <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
 
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 hidden w-full max-w-[1720px] -translate-x-1/2 px-4 xl:block">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 hidden w-full max-w-[1600px] -translate-x-1/2 px-4 xl:block">
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{
@@ -380,7 +380,7 @@ function HomeContent() {
             transition={{ delay: 0.26 }}
             className="pointer-events-auto hidden xl:block"
           >
-            <div className="rounded-2xl glass p-2 shadow-2xl">
+            <div className="rounded-2xl glass p-1.5 shadow-2xl">
               <div
                 className="grid items-stretch gap-2"
                 style={{ gridTemplateColumns: "1.08fr 1.08fr 7.84fr" }}

@@ -12,6 +12,11 @@ export type RawScrapeEvent = {
 
 export type ScrapeLogTone = "info" | "success" | "warning" | "error" | "muted";
 
+export type ScrapeLogDetail = {
+  label: string;
+  value: string;
+};
+
 export type ScrapeLogEntry = {
   id: string;
   event: string;
@@ -20,6 +25,11 @@ export type ScrapeLogEntry = {
   timestampLabel: string;
   tone: ScrapeLogTone;
   metadata: string[];
+  details: ScrapeLogDetail[];
+  jobId?: string;
+  source?: string;
+  triggerType?: string;
+  status?: string;
 };
 
 export type ScrapeStreamConnectionState =

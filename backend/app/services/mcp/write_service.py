@@ -10,7 +10,7 @@ from bson.errors import InvalidId
 from app.pipelines import SourceRecordMaterializer
 from app.services.dataset_generation import resolve_write_generation
 from app.scrapers.base.date_utils import parse_published_at_raw
-from app.utils.content_hash import compute_content_hash
+from app.utils.content_hash import compute_content_hash, compute_duplicate_hash
 
 from .config import MCPConfig
 from .dead_letter import DeadLetterStore
@@ -19,6 +19,108 @@ from .queue import WriteQueue
 from .schemas import NewsWriteRequest, WriteResult, WriteStatus
 
 logger = logging.getLogger(__name__)
+_GEOCODE_STATUS_RANK = {
+    "resolved": 4,
+    "approximate": 3,
+    "pending": 2,
+    "failed": 1,
+    "not_needed": 0,
+}
+
+
+def _merge_unique_sources(*source_groups: list[str] | None) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    for group in source_groups:
+        for value in group or []:
+            source = str(value or "").strip()
+            if not source:
+                continue
+            source_key = source.casefold()
+            if source_key in seen:
+                continue
+            seen.add(source_key)
+            merged.append(source)
+
+    return merged
+
+
+def _geocode_rank(status: str | None) -> int:
+    return _GEOCODE_STATUS_RANK.get(str(status or "").strip(), -1)
+
+
+def merge_duplicate_source_record_docs(
+    canonical_doc: dict,
+    incoming_doc: dict,
+) -> dict[str, object]:
+    update: dict[str, object] = {
+        "kaynak_listesi": _merge_unique_sources(
+            canonical_doc.get("kaynak_listesi"),
+            incoming_doc.get("kaynak_listesi"),
+        ),
+        "updated_at": incoming_doc.get("updated_at"),
+    }
+
+    canonical_category = canonical_doc.get("category_predicted")
+    incoming_category = incoming_doc.get("category_predicted")
+    canonical_confidence = float(canonical_doc.get("category_confidence") or 0.0)
+    incoming_confidence = float(incoming_doc.get("category_confidence") or 0.0)
+    if canonical_category in {None, "", "unknown"} and incoming_category not in {None, "", "unknown"}:
+        update["category_predicted"] = incoming_category
+        update["category_confidence"] = incoming_doc.get("category_confidence")
+        update["category_model_version"] = incoming_doc.get("category_model_version")
+    elif (
+        incoming_category not in {None, "", "unknown"}
+        and incoming_category != canonical_category
+        and incoming_confidence > canonical_confidence
+    ):
+        update["category_predicted"] = incoming_category
+        update["category_confidence"] = incoming_doc.get("category_confidence")
+        update["category_model_version"] = incoming_doc.get("category_model_version")
+
+    if not canonical_doc.get("district_predicted") and incoming_doc.get("district_predicted"):
+        update["district_predicted"] = incoming_doc.get("district_predicted")
+        update["district_confidence"] = incoming_doc.get("district_confidence")
+
+    if not canonical_doc.get("location_text_extracted") and incoming_doc.get("location_text_extracted"):
+        update["location_text_extracted"] = incoming_doc.get("location_text_extracted")
+
+    if not canonical_doc.get("summary") and incoming_doc.get("summary"):
+        update["summary"] = incoming_doc.get("summary")
+
+    canonical_body = str(canonical_doc.get("body") or "")
+    incoming_body = str(incoming_doc.get("body") or "")
+    if len(incoming_body) > len(canonical_body):
+        update["body"] = incoming_doc.get("body")
+    if len(str(incoming_doc.get("summary") or "")) > len(str(canonical_doc.get("summary") or "")):
+        update["summary"] = incoming_doc.get("summary")
+
+    if _geocode_rank(incoming_doc.get("geocode_status")) > _geocode_rank(canonical_doc.get("geocode_status")):
+        for field in (
+            "geocode_status",
+            "geocode_provider",
+            "geocode_provider_version",
+            "geocode_point",
+            "geocode_bbox",
+            "location_resolution_method",
+            "district_predicted",
+            "district_confidence",
+            "location_text_extracted",
+        ):
+            if field in incoming_doc:
+                update[field] = incoming_doc.get(field)
+
+    for field in (
+        "image_url",
+        "image_url_snapshot",
+        "hero_image_url",
+        "cover_image_url",
+    ):
+        if not canonical_doc.get(field) and incoming_doc.get(field):
+            update[field] = incoming_doc.get(field)
+
+    return update
 
 
 class NewsWriteService:
@@ -178,11 +280,68 @@ class NewsWriteService:
         )
         if dataset_generation is not None:
             source_record["dataset_generation"] = dataset_generation
+        source_record["dedupe_hash"] = source_record.get("dedupe_hash") or self._duplicate_hash(
+            title=str(source_record.get("title") or request.title),
+            body=str(source_record.get("body") or request.content or ""),
+            summary=str(source_record.get("summary") or request.summary or ""),
+        )
         source_record_update = {
             key: value for key, value in source_record.items() if key != "created_at"
         }
         source_records = database["source_records"]
         source_record_filter = {"raw_document_id": saved_raw_document["_id"]}
+        existing_source_record = source_records.find_one(source_record_filter)
+        duplicate_target = self._find_duplicate_target(
+            source_records=source_records,
+            source_record=source_record,
+            raw_document_id=saved_raw_document["_id"],
+            dataset_generation=dataset_generation,
+        )
+        is_cross_source_duplicate = (
+            duplicate_target is not None
+            and (
+                existing_source_record is None
+                or str(duplicate_target.get("_id")) != str(existing_source_record.get("_id"))
+            )
+        )
+
+        if is_cross_source_duplicate:
+            canonical_update = merge_duplicate_source_record_docs(
+                duplicate_target,
+                source_record,
+            )
+            source_records.update_one(
+                {"_id": duplicate_target["_id"]},
+                {"$set": canonical_update},
+                upsert=False,
+            )
+            duplicate_record_update = {
+                **source_record_update,
+                "record_status": "merged_duplicate",
+                "duplicate_of_record_id": duplicate_target["_id"],
+                "kaynak_listesi": source_record.get("kaynak_listesi") or [request.source],
+            }
+            source_records.update_one(
+                source_record_filter,
+                {
+                    "$set": duplicate_record_update,
+                    "$setOnInsert": {
+                        "created_at": source_record["updated_at"],
+                    },
+                },
+                upsert=True,
+            )
+
+            news_id = str(duplicate_target["_id"])
+            self._idempotency.mark_processed(idem_key, news_id)
+            return WriteResult(
+                status=WriteStatus.DUPLICATE_MERGED,
+                news_id=news_id,
+                was_duplicate=True,
+                idempotency_key=idem_key,
+                reason="cross_source_duplicate_merged",
+            )
+
         source_record_result = source_records.update_one(
             source_record_filter,
             {
@@ -215,6 +374,28 @@ class NewsWriteService:
             was_duplicate=True,
             idempotency_key=idem_key,
         )
+
+    def _find_duplicate_target(
+        self,
+        *,
+        source_records,
+        source_record: dict,
+        raw_document_id: ObjectId,
+        dataset_generation: str | None,
+    ) -> dict | None:
+        dedupe_hash = str(source_record.get("dedupe_hash") or "").strip()
+        if not dedupe_hash:
+            return None
+
+        query: dict[str, object] = {
+            "dedupe_hash": dedupe_hash,
+            "record_status": {"$ne": "merged_duplicate"},
+            "raw_document_id": {"$ne": raw_document_id},
+        }
+        if dataset_generation is not None:
+            query["dataset_generation"] = dataset_generation
+
+        return source_records.find_one(query)
 
     def _get_source_document(self, database, domain: str) -> dict:
         source_doc = database["sources"].find_one({"domain": domain})
@@ -295,6 +476,9 @@ class NewsWriteService:
 
     def _content_hash(self, title: str, text_raw: str) -> str:
         return compute_content_hash(title=title, body=text_raw)
+
+    def _duplicate_hash(self, *, title: str, body: str, summary: str) -> str:
+        return compute_duplicate_hash(title=title, body=body, summary=summary)
 
     def _build_image_urls_raw(
         self,

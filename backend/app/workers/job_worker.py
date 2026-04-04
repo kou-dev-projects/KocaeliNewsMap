@@ -13,14 +13,14 @@ from app.services.dataset_generation import (
     begin_refresh_generation,
     clear_pending_refresh_generation,
 )
-from app.services.scrape_reset import reset_scraped_news_data
+from app.services.scrape_events import ScrapeEvent, get_scrape_event_publisher
 from app.services.scrape_orchestrator import (
     cleanup_refresh_data,
     discard_refresh_generation,
 )
-from app.services.scrape_events import ScrapeEvent, get_scrape_event_publisher
-from app.workers.job_manager import JobManager, JobQueueUnavailableError, JobInfo
+from app.services.scrape_reset import reset_scraped_news_data
 from app.settings import settings
+from app.workers.job_manager import JobInfo, JobManager, JobQueueUnavailableError
 
 try:
     from pymongo.errors import PyMongoError
@@ -75,13 +75,52 @@ def _is_retryable_error(exc: Exception) -> bool:
 
 
 def _publish(event: ScrapeEvent) -> None:
-    """Fire-and-forget publish — never raises."""
+    """Fire-and-forget publish; never raises."""
     get_scrape_event_publisher().publish(event)
 
 
-def _reset_dataset_before_scrape(
+def _publish_job_event(
+    *,
+    job_id: str,
+    trigger_type: str,
+    event: str,
+    message: str,
+    status: str,
+    source: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    _publish(
+        ScrapeEvent(
+            event=event,
+            message=message,
+            job_id=job_id,
+            source=source,
+            trigger_type=trigger_type,
+            status=status,
+            details=details,
+        )
+    )
+
+
+def _build_progress_callback(*, job_id: str, trigger_type: str):
+    def _progress_callback(payload: dict[str, Any]) -> None:
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type=trigger_type,
+            event=str(payload.get("event") or "scrape_progress"),
+            message=str(payload.get("message") or "Scrape progress update"),
+            status=str(payload.get("status") or "running"),
+            source=str(payload.get("source") or "") or None,
+            details=payload.get("details") if isinstance(payload.get("details"), dict) else None,
+        )
+
+    return _progress_callback
+
+
+def _reset_dataset_for_bootstrap(
     orchestrator: ScrapeOrchestrator,
     *,
+    job_id: str,
     trigger_type: str,
     source: str | None,
 ) -> dict[str, Any]:
@@ -92,39 +131,70 @@ def _reset_dataset_before_scrape(
         "deleted_counts": reset_result.deleted_counts,
         "total_deleted": reset_result.total_deleted,
     }
-    _publish(
-        ScrapeEvent(
-            event="dataset_reset",
-            message="Existing scraped dataset cleared before scrape start",
-            source=source,
-            trigger_type=trigger_type,
-            status="running",
-            details=details,
-        )
+    _publish_job_event(
+        job_id=job_id,
+        trigger_type=trigger_type,
+        event="dataset_reset",
+        message="Bootstrap workspace cleared before scrape start",
+        status="running",
+        source=source,
+        details=details,
     )
     return details
 
 
-def _run_scrape_job(orchestrator: ScrapeOrchestrator, source: str | None, trigger_type: str) -> dict[str, Any]:
+def _run_scrape_job(
+    orchestrator: ScrapeOrchestrator,
+    source: str | None,
+    trigger_type: str,
+    job_id: str,
+) -> dict[str, Any]:
     refresh_generation: str | None = None
-    result: dict[str, Any] = {
-        "pre_scrape_reset": _reset_dataset_before_scrape(
+    progress_callback = _build_progress_callback(job_id=job_id, trigger_type=trigger_type)
+    result: dict[str, Any] = {}
+
+    if trigger_type == "bootstrap" and source is None:
+        result["pre_scrape_reset"] = _reset_dataset_for_bootstrap(
             orchestrator,
+            job_id=job_id,
             trigger_type=trigger_type,
             source=source,
         )
-    }
 
     if trigger_type == "refresh" and source is None:
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type=trigger_type,
+            event="refresh_preserving_active_dataset",
+            message=(
+                "Active dataset remains visible while the refresh builds a new "
+                "generation in the background"
+            ),
+            status="running",
+            details={"visibility": "active_dataset_remains_visible"},
+        )
         refresh_generation = begin_refresh_generation(orchestrator.database)
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type=trigger_type,
+            event="refresh_generation_started",
+            message="New dataset generation allocated for refresh",
+            status="running",
+            details={"generation": refresh_generation},
+        )
 
     try:
         if source:
-            crawl_result = orchestrator.crawl_source(source, trigger_type=trigger_type)
+            crawl_result = orchestrator.crawl_source(
+                source,
+                trigger_type=trigger_type,
+                progress_callback=progress_callback,
+            )
         else:
             crawl_result = orchestrator.crawl_active_sources(
                 trigger_type=trigger_type,
                 dataset_generation=refresh_generation,
+                progress_callback=progress_callback,
             )
     except Exception:
         if refresh_generation is not None:
@@ -132,6 +202,19 @@ def _run_scrape_job(orchestrator: ScrapeOrchestrator, source: str | None, trigge
         raise
 
     result.update(crawl_result)
+    if source is None:
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type=trigger_type,
+            event="crawl_summary_completed",
+            message="Source crawl pass finished",
+            status="completed",
+            details={
+                "active_sources": result.get("active_sources"),
+                "processed_sources": result.get("processed_sources"),
+                "skipped_sources": result.get("skipped_sources"),
+            },
+        )
 
     if refresh_generation is not None:
         result["dataset_generation"] = refresh_generation
@@ -139,6 +222,7 @@ def _run_scrape_job(orchestrator: ScrapeOrchestrator, source: str | None, trigge
             orchestrator,
             summary=result,
             refresh_generation=refresh_generation,
+            job_id=job_id,
         )
 
     drain_result = orchestrator.drain_pending_writes(batch_size=50)
@@ -212,23 +296,26 @@ def _finalize_refresh_cleanup(
     orchestrator: ScrapeOrchestrator,
     summary: dict[str, Any],
     refresh_generation: str,
+    job_id: str,
 ) -> dict[str, Any]:
     skip_reason = _collect_refresh_success(summary)
     if skip_reason is not None:
         discard_result = _abort_refresh_generation(orchestrator, refresh_generation)
-        _publish(
-            ScrapeEvent(
-                event="refresh_cleanup_skipped",
-                message="Refresh candidate discarded to preserve the active dataset after a partial run",
-                trigger_type="refresh",
-                status="skipped",
-                details={
-                    "reason": skip_reason,
-                    "generation": refresh_generation,
-                    "deleted_counts": discard_result["deleted_counts"],
-                    "total_deleted": discard_result["total_deleted"],
-                },
-            )
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type="refresh",
+            event="refresh_cleanup_skipped",
+            message=(
+                "Refresh candidate discarded to preserve the active dataset "
+                "after a partial run"
+            ),
+            status="skipped",
+            details={
+                "reason": skip_reason,
+                "generation": refresh_generation,
+                "deleted_counts": discard_result["deleted_counts"],
+                "total_deleted": discard_result["total_deleted"],
+            },
         )
         return {
             "status": "discarded",
@@ -239,6 +326,17 @@ def _finalize_refresh_cleanup(
         }
 
     try:
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type="refresh",
+            event="refresh_cutover_started",
+            message=(
+                "Refresh crawl finished. Cutover is activating the new dataset "
+                "generation now"
+            ),
+            status="running",
+            details={"generation": refresh_generation},
+        )
         activate_generation(orchestrator.database, refresh_generation)
         cleanup_result = cleanup_refresh_data(
             orchestrator.database,
@@ -247,32 +345,33 @@ def _finalize_refresh_cleanup(
     except Exception as exc:
         error_message = f"{type(exc).__name__}: {exc}"
         logger.exception("worker.refresh_cleanup.failed", extra={"error": error_message[:200]})
-        _publish(
-            ScrapeEvent(
-                event="refresh_cleanup_failed",
-                message="Refresh cleanup failed after crawl completion",
-                trigger_type="refresh",
-                status="error",
-                details={"error": error_message},
-            )
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type="refresh",
+            event="refresh_cleanup_failed",
+            message="Refresh cleanup failed after crawl completion",
+            status="error",
+            details={"error": error_message},
         )
         return {
             "status": "failed",
             "error": error_message,
         }
 
-    _publish(
-        ScrapeEvent(
-            event="refresh_cleanup_completed",
-            message="Refresh cutover activated the new dataset generation and removed stale news records",
-            trigger_type="refresh",
-            status="completed",
-            details={
-                "generation": cleanup_result.generation,
-                "deleted_counts": cleanup_result.deleted_counts,
-                "total_deleted": cleanup_result.total_deleted,
-            },
-        )
+    _publish_job_event(
+        job_id=job_id,
+        trigger_type="refresh",
+        event="refresh_cleanup_completed",
+        message=(
+            "Refresh cutover activated the new dataset generation and removed "
+            "stale news records"
+        ),
+        status="completed",
+        details={
+            "generation": cleanup_result.generation,
+            "deleted_counts": cleanup_result.deleted_counts,
+            "total_deleted": cleanup_result.total_deleted,
+        },
     )
     return {
         "status": "completed",
@@ -297,6 +396,7 @@ def _execute_job_with_heartbeat(
             orchestrator,
             current_job.source,
             current_job.trigger_type,
+            current_job.job_id,
         )
 
         while True:

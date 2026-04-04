@@ -82,6 +82,54 @@ def _collect_sse_frames(raw: bytes) -> list[str]:
 
 class TestScrapeEventsRoute:
 
+    def test_latest_returns_idle_shape_when_no_run_exists(self, monkeypatch):
+        monkeypatch.setattr("app.routes.scrape.get_latest_scrape_run", lambda: None)
+
+        with TestClient(app) as client:
+            response = client.get("/api/v1/scrape/latest", headers=_authorized_headers())
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "idle"
+        assert payload["events"] == []
+        assert payload["event_count"] == 0
+
+    def test_latest_returns_persisted_run(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.routes.scrape.get_latest_scrape_run",
+            lambda: {
+                "job_id": "abc123",
+                "status": "running",
+                "source": None,
+                "trigger_type": "refresh",
+                "started_at": 1.0,
+                "updated_at": 2.0,
+                "event_count": 1,
+                "events": [
+                    {
+                        "event": "job_started",
+                        "message": "Scrape job started",
+                        "timestamp": 1.0,
+                        "job_id": "abc123",
+                        "source": None,
+                        "trigger_type": "refresh",
+                        "status": "running",
+                        "attempt_count": None,
+                        "details": {},
+                    }
+                ],
+            },
+        )
+
+        with TestClient(app) as client:
+            response = client.get("/api/v1/scrape/latest", headers=_authorized_headers())
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["job_id"] == "abc123"
+        assert payload["event_count"] == 1
+        assert payload["events"][0]["event"] == "job_started"
+
     def test_media_type_is_event_stream(self, monkeypatch):
         _make_reader_with([], monkeypatch)
 

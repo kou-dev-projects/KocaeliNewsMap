@@ -175,7 +175,7 @@ export default function MapTooltip({
     >
       <div className="min-w-[220px] rounded-xl border border-border/80 bg-card/95 px-3 py-2 text-card-foreground shadow-2xl backdrop-blur">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-          Yogunluk
+          Yoğunluk
         </p>
         <p className="mt-1 text-sm font-semibold">
           {tooltip.count} haber

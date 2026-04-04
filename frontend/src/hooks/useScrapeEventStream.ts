@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ScrapeEventStreamClient } from "@/lib/scrape/ScrapeEventStreamClient";
 import { adaptScrapeEvent } from "@/lib/scrape/scrapeEventAdapter";
@@ -28,6 +28,12 @@ export function useScrapeEventStream({
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [lastActivityAt, setLastActivityAt] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const replaceEvents = useCallback((nextEvents: ScrapeLogEntry[]) => {
+    setEvents(nextEvents.slice(-MAX_VISIBLE_EVENTS));
+  }, []);
+  const clearEvents = useCallback(() => {
+    setEvents([]);
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
@@ -73,10 +79,10 @@ export function useScrapeEventStream({
 
   const lastActivityLabel = useMemo(() => {
     if (!lastActivityAt) {
-      return "No stream activity yet";
+      return "Henüz akış aktivitesi yok";
     }
 
-    return new Intl.DateTimeFormat("en-GB", {
+    return new Intl.DateTimeFormat("tr-TR", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -85,10 +91,11 @@ export function useScrapeEventStream({
 
   return {
     events,
-    connectionState,
-    reconnectAttempt,
+    connectionState: enabled ? connectionState : "idle",
+    reconnectAttempt: enabled ? reconnectAttempt : 0,
     lastActivityLabel,
-    errorMessage,
-    clearEvents: () => setEvents([]),
+    errorMessage: enabled ? errorMessage : null,
+    clearEvents,
+    replaceEvents,
   };
 }

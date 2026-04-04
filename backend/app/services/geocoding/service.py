@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections import OrderedDict
 
 from app.domain.enums import normalize_kocaeli_district
@@ -34,6 +35,27 @@ _GENERIC_LOCATION_TOKENS = {
     "genel mudurlugu",
     "bakanligi",
 }
+_GENERIC_LOCATION_HARD_SUFFIXES = (
+    "bankasi",
+    "belediyesi",
+    "universitesi",
+    "mahkemesi",
+    "mudurlugu",
+    "bakanligi",
+    "kaymakamligi",
+    "valiligi",
+)
+_GENERIC_LOCATION_SOFT_SUFFIXES = (
+    "cezaevi",
+    "hastanesi",
+)
+_GENERIC_TEAM_ALIASES = (
+    "kocaelispor",
+    "gebzespor",
+    "karamurselspor",
+    "darica genclerbirligi",
+    "darica gb",
+)
 
 KOCAELI_DISTRICTS = frozenset(
     _normalize_for_compare(name)
@@ -70,10 +92,12 @@ _PRECISE_LOCATION_HINTS = (
     "hastanesi",
     "cezaevi",
     "stadyumu",
+    "kampusu",
     "terminali",
     "kavsagi",
     "meydani",
 )
+_USE_NER_FALLBACK = object()
 
 
 class GeocodingService:
@@ -209,14 +233,20 @@ class GeocodingService:
 def build_geocoding_input_from_ner(
     ner_result: NERResult,
     news_id: str | None = None,
+    fallback_district: str | None | object = _USE_NER_FALLBACK,
 ) -> GeocodingInput | None:
-    inputs = build_geocoding_inputs_from_ner(ner_result, news_id=news_id)
+    inputs = build_geocoding_inputs_from_ner(
+        ner_result,
+        news_id=news_id,
+        fallback_district=fallback_district,
+    )
     return inputs[0] if inputs else None
 
 
 def build_geocoding_inputs_from_ner(
     ner_result: NERResult,
     news_id: str | None = None,
+    fallback_district: str | None | object = _USE_NER_FALLBACK,
 ) -> list[GeocodingInput]:
     if not ner_result.location_candidates and not ner_result.validated_districts:
         return []
@@ -258,31 +288,39 @@ def build_geocoding_inputs_from_ner(
             news_id=news_id,
         )
 
-    fallback_district = next(
-        (
-            candidate.district
-            for candidate in ner_result.location_candidates
-            if candidate.district
-        ),
-        None,
-    ) or (
-        ner_result.validated_districts[0]
-        if ner_result.validated_districts
-        else None
-    )
+    if fallback_district is _USE_NER_FALLBACK:
+        resolved_fallback_district = next(
+            (
+                candidate.district
+                for candidate in ner_result.location_candidates
+                if candidate.district
+            ),
+            None,
+        ) or (
+            ner_result.validated_districts[0]
+            if ner_result.validated_districts
+            else None
+        )
+    else:
+        resolved_fallback_district = fallback_district
 
     for candidate in ner_result.location_candidates[:_MAX_LOCATION_CANDIDATES]:
-        district = candidate.district or fallback_district
+        district = candidate.district or resolved_fallback_district
         original_text = (
             candidate.original_text.strip() if candidate.original_text else None
         )
         should_geocode_candidate = bool(
-            district
+            candidate.district
             or candidate.neighborhood
             or candidate.is_kocaeli_district
-            or _looks_like_precise_location(original_text or "")
+            or looks_like_precise_location(original_text or "")
         )
-        if original_text and _is_generic_location_text(original_text):
+        if original_text and is_generic_location_text(
+            original_text,
+            district_hint=candidate.district,
+            neighborhood=candidate.neighborhood,
+            is_kocaeli_district=candidate.is_kocaeli_district,
+        ):
             should_geocode_candidate = False
 
         if candidate.neighborhood and district:
@@ -308,25 +346,65 @@ def build_geocoding_inputs_from_ner(
                     district_hint=district,
                 )
 
-        if district and _looks_like_precise_location(original_text or ""):
+        if district and looks_like_precise_location(original_text or ""):
             add_input(address=district, district_hint=district)
 
-    if fallback_district:
-        add_input(address=fallback_district, district_hint=fallback_district)
+    if resolved_fallback_district:
+        add_input(
+            address=resolved_fallback_district,
+            district_hint=resolved_fallback_district,
+        )
 
     return list(deduped.values())
 
 
-def _looks_like_precise_location(value: str) -> bool:
+def looks_like_precise_location(value: str) -> bool:
     normalized = _normalize_for_compare(value)
     return any(hint in normalized for hint in _PRECISE_LOCATION_HINTS)
 
 
-def _is_generic_location_text(value: str) -> bool:
+def is_generic_location_text(
+    value: str,
+    *,
+    district_hint: str | None = None,
+    neighborhood: str | None = None,
+    is_kocaeli_district: bool = False,
+) -> bool:
     normalized = _normalize_for_compare(value)
     if not normalized:
         return True
-    return normalized in _GENERIC_LOCATION_TOKENS
+    if is_kocaeli_district or normalize_kocaeli_district(value):
+        return False
+    if neighborhood:
+        return False
+    if looks_like_precise_location(normalized):
+        return False
+    if normalized in _GENERIC_LOCATION_TOKENS:
+        return True
+    if normalized.endswith("spor") or normalized in _GENERIC_TEAM_ALIASES:
+        return True
+    if any(
+        normalized.endswith(suffix) or f" {suffix}" in normalized
+        for suffix in _GENERIC_LOCATION_HARD_SUFFIXES
+    ):
+        return True
+    if any(
+        normalized.endswith(suffix) or f" {suffix}" in normalized
+        for suffix in _GENERIC_LOCATION_SOFT_SUFFIXES
+    ):
+        if _text_contains_kocaeli_district(normalized):
+            return False
+        if district_hint and _normalize_for_compare(district_hint) in normalized:
+            return False
+        return True
+    return False
+
+
+def _text_contains_kocaeli_district(normalized: str) -> bool:
+    for district in KOCAELI_DISTRICTS:
+        if re.search(rf"(?<!\w){re.escape(district)}(?!\w)", normalized):
+            return True
+    return False
 
 
 def is_district_level_geocoding_input(input_data: GeocodingInput) -> bool:

@@ -41,8 +41,8 @@ export default function FilterSidebar({
             Harita Kontrolleri
           </h2>
           <p className="mt-2 text-xs leading-5 text-slate-600">
-            Haritadaki haberleri tur, ilce ve tarih araligina gore daraltmak
-            icin filtreleri kullanin.
+            Haritadaki haberleri tür, ilçe ve tarih aralığına göre daraltmak
+            için filtreleri kullanın.
           </p>
         </div>
       </div>
@@ -61,12 +61,12 @@ export default function FilterSidebar({
             value={values.category}
             onChange={(event) => onChange("category", event.target.value)}
           >
-            <option value="">Tum kategoriler</option>
-            <option value="trafik_kazasi">Trafik Kazasi</option>
-            <option value="yangin">Yangin</option>
+            <option value="">Tüm kategoriler</option>
+            <option value="trafik_kazasi">Trafik Kazası</option>
+            <option value="yangin">Yangın</option>
             <option value="elektrik_kesintisi">Elektrik Kesintisi</option>
-            <option value="hirsizlik">Hirsizlik</option>
-            <option value="kulturel_etkinlik">Kulturel Etkinlik</option>
+            <option value="hirsizlik">Hırsızlık</option>
+            <option value="kulturel_etkinlik">Kültürel Etkinlik</option>
           </select>
         </section>
 
@@ -75,7 +75,7 @@ export default function FilterSidebar({
             htmlFor="district"
             className="text-sm font-semibold text-slate-800"
           >
-            Ilce
+            İlçe
           </label>
           <select
             id="district"
@@ -83,25 +83,25 @@ export default function FilterSidebar({
             value={values.district}
             onChange={(event) => onChange("district", event.target.value)}
           >
-            <option value="">Tum ilceler</option>
-            <option value="izmit">Izmit</option>
+            <option value="">Tüm ilçeler</option>
+            <option value="izmit">İzmit</option>
             <option value="gebze">Gebze</option>
-            <option value="darica">Darica</option>
-            <option value="golcuk">Golcuk</option>
+            <option value="darica">Darıca</option>
+            <option value="golcuk">Gölcük</option>
             <option value="hereke">Hereke</option>
-            <option value="korfez">Korfez</option>
+            <option value="korfez">Körfez</option>
             <option value="kartepe">Kartepe</option>
-            <option value="basiskele">Basiskele</option>
-            <option value="cayirova">Cayirova</option>
-            <option value="dilovasi">Dilovasi</option>
-            <option value="kandira">Kandira</option>
-            <option value="karamursel">Karamursel</option>
+            <option value="basiskele">Başiskele</option>
+            <option value="cayirova">Çayırova</option>
+            <option value="dilovasi">Dilovası</option>
+            <option value="kandira">Kandıra</option>
+            <option value="karamursel">Karamürsel</option>
             <option value="derince">Derince</option>
           </select>
         </section>
 
         <section className="rounded-xl border border-slate-200 p-3">
-          <p className="text-sm font-semibold text-slate-800">Tarih Araligi</p>
+          <p className="text-sm font-semibold text-slate-800">Tarih Aralığı</p>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <div>
@@ -109,7 +109,7 @@ export default function FilterSidebar({
                 htmlFor="date-from"
                 className="text-xs font-medium uppercase tracking-wide text-slate-500"
               >
-                Baslangic
+                Başlangıç
               </label>
               <input
                 id="date-from"
@@ -125,7 +125,7 @@ export default function FilterSidebar({
                 htmlFor="date-to"
                 className="text-xs font-medium uppercase tracking-wide text-slate-500"
               >
-                Bitis
+                Bitiş
               </label>
               <input
                 id="date-to"

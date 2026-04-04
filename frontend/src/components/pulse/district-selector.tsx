@@ -1,41 +1,41 @@
-"use client"
+"use client";
 
-import { AnimatePresence, motion } from "framer-motion"
-import { Check, ChevronDown, MapPin } from "lucide-react"
-import { useMemo, useState } from "react"
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, ChevronDown, MapPin } from "lucide-react";
+import { useMemo, useState } from "react";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 export interface DistrictOption {
-  id: string
-  name: string
-  newsCount: number
+  id: string;
+  name: string;
+  newsCount: number;
 }
 
 interface DistrictSelectorProps {
-  districts: DistrictOption[]
-  selected: string[]
-  onChange: (districts: string[]) => void
+  districts: DistrictOption[];
+  selected: string[];
+  onChange: (districts: string[]) => void;
 }
 
 export function DistrictSelector({ districts, selected, onChange }: DistrictSelectorProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(false);
 
   const toggleDistrict = (id: string) => {
     if (selected.includes(id)) {
       if (selected.length === 1) {
-        return
+        return;
       }
-      onChange(selected.filter((district) => district !== id))
-      return
+      onChange(selected.filter((district) => district !== id));
+      return;
     }
 
-    onChange([...selected, id])
-  }
+    onChange([...selected, id]);
+  };
 
   const selectAll = () => {
-    onChange(districts.map((district) => district.id))
-  }
+    onChange(districts.map((district) => district.id));
+  };
 
   const selectedNames = useMemo(
     () =>
@@ -44,7 +44,7 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
         .map((district) => district.name)
         .slice(0, 3),
     [districts, selected],
-  )
+  );
 
   const selectedNewsCount = useMemo(
     () =>
@@ -52,14 +52,14 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
         .filter((district) => selected.includes(district.id))
         .reduce((sum, district) => sum + district.newsCount, 0),
     [districts, selected],
-  )
+  );
 
   const triggerLabel =
     selected.length === 0
       ? "İlçe seçin"
       : selected.length === districts.length
         ? "Tüm ilçeler"
-        : `${selectedNames.join(", ")}${selected.length > 3 ? ` +${selected.length - 3}` : ""}`
+        : `${selectedNames.join(", ")}${selected.length > 3 ? ` +${selected.length - 3}` : ""}`;
 
   return (
     <div className="relative w-full">
@@ -99,7 +99,7 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
 
                 <div className="max-h-60 space-y-1 overflow-y-auto">
                   {districts.map((district) => {
-                    const isSelected = selected.includes(district.id)
+                    const isSelected = selected.includes(district.id);
 
                     return (
                       <button
@@ -134,7 +134,7 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
                           {district.newsCount}
                         </span>
                       </button>
-                    )
+                    );
                   })}
                 </div>
 
@@ -152,19 +152,19 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
         type="button"
         onClick={() => setIsOpen((value) => !value)}
         className={cn(
-          "relative z-[60] flex h-[58px] w-full items-center justify-between gap-3 border border-border/70 glass px-4 text-left transition-colors",
+          "relative z-[60] flex h-[54px] w-full items-center justify-between gap-3 border border-border/70 glass px-3.5 text-left transition-colors",
           isOpen ? "rounded-b-2xl rounded-t-none border-t-0" : "rounded-2xl hover:bg-card/92",
         )}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary">
             <MapPin className="h-4 w-4" />
           </div>
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               İlçe
             </p>
-            <p className="truncate text-sm font-semibold text-foreground">{triggerLabel}</p>
+            <p className="truncate text-[13px] font-semibold text-foreground">{triggerLabel}</p>
           </div>
         </div>
 
@@ -173,9 +173,9 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
           transition={{ duration: 0.2 }}
           className="shrink-0 text-muted-foreground"
         >
-          <ChevronDown className="h-5 w-5" />
+          <ChevronDown className="h-4.5 w-4.5" />
         </motion.span>
       </button>
     </div>
-  )
+  );
 }

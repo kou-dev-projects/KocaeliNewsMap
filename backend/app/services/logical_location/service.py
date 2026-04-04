@@ -38,6 +38,11 @@ _SPORTS_KEYWORDS = (
     "rakibini",
     "skor",
     "puan durumu",
+    "galibiyet",
+    "berabere",
+    "penalti",
+    "ilk yari",
+    "ikinci yari",
     "stadyum",
     "stad",
 )
@@ -215,35 +220,6 @@ def _select_sports_candidate(
             geocode_status="resolved",
         )
 
-    team_venue = _match_named_venue(
-        normalized_text,
-        _LOGICAL_CATALOG.team_home_venues,
-    )
-    if team_venue is not None:
-        return LogicalLocationCandidate(
-            address=team_venue.canonical_name,
-            district_hint=team_venue.district,
-            location_text=team_venue.canonical_name,
-            strategy="logic_team_home_stadium",
-            geocode_status="approximate",
-        )
-
-    if district:
-        district_display = _district_display_name(district)
-        if district_display:
-            venue_name = (
-                "Kocaeli Stadyumu"
-                if normalize_for_compare(district_display) == "izmit"
-                else f"{district_display} Ilce Stadyumu"
-            )
-            return LogicalLocationCandidate(
-                address=venue_name,
-                district_hint=district_display,
-                location_text=venue_name,
-                strategy="logic_district_stadium",
-                geocode_status="approximate",
-            )
-
     return None
 
 
@@ -253,12 +229,18 @@ def _is_sports_story(normalized_text: str) -> bool:
         _match_named_venue(normalized_text, _LOGICAL_CATALOG.team_home_venues)
         is not None
     )
+    has_score = _SCORE_PATTERN.search(normalized_text) is not None
     has_sports_phrase = any(keyword in normalized_text for keyword in _SPORTS_KEYWORDS)
     has_sports_token = any(token in tokens for token in _SPORTS_TOKENS)
 
-    if not (_SCORE_PATTERN.search(normalized_text) or has_sports_phrase or has_team_alias):
+    if has_score or has_sports_phrase:
+        return True
+
+    if not has_team_alias:
         return False
-    return has_sports_phrase or has_sports_token or has_team_alias
+
+    # Team names alone are too noisy for location fallback. Require clear match context.
+    return has_sports_token
 
 
 def _has_stadium_candidate(ner_result: NERResult) -> bool:

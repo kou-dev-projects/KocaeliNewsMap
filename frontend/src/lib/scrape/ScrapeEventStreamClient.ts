@@ -135,7 +135,7 @@ export class ScrapeEventStreamClient {
 
       if (!response.ok || !response.body) {
         if ([401, 403, 404].includes(response.status)) {
-          this.callbacks.onError?.("Tarama olay akisi reddedildi.");
+          this.callbacks.onError?.("Tarama olay akışı reddedildi.");
           this.setState("disconnected");
           return;
         }

@@ -24,6 +24,7 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/news", tags=["news"])
+_ACTIVE_RECORD_QUERY: dict[str, Any] = {"record_status": {"$ne": "merged_duplicate"}}
 
 _VALID_GEO_POINT_QUERY: dict[str, Any] = {
     "geocode_point.type": "Point",
@@ -177,10 +178,11 @@ def _map_total_pipeline(*, query: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _visible_news_query(query: dict[str, Any]) -> dict[str, Any]:
+    visible_query = _merge_query(query, _ACTIVE_RECORD_QUERY)
     visibility_query = resolve_visible_generation_query(db)
     if not visibility_query:
-        return query
-    return _merge_query(query, visibility_query)
+        return visible_query
+    return _merge_query(visible_query, visibility_query)
 
 
 def _stats_response_from_facet(facet: dict[str, Any]) -> NewsStatsResponse:

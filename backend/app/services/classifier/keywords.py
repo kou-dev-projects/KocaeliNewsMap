@@ -76,12 +76,6 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "ev soyuldu",
         "iş yeri soyuldu",
         "banka soygunu",
-        # Asayis agirlikli ek kaliplar
-        "suç unsuru",
-        "suç unsurları",
-        "uyuşturucu madde",
-        "ruhsatsız tabanca",
-        "silahlı saldırı",
     ),
     NewsCategory.ELEKTRIK_KESINTISI: (
         # Guclu kesinti kaliplari
@@ -137,9 +131,5 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "anlamlı etkinlik",
         "fuar",
         "kitap fuarı",
-        # Etkinlik niteligi tasiyan spor organizasyonlari
-        "turnuva",
-        "şampiyona",
-        "yarışma",
     ),
 }

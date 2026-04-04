@@ -514,6 +514,54 @@ def test_news_routes_only_return_active_dataset_generation(monkeypatch, sample_d
     assert map_response.items[0].id == str(active_doc["_id"])
 
 
+def test_news_routes_hide_merged_duplicate_records(monkeypatch, sample_docs):
+    active_doc = dict(sample_docs[0], record_status="active")
+    merged_doc = dict(
+        sample_docs[1],
+        _id=ObjectId("65f1b5f1b5f1b5f1b5f1b5fa"),
+        record_status="merged_duplicate",
+        duplicate_of_record_id=active_doc["_id"],
+        geocode_point={"type": "Point", "coordinates": [29.95, 40.75]},
+        geocode_status="resolved",
+    )
+    monkeypatch.setattr("app.routes.news.db", FakeDB([active_doc, merged_doc]))
+
+    list_response = list_news(
+        source=None,
+        category=None,
+        categories=None,
+        district=None,
+        districts=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        limit=20,
+        offset=0,
+    )
+    map_response = list_news_map(
+        source=None,
+        category=None,
+        categories=None,
+        district=None,
+        districts=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        limit=500,
+        offset=0,
+    )
+
+    assert list_response.total == 1
+    assert list_response.items[0].id == str(active_doc["_id"])
+    assert map_response.total == 1
+    assert map_response.items[0].id == str(active_doc["_id"])
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_news_detail(str(merged_doc["_id"]))
+
+    assert exc_info.value.status_code == 404
+
+
 def test_get_news_detail_returns_enriched_payload(monkeypatch, sample_docs):
     sample_docs[0]["kaynak_listesi"] = [
         "ozgurkocaeli.com.tr",

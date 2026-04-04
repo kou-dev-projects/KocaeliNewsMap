@@ -1,3 +1,5 @@
+import type { RawScrapeEvent } from "@/lib/scrape/types";
+
 export type ScrapeBootstrapResponse =
   | {
       status: "already_initialized";
@@ -29,6 +31,17 @@ export type ScrapeJobStatusResponse = {
   last_heartbeat_at?: number;
   result?: Record<string, unknown>;
   error?: string;
+};
+
+export type LatestScrapeRunResponse = {
+  job_id: string | null;
+  status: "idle" | "pending" | "running" | "completed" | "failed" | string;
+  source: string | null;
+  trigger_type: string | null;
+  started_at: number | null;
+  updated_at: number | null;
+  event_count: number;
+  events: RawScrapeEvent[];
 };
 
 async function readErrorDetail(response: Response, fallback: string) {
@@ -101,4 +114,23 @@ export async function fetchScrapeJobStatus(
   }
 
   return (await response.json()) as ScrapeJobStatusResponse;
+}
+
+export async function fetchLatestScrapeRun(authorizationHeader?: string) {
+  const response = await fetch("/api/scrape/latest", {
+    method: "GET",
+    cache: "no-store",
+    headers: buildScrapeRequestHeaders(authorizationHeader),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorDetail(
+        response,
+        `Latest scrape request failed with status ${response.status}`,
+      ),
+    );
+  }
+
+  return (await response.json()) as LatestScrapeRunResponse;
 }

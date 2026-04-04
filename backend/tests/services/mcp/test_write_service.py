@@ -28,11 +28,15 @@ class DummyMaterializer:
             "canonical_url": raw_document["canonical_url"],
             "title": raw_document["title_raw"],
             "body": raw_document["content_raw"] or raw_document["text_raw"],
+            "summary": raw_document["content_raw"] or raw_document["text_raw"],
             "published_at": raw_document["published_at_raw"] or raw_document["scraped_at"],
             "category_predicted": "unknown",
+            "category_confidence": 0.0,
             "district_predicted": None,
             "location_text_extracted": None,
             "geocode_status": "not_needed",
+            "dedupe_hash": "dedupe-test-hash",
+            "kaynak_listesi": [raw_document["domain"]],
             "pipeline_status": "classified",
             "record_status": "active",
             "schema_version": "1.0",
@@ -54,12 +58,18 @@ def _cfg() -> MCPConfig:
     )
 
 
-def _req(url: str = "https://example.com/a") -> NewsWriteRequest:
+def _req(
+    url: str = "https://example.com/a",
+    *,
+    source: str = "example.com",
+    title: str = "Test haber",
+    content: str = "icerik",
+) -> NewsWriteRequest:
     return NewsWriteRequest(
-        title="Test haber",
+        title=title,
         url=url,
-        source="example.com",
-        content="icerik",
+        source=source,
+        content=content,
     )
 
 
@@ -90,7 +100,7 @@ def test_duplicate_still_refreshes_existing_record():
         raw_existing_doc={
             "_id": "raw_existing_id",
             "canonical_url": "https://example.com/existing-refresh",
-            "source_id": "source_doc_id",
+            "source_id": "source_example.com",
             "title_raw": "Test haber",
             "text_raw": "icerik",
             "content_raw": "icerik",
@@ -181,7 +191,7 @@ def test_process_queue_batch_duplicate_still_rewrites_existing_record():
         raw_existing_doc={
             "_id": "raw_existing_id",
             "canonical_url": "https://example.com/queued-duplicate",
-            "source_id": "source_doc_id",
+            "source_id": "source_example.com",
             "title_raw": "Test haber",
             "text_raw": "icerik",
             "content_raw": "icerik",
@@ -298,7 +308,7 @@ def test_mongo_upsert_existing_returns_duplicate_merged():
         raw_existing_doc={
             "_id": "raw_existing_id",
             "canonical_url": "https://example.com/existing",
-            "source_id": "source_doc_id",
+            "source_id": "source_example.com",
             "title_raw": "Test haber",
             "text_raw": "icerik",
             "content_raw": "icerik",
@@ -326,6 +336,54 @@ def test_mongo_upsert_existing_returns_duplicate_merged():
     assert result.news_id == "existing_id"
     assert result.was_duplicate is True
     assert mongo.raw_documents.last_upsert is True
+
+
+def test_cross_source_duplicate_merges_into_existing_canonical():
+    idem = DummyIdempotency()
+    mongo = FakeMongo(
+        duplicate_source_record_doc={
+            "_id": "canonical_id",
+            "raw_document_id": "raw_canonical_id",
+            "dedupe_hash": "dedupe-test-hash",
+            "record_status": "active",
+            "kaynak_listesi": ["bizimyaka.com.tr"],
+            "category_predicted": "unknown",
+            "category_confidence": 0.0,
+            "geocode_status": "not_needed",
+            "updated_at": "old_time",
+        },
+        raw_upserted_id="raw_new_id",
+        source_record_upserted_id="source_new_id",
+    )
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=DummyMaterializer(),
+    )
+
+    result = svc.write(
+        _req(
+            "https://other.example.com/haber",
+            source="ozgurkocaeli.com.tr",
+        )
+    )
+
+    assert result.status == WriteStatus.DUPLICATE_MERGED
+    assert result.news_id == "canonical_id"
+    assert result.was_duplicate is True
+
+    canonical_doc = mongo.source_records.find_one({"_id": "canonical_id"})
+    merged_doc = mongo.source_records.find_one({"raw_document_id": "raw_new_id"})
+    assert canonical_doc["kaynak_listesi"] == [
+        "bizimyaka.com.tr",
+        "ozgurkocaeli.com.tr",
+    ]
+    assert merged_doc["record_status"] == "merged_duplicate"
+    assert merged_doc["duplicate_of_record_id"] == "canonical_id"
 
 
 def test_fail_closed_dead_letters_when_queue_full():
@@ -435,33 +493,58 @@ class FakeUpdateResult:
 
 
 class FakeCollection:
-    def __init__(self, existing_doc=None, upserted_id=None):
-        self.existing_doc = existing_doc
+    def __init__(self, docs=None, upserted_id=None):
+        self.docs = [dict(doc) for doc in (docs or [])]
         self.upserted_id = upserted_id
         self.last_filter = None
         self.last_update = None
         self.last_upsert = None
 
+    def _matches(self, doc, flt):
+        for key, expected in flt.items():
+            actual = doc.get(key)
+            if isinstance(expected, dict):
+                if "$ne" in expected and actual == expected["$ne"]:
+                    return False
+                continue
+            if actual != expected:
+                return False
+        return True
+
     def update_one(self, flt, update, upsert=False):
         self.last_filter = flt
         self.last_update = update
         self.last_upsert = upsert
-        return FakeUpdateResult(upserted_id=self.upserted_id)
+        for doc in self.docs:
+            if self._matches(doc, flt):
+                doc.update(update.get("$set", {}))
+                return FakeUpdateResult(upserted_id=None)
+
+        if not upsert:
+            return FakeUpdateResult(upserted_id=None)
+
+        doc = {
+            key: value
+            for key, value in flt.items()
+            if not isinstance(value, dict)
+        }
+        doc.update(update.get("$setOnInsert", {}))
+        doc.update(update.get("$set", {}))
+        doc["_id"] = self.upserted_id or doc.get("_id") or "new_id"
+        self.docs.append(doc)
+        return FakeUpdateResult(upserted_id=doc["_id"])
 
     def find_one(self, flt):
-        if self.existing_doc is not None:
-            return self.existing_doc
-        doc = {}
-        doc.update(self.last_update.get("$setOnInsert", {}))
-        doc.update(self.last_update.get("$set", {}))
-        doc["_id"] = self.upserted_id or "new_id"
-        return doc
+        for doc in self.docs:
+            if self._matches(doc, flt):
+                return dict(doc)
+        return None
 
 
 class FakeSourceCollection:
     def find_one(self, flt):
         return {
-            "_id": "source_doc_id",
+            "_id": f"source_{flt['domain']}",
             "domain": flt["domain"],
             "display_name": "Example Source",
             "base_url": "https://example.com",
@@ -488,14 +571,21 @@ class FakeMongo:
         self,
         raw_existing_doc=None,
         source_record_existing_doc=None,
+        duplicate_source_record_doc=None,
         raw_upserted_id=None,
         source_record_upserted_id=None,
     ):
         self.sources = FakeSourceCollection()
         self.crawl_sessions = FakeInsertCollection()
-        self.raw_documents = FakeCollection(existing_doc=raw_existing_doc, upserted_id=raw_upserted_id)
+        raw_docs = [raw_existing_doc] if raw_existing_doc is not None else []
+        source_record_docs = []
+        if source_record_existing_doc is not None:
+            source_record_docs.append(source_record_existing_doc)
+        if duplicate_source_record_doc is not None:
+            source_record_docs.append(duplicate_source_record_doc)
+        self.raw_documents = FakeCollection(docs=raw_docs, upserted_id=raw_upserted_id)
         self.source_records = FakeCollection(
-            existing_doc=source_record_existing_doc,
+            docs=source_record_docs,
             upserted_id=source_record_upserted_id,
         )
 

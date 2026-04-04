@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import { useState, type ReactNode } from "react"
-import { AnimatePresence, motion } from "framer-motion"
+import { useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Car,
   ChevronDown,
@@ -14,20 +14,20 @@ import {
   Star,
   VenetianMask,
   Zap,
-} from "lucide-react"
+} from "lucide-react";
 
-import type { NewsMapItem } from "@/components/map/MapView"
+import type { NewsMapItem } from "@/components/map/MapView";
 
 export type LiveNewsFeedItem = NewsMapItem & {
-  pulseCategory: "traffic" | "fire" | "outage" | "theft" | "event" | "breaking"
-  timeLabel: string
-  isRecent?: boolean
-}
+  pulseCategory: "traffic" | "fire" | "outage" | "theft" | "event" | "breaking";
+  timeLabel: string;
+  isRecent?: boolean;
+};
 
 interface LiveNewsFeedProps {
-  news: LiveNewsFeedItem[]
-  onNewsClick: (news: NewsMapItem) => void
-  hidden?: boolean
+  news: LiveNewsFeedItem[];
+  onNewsClick: (news: NewsMapItem) => void;
+  hidden?: boolean;
 }
 
 const categoryConfig: Record<string, { bgColor: string; icon: ReactNode }> = {
@@ -37,26 +37,30 @@ const categoryConfig: Record<string, { bgColor: string; icon: ReactNode }> = {
   outage: { bgColor: "bg-yellow-500", icon: <Zap className="h-3.5 w-3.5" /> },
   theft: { bgColor: "bg-violet-500", icon: <VenetianMask className="h-3.5 w-3.5" /> },
   event: { bgColor: "bg-emerald-500", icon: <Music2 className="h-3.5 w-3.5" /> },
-}
+};
 
 export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeedProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
     <motion.div
       initial={{ opacity: 0, x: -30 }}
-      animate={{ opacity: hidden ? 0 : 1, x: hidden ? -30 : 0, pointerEvents: hidden ? "none" : "auto" }}
+      animate={{
+        opacity: hidden ? 0 : 1,
+        x: hidden ? -30 : 0,
+        pointerEvents: hidden ? "none" : "auto",
+      }}
       transition={{ delay: 0.4 }}
-      className="absolute top-36 left-4 z-20 hidden w-full max-w-xs xl:block"
+      className="absolute left-4 top-32 z-20 hidden w-full max-w-[292px] xl:block"
       drag
       dragMomentum={false}
       dragElastic={0.08}
       whileDrag={{ scale: 1.01 }}
     >
-      <div className="flex w-full cursor-grab items-center justify-between rounded-t-xl glass px-4 py-3 active:cursor-grabbing">
+      <div className="flex w-full cursor-grab items-center justify-between rounded-t-xl glass px-3.5 py-2.5 active:cursor-grabbing">
         <div className="min-w-0 flex items-center gap-3">
           <div className="relative">
-            <Radio className="h-5 w-5 text-primary" />
+            <Radio className="h-4.5 w-4.5 text-primary" />
             <motion.span
               className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500"
               animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
@@ -64,12 +68,12 @@ export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeed
             />
           </div>
           <div className="text-left">
-            <span className="text-sm font-semibold text-foreground">Canlı Haber Akışı</span>
-            <p className="text-xs text-muted-foreground">{news.length} haber</p>
+            <span className="text-[13px] font-semibold text-foreground">Canlı Haber Akışı</span>
+            <p className="text-[11px] text-muted-foreground">{news.length} haber</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <GripHorizontal className="h-4 w-4 text-muted-foreground" />
+          <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
           <button
             type="button"
             onClick={() => setIsCollapsed((current) => !current)}
@@ -81,7 +85,7 @@ export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeed
               transition={{ duration: 0.2 }}
               className="block"
             >
-              <ChevronDown className="h-5 w-5" />
+              <ChevronDown className="h-4.5 w-4.5" />
             </motion.span>
           </button>
         </div>
@@ -96,14 +100,14 @@ export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeed
             transition={{ duration: 0.3 }}
             className="overflow-hidden rounded-b-xl border-t border-border glass"
           >
-            <div className="max-h-[calc(100vh-12rem)] space-y-2 overflow-y-auto p-2">
+            <div className="max-h-110 space-y-2 overflow-y-auto p-2">
               {news.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/70 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
                   Aktif filtrelere göre gösterilecek canlı haber yok.
                 </div>
               ) : (
                 news.map((item, index) => {
-                  const config = categoryConfig[item.pulseCategory] || categoryConfig.breaking
+                  const config = categoryConfig[item.pulseCategory] || categoryConfig.breaking;
 
                   return (
                     <motion.button
@@ -113,19 +117,19 @@ export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeed
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.05 }}
                       onClick={() => onNewsClick(item)}
-                      className="group relative w-full rounded-lg p-3 text-left transition-all hover:bg-secondary/50"
+                      className="group relative w-full rounded-lg p-2.5 text-left transition-all hover:bg-secondary/50"
                     >
                       <div className="flex items-start gap-3">
                         <div
-                          className={`${config.bgColor} flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white`}
+                          className={`${config.bgColor} flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white`}
                         >
                           {config.icon}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="line-clamp-2 text-sm font-medium text-foreground transition-colors group-hover:text-primary">
+                          <p className="line-clamp-2 text-[13px] font-medium leading-5 text-foreground transition-colors group-hover:text-primary">
                             {item.title}
                           </p>
-                          <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
                             <div className="flex items-center gap-0.5">
                               <MapPin className="h-2.5 w-2.5" />
                               <span>{item.district || "Bilinmeyen"}</span>
@@ -149,7 +153,7 @@ export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeed
                         </motion.div>
                       ) : null}
                     </motion.button>
-                  )
+                  );
                 })
               )}
             </div>
@@ -157,5 +161,5 @@ export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeed
         ) : null}
       </AnimatePresence>
     </motion.div>
-  )
+  );
 }

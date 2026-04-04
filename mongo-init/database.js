@@ -359,6 +359,7 @@ ensureCollection("source_records", {
           items: { bsonType: ["double", "int", "long", "decimal"] },
         },
         text_hash: { bsonType: "string" },
+        dedupe_hash: { bsonType: "string" },
         source_name_snapshot: { bsonType: "string" },
         source_url_snapshot: { bsonType: "string", pattern: "^https?://" },
         text_embedding: {
@@ -397,6 +398,10 @@ ensureCollection("source_records", {
         duplicate_source_record_id: {
           bsonType: ["objectId", "null"],
           description: "Duplicate eşleşen source_records._id referansı",
+        },
+        duplicate_of_record_id: {
+          bsonType: ["objectId", "null"],
+          description: "Birleştirilen duplicate kaydın bağlı olduğu canonical source_records._id",
         },
         duplicate_text_similarity: {
           bsonType: ["double", "int", "decimal", "null"],
@@ -445,7 +450,9 @@ ensureCollection("source_records", {
             "failed",
           ],
         },
-        record_status: { enum: ["active", "hidden", "deleted", "review"] },
+        record_status: {
+          enum: ["active", "hidden", "deleted", "review", "merged_duplicate"],
+        },
         pipeline_run_id: { bsonType: "string" },
         dataset_generation: { bsonType: "string" },
         schema_version: { bsonType: "string" },
@@ -504,6 +511,7 @@ ensureIndex(
   { name: "geocode_point_2dsphere", sparse: true },
 );
 ensureIndex("source_records", { text_hash: 1 }, { name: "text_hash" });
+ensureIndex("source_records", { dedupe_hash: 1 }, { name: "dedupe_hash", sparse: true });
 ensureIndex(
   "source_records",
   {
@@ -535,6 +543,11 @@ ensureIndex(
   "source_records",
   { duplicate_source_record_id: 1 },
   { name: "duplicate_source_record_id", sparse: true },
+);
+ensureIndex(
+  "source_records",
+  { duplicate_of_record_id: 1 },
+  { name: "duplicate_of_record_id", sparse: true },
 );
 
 ensureIndex(

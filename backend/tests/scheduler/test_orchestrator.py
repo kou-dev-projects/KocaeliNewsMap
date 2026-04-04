@@ -255,9 +255,16 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
 
     orchestrator = _make_orchestrator(source_docs)
 
-    def fake_crawl_single_source(*, source_document, trigger_type, dataset_generation=None):
+    def fake_crawl_single_source(
+        *,
+        source_document,
+        trigger_type,
+        dataset_generation=None,
+        progress_callback=None,
+    ):
         assert trigger_type == "scheduled"
         assert dataset_generation is None
+        assert progress_callback is None
         if source_document["domain"] == "broken.example.com":
             raise RuntimeError("boom")
         return {
@@ -467,6 +474,48 @@ def test_crawl_source_static_processing_failure_exposes_error_details(monkeypatc
     error_summary = session_store.finalized[0]["error_summary"]
     assert error_summary[0]["code"] == "source_processing_error"
     assert error_summary[0]["error_type"] == "ValueError"
+
+
+def test_crawl_source_emits_progress_events(monkeypatch):
+    monkeypatch.setattr(
+        "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
+        {
+            "cagdaskocaeli.com.tr": StaticSourceDefinition(
+                listing_scraper_factory=FakeListingScraper,
+                detail_scraper_factory=FakeDetailScraper,
+                parser_factory=FakeParser,
+            )
+        },
+    )
+    monkeypatch.setattr("app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY", {})
+
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "cagdaskocaeli.com.tr",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+            "scraper_type": "static",
+            "display_name": "Cagdas Kocaeli",
+        }
+    ]
+
+    orchestrator = _make_orchestrator(source_docs)
+    events = []
+
+    result = orchestrator.crawl_source(
+        "cagdaskocaeli.com.tr",
+        trigger_type="manual",
+        progress_callback=events.append,
+    )
+
+    assert result["status"] == "success"
+    assert [event["event"] for event in events] == [
+        "source_crawl_started",
+        "source_listing_collected",
+        "source_crawl_completed",
+    ]
+    assert events[1]["details"]["listing_count"] == 1
+    assert events[2]["details"]["parsed_count"] == 1
 
 
 def test_crawl_source_skips_records_older_than_lookback(monkeypatch):

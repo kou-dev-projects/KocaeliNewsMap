@@ -10,18 +10,21 @@ from app.services.scrape_events import (
     ScrapeEventPublisher,
     ScrapeEventReader,
     _HEARTBEAT_SENTINEL,
+    _MAX_PERSISTED_SCRAPE_EVENTS,
     _SCRAPE_EVENT_STREAM_KEY,
+    get_latest_scrape_run,
     get_scrape_event_publisher,
 )
 
 
 #
 
-def _make_publisher(redis_client=None) -> ScrapeEventPublisher:
+def _make_publisher(redis_client=None, scrape_run_collection=None) -> ScrapeEventPublisher:
     return ScrapeEventPublisher(
         redis_url="redis://localhost:6379/0",
         stream_maxlen=500,
         redis_client=redis_client,
+        scrape_run_collection=scrape_run_collection or MagicMock(),
     )
 
 
@@ -126,6 +129,85 @@ class TestScrapeEventPublisher:
             pub.publish(_make_event())
 
         mock_connect.assert_not_called()
+
+    def test_publish_replaces_latest_run_on_job_submitted(self):
+        fake_redis = MagicMock()
+        fake_collection = MagicMock()
+        pub = _make_publisher(
+            redis_client=fake_redis,
+            scrape_run_collection=fake_collection,
+        )
+
+        pub.publish(_make_event())
+
+        fake_collection.replace_one.assert_called_once()
+        persisted = fake_collection.replace_one.call_args.args[1]
+        assert persisted["job_id"] == "abc123"
+        assert persisted["event_count"] == 1
+        assert persisted["events"][0]["event"] == "job_submitted"
+
+    def test_publish_appends_event_for_current_latest_run(self):
+        fake_redis = MagicMock()
+        fake_collection = MagicMock()
+        fake_collection.find_one.return_value = {"job_id": "abc123", "started_at": 1.0}
+        pub = _make_publisher(
+            redis_client=fake_redis,
+            scrape_run_collection=fake_collection,
+        )
+
+        pub.publish(_make_event(event="job_started", status="running"))
+
+        fake_collection.update_one.assert_called_once()
+        update_doc = fake_collection.update_one.call_args.args[1]
+        assert update_doc["$inc"] == {"event_count": 1}
+        assert update_doc["$push"]["events"]["$slice"] == -_MAX_PERSISTED_SCRAPE_EVENTS
+        assert update_doc["$set"]["status"] == "running"
+
+    def test_publish_ignores_event_for_stale_job(self):
+        fake_redis = MagicMock()
+        fake_collection = MagicMock()
+        fake_collection.find_one.return_value = {"job_id": "other-job", "started_at": 1.0}
+        pub = _make_publisher(
+            redis_client=fake_redis,
+            scrape_run_collection=fake_collection,
+        )
+
+        pub.publish(_make_event(event="job_started", status="running"))
+
+        fake_collection.update_one.assert_not_called()
+
+    def test_get_latest_scrape_run_sanitizes_document(self):
+        fake_collection = MagicMock()
+        fake_collection.find_one.return_value = {
+            "job_id": "abc123",
+            "status": "completed",
+            "source": None,
+            "trigger_type": "refresh",
+            "started_at": 1.0,
+            "updated_at": 2.0,
+            "event_count": 99,
+            "events": [
+                {
+                    "event": "job_completed",
+                    "message": "done",
+                    "timestamp": 2.0,
+                    "job_id": "abc123",
+                    "details": {"count": 5},
+                    "extra": "ignored",
+                }
+            ],
+        }
+
+        with patch(
+            "app.services.scrape_events._get_scrape_run_collection",
+            return_value=fake_collection,
+        ):
+            latest_run = get_latest_scrape_run()
+
+        assert latest_run is not None
+        assert latest_run["event_count"] == 1
+        assert latest_run["events"][0]["event"] == "job_completed"
+        assert latest_run["events"][0]["details"] == {"count": 5}
 
 
 

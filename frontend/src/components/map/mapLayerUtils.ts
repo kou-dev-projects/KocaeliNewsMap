@@ -23,11 +23,11 @@ export const CATEGORY_COLORS: Record<string, [number, number, number, number]> =
 };
 
 export const CATEGORY_LEGEND = [
-  { key: "trafik_kazasi", label: "Trafik Kazasi" },
-  { key: "yangin", label: "Yangin" },
+  { key: "trafik_kazasi", label: "Trafik Kazası" },
+  { key: "yangin", label: "Yangın" },
   { key: "elektrik_kesintisi", label: "Elektrik Kesintisi" },
-  { key: "hirsizlik", label: "Hirsizlik" },
-  { key: "kulturel_etkinlik", label: "Kulturel Etkinlik" },
+  { key: "hirsizlik", label: "Hırsızlık" },
+  { key: "kulturel_etkinlik", label: "Kültürel Etkinlik" },
 ] as const;
 
 const DEFAULT_COLOR: [number, number, number, number] = CATEGORY_COLORS.unknown;

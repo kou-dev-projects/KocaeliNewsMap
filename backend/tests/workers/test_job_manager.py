@@ -11,9 +11,11 @@ from app.workers.job_manager import (
 
 def test_available_retries_connection_after_initial_failure(monkeypatch):
     calls = {"count": 0}
+    captured_kwargs = []
 
     def fake_from_url(*args, **kwargs):
         calls["count"] += 1
+        captured_kwargs.append(kwargs)
         client = MagicMock()
         if calls["count"] == 1:
             client.ping.side_effect = RuntimeError("redis down")
@@ -28,6 +30,7 @@ def test_available_retries_connection_after_initial_failure(monkeypatch):
 
     assert manager.available is True
     assert calls["count"] == 2
+    assert captured_kwargs[-1]["socket_timeout"] is None
 
 
 def test_mark_completed_recreates_missing_job_from_base_job(monkeypatch):

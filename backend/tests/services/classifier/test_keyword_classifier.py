@@ -47,12 +47,18 @@ def test_hirsizlik_keyword_matches_dolandiricilik(clf):
     assert result.category == NewsCategory.HIRSIZLIK
 
 
-def test_hirsizlik_keyword_matches_suc_unsurlari(clf):
+def test_hirsizlik_keyword_does_not_match_generic_suc_unsurlari(clf):
     result = clf.classify(
         ClassificationInput(title="Üst aramasıyla başladı, evinden suç unsurları çıktı")
     )
-    assert result is not None
-    assert result.category == NewsCategory.HIRSIZLIK
+    assert result is None
+
+
+def test_hirsizlik_keyword_does_not_match_generic_asayis_terms(clf):
+    result = clf.classify(
+        ClassificationInput(title="Şüphelinin üzerinden ruhsatsız tabanca ele geçirildi")
+    )
+    assert result is None
 
 
 def test_electrocution_story_is_not_classified_as_fire_or_outage(clf):
@@ -97,6 +103,18 @@ def test_kulturel_keyword_matches_awareness_day(clf):
     )
     assert result is not None
     assert result.category == NewsCategory.KULTUREL_ETKINLIK
+
+
+def test_sports_update_does_not_fall_into_cultural_event(clf):
+    result = clf.classify(
+        ClassificationInput(
+            title="Kocaelispor'da Darko Churlinov milli mesaisinin ardından takıma katıldı",
+            content=(
+                "Takım, yeni hafta hazırlıklarını sürdürdü ve oyuncu antrenmana katıldı."
+            ),
+        )
+    )
+    assert result is None
 
 
 def test_unknown_returns_none(clf):

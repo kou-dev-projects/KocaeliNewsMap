@@ -22,6 +22,7 @@ from app.services.scrape_events import (
     ScrapeEvent,
     ScrapeEventReader,
     _HEARTBEAT_SENTINEL,
+    get_latest_scrape_run,
     get_scrape_event_publisher,
 )
 from app.settings import settings
@@ -395,6 +396,31 @@ def get_job_status(
         response["error"] = job.error
 
     return response
+
+
+@router.get("/latest")
+def get_latest_scrape(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+
+    _verify_trigger_auth(x_api_key)
+
+    latest_run = get_latest_scrape_run()
+    if latest_run is None:
+        return {
+            "job_id": None,
+            "status": "idle",
+            "source": None,
+            "trigger_type": None,
+            "started_at": None,
+            "updated_at": None,
+            "event_count": 0,
+            "events": [],
+        }
+
+    return latest_run
 
 
 @router.get("/events")

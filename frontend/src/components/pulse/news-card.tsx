@@ -29,7 +29,7 @@ const categoryConfig = {
     bg: "bg-red-500/10 dark:bg-red-500/20",
     border: "border-red-500/30",
     badge: "bg-red-500 text-white",
-    label: "Asayis",
+    label: "Asayiş",
   },
   weather: {
     bg: "bg-blue-500/10 dark:bg-blue-500/20",

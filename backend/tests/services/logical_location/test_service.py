@@ -70,7 +70,7 @@ def test_builds_cinema_candidate_for_movie_roundup():
     assert cinema_candidate.geocode_status == "approximate"
 
 
-def test_builds_home_stadium_candidate_for_score_story():
+def test_score_story_without_explicit_venue_does_not_invent_stadium():
     ner_result = NERResult(
         raw_entities=[],
         location_candidates=[],
@@ -87,14 +87,7 @@ def test_builds_home_stadium_candidate_for_score_story():
         fallback_district=None,
     )
 
-    sports_candidate = next(
-        candidate
-        for candidate in candidates
-        if candidate.strategy == "logic_team_home_stadium"
-    )
-
-    assert sports_candidate.address == "Kocaeli Stadyumu"
-    assert sports_candidate.geocode_status == "approximate"
+    assert all("stadium" not in candidate.strategy for candidate in candidates)
 
 
 def test_named_stadium_uses_catalog_display_name():
@@ -144,3 +137,26 @@ def test_non_sports_story_does_not_match_gol_inside_district_name():
         not candidate.strategy.startswith("logic_") or "stadium" not in candidate.strategy
         for candidate in candidates
     )
+
+
+def test_team_name_without_match_context_does_not_build_stadium_fallback():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[],
+        validated_districts=[],
+        provider="stub",
+    )
+
+    candidates = build_logical_location_candidates(
+        title="Kocaelispor'dan taraftara ozel kart projesi",
+        summary="Kulubun banka is birligi icin gorusmelerde sona geldigi ogrenildi.",
+        body=(
+            "Kocaelispor, gelir kaynaklarini cesitlendirmek ve marka degerini "
+            "artirmak amaciyla yeni bir kart projesi hazirliyor."
+        ),
+        classification=_classification(NewsCategory.UNKNOWN),
+        ner_result=ner_result,
+        fallback_district=None,
+    )
+
+    assert all("stadium" not in candidate.strategy for candidate in candidates)

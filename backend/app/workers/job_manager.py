@@ -84,7 +84,7 @@ class JobManager:
                 self._redis_url,
                 decode_responses=True,
                 socket_connect_timeout=2,
-                socket_timeout=2,
+                socket_timeout=None,
             )
             client.ping()
             self._redis = client

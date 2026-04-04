@@ -204,10 +204,10 @@ export function TimelineSlider({ onTimeChange, duration = 72 }: TimelineSliderPr
           </div>
 
           <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-            <span>72 saat once</span>
+            <span>72 saat önce</span>
             <span>48 saat</span>
             <span>24 saat</span>
-            <span>Simdi</span>
+            <span>Şimdi</span>
           </div>
         </div>
 

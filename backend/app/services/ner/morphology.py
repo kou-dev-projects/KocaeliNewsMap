@@ -1,5 +1,4 @@
 from __future__ import annotations
-import re
 
 # Türkçe hal ekleri — en uzundan kısaya sıralı
 # Uzun önce — "İzmit'tekiler" için "tekiler" yerine "deki" yakalanır

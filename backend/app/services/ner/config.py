@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-
-from app.settings import settings
 
 
 @dataclass(frozen=True)
@@ -14,18 +13,21 @@ class NERConfig:
 
 
 def load_ner_config() -> NERConfig:
-    provider = settings.ner_provider
+    provider = os.getenv("NER_PROVIDER", "mock")
 
     if provider == "gliner":
-        model_name = settings.gliner_model_name
+        model_name = os.getenv("GLINER_MODEL_NAME", "urchade/gliner_multi-v2.1")
     elif provider == "bertturk":
-        model_name = settings.bertturk_model_name
+        model_name = os.getenv(
+            "BERTTURK_MODEL_NAME",
+            "savasy/bert-base-turkish-ner-cased",
+        )
     else:
         model_name = ""
 
     return NERConfig(
         provider=provider,
-        min_score=settings.ner_min_score,
+        min_score=float(os.getenv("NER_MIN_SCORE", "0.50")),
         model_name=model_name,
-        gliner_threshold=settings.gliner_threshold,
+        gliner_threshold=float(os.getenv("GLINER_THRESHOLD", "0.50")),
     )

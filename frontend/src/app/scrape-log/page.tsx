@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 
 import { ScrapeLogPanel } from "@/components/ScrapeLogPanel";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const overviewCards = [
   {
     label: "Primary goal",
@@ -23,6 +26,10 @@ const overviewCards = [
 export const metadata: Metadata = {
   title: "PULSE | Live Scrape Monitor",
   description: "Real-time scrape activity and operations dashboard for PULSE.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default function ScrapeLogPage() {

@@ -1,11 +1,11 @@
 from __future__ import annotations
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from .schemas import ClassificationInput, ClassificationResult, NewsCategory, CATEGORY_PRIORITY
+from .schemas import ClassificationInput, ClassificationResult, NewsCategory
 
 if TYPE_CHECKING:
-    from app.services.embedding import EmbeddingService
+    pass
 
 logger = logging.getLogger(__name__)
 

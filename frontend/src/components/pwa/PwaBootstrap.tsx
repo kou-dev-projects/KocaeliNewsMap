@@ -1,18 +1,31 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Bell, Download, ShieldCheck, WifiOff, X } from "lucide-react";
 
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { usePwaInstallPrompt } from "@/hooks/usePwaInstallPrompt";
 import { useWebPushSubscription } from "@/hooks/useWebPushSubscription";
 
+type BannerMode = "offline" | "install" | "push";
+
+type BannerConfig = {
+  mode: BannerMode;
+  eyebrow: string;
+  title: string;
+  description: string;
+  accentClass: string;
+  icon: typeof Download;
+};
+
 export function PwaBootstrap() {
   const [isMounted, setIsMounted] = useState(false);
+  const [hiddenBannerMode, setHiddenBannerMode] = useState<BannerMode | null>(null);
   const isOnline = useOnlineStatus();
   const shouldRegisterServiceWorker =
     process.env.NODE_ENV === "production" ||
     process.env.NEXT_PUBLIC_ENABLE_PWA_IN_DEV === "true";
-  const { canPrompt, isDismissed, isStandalone, promptInstall, dismissPrompt } =
+  const { canPrompt, isStandalone, promptInstall, dismissPrompt } =
     usePwaInstallPrompt();
   const {
     isEnabled: isPushEnabled,
@@ -69,166 +82,209 @@ export function PwaBootstrap() {
       .catch(() => undefined);
   }, [shouldRegisterServiceWorker]);
 
-  const installCopy = useMemo(() => {
-    if (isStandalone) {
-      return null;
-    }
-
-    if (isPromptPending) {
-      return "Preparing installation prompt.";
-    }
-
-    if (isDismissed) {
-      return "Installation prompt dismissed for now.";
-    }
-
-    if (!canPrompt) {
-      return null;
-    }
-
-    return "Install PULSE on the home screen for faster startup and offline map support.";
-  }, [canPrompt, isDismissed, isPromptPending, isStandalone]);
-
   const showPushControls =
     isOnline &&
     isPushEnabled &&
     isPushConfigured &&
     isPushSupported &&
     (pushPermission !== "granted" || isSubscribed);
-  const showBanner =
-    !isOnline || isDismissed || (canPrompt && !isStandalone) || showPushControls;
-  if (!isMounted || !showBanner) {
+
+  const banner = useMemo<BannerConfig | null>(() => {
+    if (!isOnline) {
+      return {
+        mode: "offline",
+        eyebrow: "Offline mode",
+        title: "Bağlantı olmadan da devam",
+        description:
+          "Son görülen ekranlar ve önbellekteki veriler kullanılmaya devam eder.",
+        accentClass:
+          "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        icon: WifiOff,
+      };
+    }
+
+    if (canPrompt && !isStandalone) {
+      return {
+        mode: "install",
+        eyebrow: "PWA hazır",
+        title: "PULSE'u ana ekrana ekleyin",
+        description:
+          "Uygulamayı tek dokunuşta açın, daha hızlı yükleyin ve sahada tarayıcı sekmesine bağlı kalmayın.",
+        accentClass:
+          "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+        icon: Download,
+      };
+    }
+
+    if (showPushControls) {
+      return {
+        mode: "push",
+        eyebrow: "Bildirimler",
+        title:
+          pushPermission === "granted"
+            ? isSubscribed
+              ? "Bildirimler aktif"
+              : "Bildirim aboneliğini tamamlayın"
+            : "Tarama ve saha uyarılarını açın",
+        description:
+          pushPermission === "denied"
+            ? "Bildirim izni tarayıcı ayarlarında engelli. Önce izin vermeniz gerekiyor."
+            : pushPermission === "granted"
+              ? isSubscribed
+                ? isPushTestEnabled
+                  ? "Test bildirimi gönderebilirsiniz."
+                  : "Bildirimler teslim edilmeye hazır."
+                : "İzin verildi. Teslimat için aboneliği tamamlayın."
+              : "Scrape ve kritik haber akışını anlık almak için bildirimleri etkinleştirin.",
+        accentClass:
+          "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+        icon: isSubscribed ? ShieldCheck : Bell,
+      };
+    }
+
+    return null;
+  }, [canPrompt, isOnline, isPushTestEnabled, isStandalone, isSubscribed, pushPermission, showPushControls]);
+
+  const isBannerHidden = Boolean(banner && hiddenBannerMode === banner.mode);
+
+  if (!isMounted || !banner || isBannerHidden) {
     return null;
   }
 
+  const BannerIcon = banner.icon;
+
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-      <div className="pointer-events-auto w-full max-w-md rounded-[22px] border border-slate-900/10 bg-white/95 p-4 text-slate-900 shadow-[0_24px_60px_rgba(15,23,42,0.22)] backdrop-blur">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            {!isOnline ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-600">
-                  Offline mode
-                </p>
-                <p className="text-sm leading-6 text-slate-700">
-                  Cached map tiles and recently visited screens remain available
-                  while the connection is down.
-                </p>
-              </>
-            ) : null}
-
-            {canPrompt && installCopy ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sky-700">
-                  Installable app
-                </p>
-                <p className="text-sm leading-6 text-slate-700">{installCopy}</p>
-              </>
-            ) : null}
-
-            {!canPrompt && isDismissed ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Install prompt
-                </p>
-                <p className="text-sm leading-6 text-slate-700">{installCopy}</p>
-              </>
-            ) : null}
-
-            {showPushControls ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
-                  Notifications
-                </p>
-                <p className="text-sm leading-6 text-slate-700">
-                  {pushPermission === "denied"
-                    ? "Notifications are blocked in browser settings. Allow them first to receive alerts."
-                    : pushPermission === "granted"
-                    ? isSubscribed
-                      ? isPushTestEnabled
-                        ? "Push notifications are enabled. You can send a test notification now."
-                        : "Push notifications are enabled."
-                      : "Notification permission is granted. Finish the subscription to enable delivery."
-                    : "Enable push notifications to receive field alerts and scraper updates."}
-                </p>
-                {pushMessage ? (
-                  <p className="text-xs font-medium text-slate-500">{pushMessage}</p>
-                ) : null}
-              </>
-            ) : null}
+    <div className="pointer-events-none fixed inset-x-4 bottom-24 z-50 flex justify-center md:inset-x-auto md:right-6 md:top-24 md:bottom-auto md:justify-end">
+      <div className="pointer-events-auto w-full max-w-[380px] rounded-[26px] glass-strong p-4 text-foreground shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+        <div className="flex items-start gap-3">
+          <div
+            className={[
+              "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border",
+              banner.accentClass,
+            ].join(" ")}
+          >
+            <BannerIcon className="h-5 w-5" />
           </div>
 
-          {!isOnline ? (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-              Offline
-            </span>
-          ) : (
-            <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-              PWA
-            </span>
-          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  {banner.eyebrow}
+                </p>
+                <h3 className="mt-1 text-base font-semibold text-foreground">
+                  {banner.title}
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (banner.mode === "install") {
+                    dismissPrompt();
+                  }
+                  setHiddenBannerMode(banner.mode);
+                }}
+                className="rounded-xl border border-border/70 bg-background/70 p-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+                aria-label="PWA kartını kapat"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {banner.description}
+            </p>
+
+            {banner.mode === "push" && pushMessage ? (
+              <p className="mt-2 text-xs font-medium text-muted-foreground">
+                {pushMessage}
+              </p>
+            ) : null}
+          </div>
         </div>
 
-        {canPrompt ? (
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={async () => {
-                setIsPromptPending(true);
-                const outcome = await promptInstall();
-                setIsPromptPending(false);
-                if (outcome === "unavailable") {
-                  return;
-                }
-              }}
-              className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Add to home screen
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                dismissPrompt();
-              }}
-              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              Not now
-            </button>
-          </div>
-        ) : null}
+        <div className="mt-4 flex flex-wrap gap-3">
+          {banner.mode === "install" ? (
+            <>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsPromptPending(true);
+                  const outcome = await promptInstall();
+                  setIsPromptPending(false);
 
-        {showPushControls ? (
-          <div className="mt-4 flex flex-wrap gap-3">
-            {!isSubscribed ? (
+                  if (outcome === "dismissed") {
+                    setHiddenBannerMode("install");
+                  }
+                }}
+                className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+              >
+                {isPromptPending ? "Hazırlanıyor..." : "Ana ekrana ekle"}
+              </button>
               <button
                 type="button"
-                onClick={async () => {
-                  await subscribe();
+                onClick={() => {
+                  dismissPrompt();
+                  setHiddenBannerMode("install");
                 }}
-                disabled={isPushBusy || pushPermission === "denied"}
-                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-2xl border border-border/70 bg-background/70 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
               >
-                {pushPermission === "denied"
-                  ? "Notifications blocked"
-                  : isPushBusy
-                    ? "Enabling..."
-                    : "Enable notifications"}
+                Şimdi değil
               </button>
-            ) : isPushTestEnabled ? (
+            </>
+          ) : null}
+
+          {banner.mode === "push" ? (
+            <>
+              {!isSubscribed ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await subscribe();
+                  }}
+                  disabled={isPushBusy || pushPermission === "denied"}
+                  className="rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pushPermission === "denied"
+                    ? "Bildirimler engelli"
+                    : isPushBusy
+                      ? "Etkinleştiriliyor..."
+                      : "Bildirimleri aç"}
+                </button>
+              ) : isPushTestEnabled ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await sendTestNotification();
+                  }}
+                  disabled={isPushBusy}
+                  className="rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isPushBusy ? "Gönderiliyor..." : "Test bildirimi gönder"}
+                </button>
+              ) : null}
+
               <button
                 type="button"
-                onClick={async () => {
-                  await sendTestNotification();
-                }}
-                disabled={isPushBusy}
-                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setHiddenBannerMode("push")}
+                className="rounded-2xl border border-border/70 bg-background/70 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
               >
-                {isPushBusy ? "Sending..." : "Send test notification"}
+                Kapat
               </button>
-            ) : null}
-          </div>
-        ) : null}
+            </>
+          ) : null}
+
+          {banner.mode === "offline" ? (
+            <button
+              type="button"
+              onClick={() => setHiddenBannerMode("offline")}
+              className="rounded-2xl border border-border/70 bg-background/70 px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+            >
+              Anladım
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

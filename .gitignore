@@ -34,6 +34,8 @@ frontend/.lighthouse-tmp/
 frontend/.pwa-server.pid
 frontend/lighthouse-pwa-report.json
 frontend/lighthouse-pwa-summary.json
+frontend/map-smoke-failure.png
+frontend/map-smoke-summary.json
 frontend/pwa-offline-summary.json
 
 # IDE
@@ -64,3 +66,4 @@ backend/tmp/
 
 # Local archive artifacts
 *.archive
+local_history_*.json

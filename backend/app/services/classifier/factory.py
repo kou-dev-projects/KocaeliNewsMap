@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from .config import load_classifier_config
 
 from .keyword_classifier import KeywordClassifier
@@ -8,7 +8,7 @@ from .semantic_classifier import SemanticClassifier
 from .service import ClassifierService
 
 if TYPE_CHECKING:
-    from app.services.embedding import EmbeddingService
+    pass
 
 
 def build_classifier_service(embedding_service=None):

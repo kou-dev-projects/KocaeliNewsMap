@@ -23,16 +23,16 @@ export const CATEGORY_COLORS: Record<string, [number, number, number, number]> =
 };
 
 export const CATEGORY_LEGEND = [
-  { key: "trafik_kazasi", label: "Trafik Kazasi" },
-  { key: "yangin", label: "Yangin" },
+  { key: "trafik_kazasi", label: "Trafik Kazası" },
+  { key: "yangin", label: "Yangın" },
   { key: "elektrik_kesintisi", label: "Elektrik Kesintisi" },
-  { key: "hirsizlik", label: "Hirsizlik" },
-  { key: "kulturel_etkinlik", label: "Kulturel Etkinlik" },
+  { key: "hirsizlik", label: "Hırsızlık" },
+  { key: "kulturel_etkinlik", label: "Kültürel Etkinlik" },
 ] as const;
 
 const DEFAULT_COLOR: [number, number, number, number] = CATEGORY_COLORS.unknown;
-const MIN_MARKER_RADIUS = 6;
-const MAX_MARKER_RADIUS = 20;
+const MIN_MARKER_RADIUS = 8;
+const MAX_MARKER_RADIUS = 18;
 const KOCAELI_BENCHMARK_CENTER: [number, number] = [29.9213, 40.7654];
 
 function normalizeConfidence(confidence?: number | null) {

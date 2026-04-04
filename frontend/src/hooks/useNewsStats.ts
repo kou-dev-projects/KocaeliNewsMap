@@ -2,14 +2,14 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
-import type { FilterState } from "@/components/filters/FilterSidebar";
+import type { NewsQueryFilters } from "@/lib/filter-state";
 import {
   fetchNewsStats,
   type NewsStats,
 } from "@/lib/news-api";
 import { newsKeys } from "@/lib/news-query-keys";
 
-export function useNewsStats(filters: FilterState) {
+export function useNewsStats(filters: NewsQueryFilters) {
   return useQuery<NewsStats>({
     queryKey: newsKeys.stats(filters),
     queryFn: () => fetchNewsStats(filters),

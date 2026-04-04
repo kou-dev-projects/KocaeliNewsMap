@@ -2,12 +2,15 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
+from app.utils.content_cleaning import clean_news_text
+
 from . import selectors
 
 
 NOISE_PATTERNS = [
-    r"^\+\d+\s+Video için play'e tıklayın",
-    r"^\+\d+\s+Haber albümü için resme tıklayın",
+    r"^\s*(?:\+\d+\s+)?Video için play['’]e tıklayın(?:\s*[-+]+\s*)?",
+    r"^\s*(?:\+\d+\s+)?Haber albümü için resme tıklayın(?:\s*[-+]+\s*)?",
+    r"^\s*Büyütmek için resme tıklayın(?:\s*[-+]+\s*)?",
     r"^-\s*\+",
     r"WhatsApp",
     r"Twitle",
@@ -20,7 +23,7 @@ def clean_content(text: str | None) -> str | None:
     if not text:
         return text
 
-    cleaned = text
+    cleaned = clean_news_text(text) or ""
 
     for pattern in NOISE_PATTERNS:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
@@ -28,7 +31,7 @@ def clean_content(text: str | None) -> str | None:
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     cleaned = cleaned.lstrip("-+ ").strip()
 
-    return cleaned
+    return cleaned or None
 
 def is_valid_news_url(url: str) -> bool:
     return (

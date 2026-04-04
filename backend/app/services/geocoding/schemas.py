@@ -32,12 +32,24 @@ class GeocodingInput:
 
     def query_string(self) -> str:
         parts = []
-        if self.neighborhood:
+        normalized_neighborhood = (
+            _normalize_for_compare(self.neighborhood) if self.neighborhood else None
+        )
+        normalized_address = _normalize_for_compare(self.address)
+
+        if (
+            self.neighborhood
+            and normalized_neighborhood
+            and normalized_neighborhood not in normalized_address
+        ):
             parts.append(self.neighborhood.strip())
-        parts.append(self.address.strip())
+        if not parts or normalized_neighborhood != normalized_address:
+            parts.append(self.address.strip())
 
         address_norm = _normalize_for_compare(self.address)
-        hint_norm = _normalize_for_compare(self.district_hint) if self.district_hint else None
+        hint_norm = (
+            _normalize_for_compare(self.district_hint) if self.district_hint else None
+        )
 
         if self.district_hint and hint_norm and hint_norm not in address_norm:
             parts.append(self.district_hint.strip())

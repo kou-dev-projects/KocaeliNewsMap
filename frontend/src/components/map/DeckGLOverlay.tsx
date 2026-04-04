@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import type { PickingInfo } from "@deck.gl/core";
 import { HexagonLayer } from "@deck.gl/aggregation-layers";
-import { ScatterplotLayer } from "@deck.gl/layers";
+import type { Layer, LayersList } from "@deck.gl/core";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import type { IControl, Map as MapLibreMap } from "maplibre-gl";
 
@@ -25,18 +24,23 @@ type DeckGLOverlayProps = {
   onBenchmarkRender?: () => void;
 };
 
+type PickingInfo<T> = {
+  object?: T;
+  x?: number;
+  y?: number;
+};
+
 function createLayers(
   points: DeckNewsPoint[],
   layerMode: MapLayerMode,
-  handleScatterHover: (info: PickingInfo<DeckNewsPoint>) => void,
-  handleScatterClick: (info: PickingInfo<DeckNewsPoint>) => void,
   handleHexHover: (info: PickingInfo<{ points?: DeckNewsPoint[] }>) => boolean,
-) {
-  const layers = [];
+): LayersList {
+  const layers: Array<Layer | null> = [];
+  const HexagonLayerCtor = HexagonLayer as unknown as new (props: Record<string, unknown>) => Layer;
 
   if (layerMode === "heatmap" || layerMode === "combined") {
     layers.push(
-      new HexagonLayer<DeckNewsPoint>({
+      new HexagonLayerCtor({
         id: "news-hexagon",
         data: points,
         pickable: true,
@@ -59,35 +63,12 @@ function createLayers(
           shininess: 24,
           specularColor: [180, 220, 255],
         },
-        getPosition: (point) => point.position,
+        getPosition: (point: DeckNewsPoint) => point.position,
         getColorWeight: () => 1,
         getElevationWeight: () => 1,
         elevationAggregation: "SUM",
         colorAggregation: "SUM",
         onHover: handleHexHover,
-      }),
-    );
-  }
-
-  if (layerMode === "markers" || layerMode === "combined") {
-    layers.push(
-      new ScatterplotLayer<DeckNewsPoint>({
-        id: "news-scatterplot",
-        data: points,
-        pickable: true,
-        stroked: true,
-        filled: true,
-        radiusUnits: "pixels",
-        lineWidthUnits: "pixels",
-        getPosition: (point) => point.position,
-        getRadius: (point) => point.radius,
-        getFillColor: (point) => point.color,
-        getLineColor: [255, 255, 255, 220],
-        getLineWidth: 1.5,
-        radiusScale: 1,
-        opacity: 0.92,
-        onHover: handleScatterHover,
-        onClick: handleScatterClick,
       }),
     );
   }
@@ -170,31 +151,6 @@ export default function DeckGLOverlay({
 
     const canvas = map.getCanvas();
 
-    const handleScatterHover = (info: PickingInfo<DeckNewsPoint>) => {
-      if (!info.object || info.x === undefined || info.y === undefined) {
-        canvas.style.cursor = "";
-        handlersRef.current.onTooltipChange(null);
-        return;
-      }
-
-      canvas.style.cursor = "pointer";
-      handlersRef.current.onTooltipChange({
-        type: "marker",
-        x: info.x,
-        y: info.y,
-        title: info.object.title,
-        dateLabel: info.object.publishedLabel,
-      });
-    };
-
-    const handleScatterClick = (info: PickingInfo<DeckNewsPoint>) => {
-      if (!info.object) {
-        return;
-      }
-
-      handlersRef.current.onMarkerSelect?.(info.object.sourceItem);
-    };
-
     const handleHexHover = (info: PickingInfo<{ points?: DeckNewsPoint[] }>) => {
       const count = info.object?.points?.length ?? 0;
 
@@ -224,8 +180,6 @@ export default function DeckGLOverlay({
       layers: createLayers(
         effectivePoints,
         layerMode,
-        handleScatterHover,
-        handleScatterClick,
         handleHexHover,
       ),
     });

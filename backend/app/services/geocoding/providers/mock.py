@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 from typing import Optional
+
+from ..provider_versions import PROVIDER_VERSIONS
 from ..schemas import GeocodingInput, GeocodingResult, _normalize_for_compare
 
-_PROVIDER_VERSION = "mock@1.0"
+_PROVIDER_VERSION = PROVIDER_VERSIONS["mock"]
 
 _RAW_KOCAELI_COORDS: dict[str, tuple[float, float]] = {
     "İzmit": (40.7654, 29.9408),

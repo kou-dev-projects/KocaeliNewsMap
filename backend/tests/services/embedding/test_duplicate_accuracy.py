@@ -77,11 +77,11 @@ def test_duplicate_accuracy(news, svc):
     accuracy = correct / total
 
     print(f"\n{'='*50}")
-    print(f"[S1-004 Duplicate Accuracy Report]")
+    print("[S1-004 Duplicate Accuracy Report]")
     print(f"  Toplam: {total} | Doğru: {correct} | Yanlış: {total - correct}")
     print(f"  False Positive: {false_positive} | False Negative: {false_negative}")
     print(f"  Accuracy: {accuracy:.2%}")
-    print(f"  Threshold: 0.90 | Hedef: 95%")
+    print("  Threshold: 0.90 | Hedef: 95%")
     print(f"  Sonuç: {'✓ GEÇTİ' if accuracy >= 0.95 else '✗ KALDI'}")
     print(f"{'='*50}")
 

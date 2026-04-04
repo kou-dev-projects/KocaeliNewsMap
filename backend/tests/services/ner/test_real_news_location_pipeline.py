@@ -43,7 +43,7 @@ GROUP_EXPECTATIONS: dict[str, list[str]] = {
     "duplicate_of_grp_15": ["Darıca"],
     "duplicate_of_grp_16": ["Dilovası"],
     "duplicate_of_grp_17": ["Derince"],
-    "duplicate_of_grp_18": ["Körfez"],
+    "duplicate_of_grp_18": ["Hereke"],
     "duplicate_of_grp_19": ["Başiskele"],
     "duplicate_of_grp_20": ["Gölcük"],
     "duplicate_of_grp_21": ["İzmit"],

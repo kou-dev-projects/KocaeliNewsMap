@@ -13,10 +13,16 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.db.database import db
+from app.services.scrape_orchestrator import (
+    ScrapeTriggerResult,
+    start_bootstrap_scrape_if_needed,
+    start_refresh_scrape,
+)
 from app.services.scrape_events import (
     ScrapeEvent,
     ScrapeEventReader,
     _HEARTBEAT_SENTINEL,
+    get_latest_scrape_run,
     get_scrape_event_publisher,
 )
 from app.settings import settings
@@ -84,11 +90,14 @@ def _get_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Networ
 
 
 def _verify_trigger_auth(x_api_key: str | None) -> None:
-    expected_key = settings.scrape_trigger_api_key
+    expected_key = (settings.scrape_trigger_api_key or "").strip()
     if not expected_key:
-        return
+        logger.error("scrape.trigger_auth.misconfigured")
+        raise HTTPException(status_code=503, detail="scrape_trigger_auth_misconfigured")
 
-    if not x_api_key or not secrets.compare_digest(x_api_key, expected_key):
+    provided_key = x_api_key.strip() if isinstance(x_api_key, str) else ""
+
+    if not provided_key or not secrets.compare_digest(provided_key, expected_key):
         raise HTTPException(status_code=401, detail="unauthorized_scrape_trigger")
 
 
@@ -187,6 +196,61 @@ def _enforce_rate_limit(client_id: str) -> None:
         logger.warning("scrape.rate_limit.redis_error - failing open")
 
 
+def _build_job_response(request: Request, job_id: str) -> dict[str, str]:
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "status_url": str(request.url_for("get_job_status", job_id=job_id)),
+    }
+
+
+def _publish_scrape_job_submitted(
+    *,
+    job_id: str,
+    source: str | None,
+    trigger_type: str,
+    message: str,
+    details: dict | None = None,
+) -> None:
+    get_scrape_event_publisher().publish(
+        ScrapeEvent(
+            event="job_submitted",
+            message=message,
+            job_id=job_id,
+            source=source,
+            trigger_type=trigger_type,
+            status="pending",
+            details=details,
+        )
+    )
+
+
+def _trigger_started_response(
+    request: Request,
+    *,
+    result: ScrapeTriggerResult,
+    source: str | None = None,
+    message: str,
+    details: dict | None = None,
+) -> JSONResponse:
+    if result.job_id is None:
+        raise RuntimeError("missing_job_id_for_started_trigger")
+
+    _publish_scrape_job_submitted(
+        job_id=result.job_id,
+        source=source,
+        trigger_type=result.trigger_type,
+        message=message,
+        details=details,
+    )
+
+    content = _build_job_response(request, result.job_id)
+    if details:
+        content["details"] = details
+
+    return JSONResponse(status_code=202, content=content)
+
+
 @router.post("/trigger")
 def trigger_scrape(
     request: Request,
@@ -209,24 +273,85 @@ def trigger_scrape(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
 
-    get_scrape_event_publisher().publish(
-        ScrapeEvent(
-            event="job_submitted",
-            message="Manual scrape job queued",
-            job_id=job_id,
-            source=normalized_source,
+    return _trigger_started_response(
+        request,
+        result=ScrapeTriggerResult(
+            status="started",
             trigger_type="manual",
-            status="pending",
-        )
+            job_id=job_id,
+        ),
+        source=normalized_source,
+        message="Manual scrape job queued",
     )
 
-    return JSONResponse(
-        status_code=202,
-        content={
-            "job_id": job_id,
-            "status": "pending",
-            "status_url": str(request.url_for("get_job_status", job_id=job_id)),
-        },
+
+@router.post("/bootstrap")
+def bootstrap_scrape(
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> JSONResponse:
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+
+    _verify_trigger_auth(x_api_key)
+    _enforce_rate_limit(_resolve_client_id(request))
+
+    manager = _get_job_manager()
+    try:
+        result = start_bootstrap_scrape_if_needed(db, manager)
+    except JobQueueUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+
+    if result.status == "already_initialized":
+        get_scrape_event_publisher().publish(
+            ScrapeEvent(
+                event="bootstrap_skipped",
+                message="Bootstrap scrape skipped because data already exists",
+                trigger_type=result.trigger_type,
+                status="skipped",
+                details={"reason": result.reason},
+            )
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": result.status,
+                "reason": result.reason,
+            },
+        )
+
+    return _trigger_started_response(
+        request,
+        result=result,
+        message="Bootstrap scrape job queued",
+    )
+
+
+@router.post("/refresh")
+def refresh_scrape(
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> JSONResponse:
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+
+    _verify_trigger_auth(x_api_key)
+    _enforce_rate_limit(_resolve_client_id(request))
+
+    manager = _get_job_manager()
+    try:
+        result = start_refresh_scrape(db, manager)
+    except JobQueueUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+
+    return _trigger_started_response(
+        request,
+        result=result,
+        message="Refresh scrape job queued",
     )
 
 
@@ -271,6 +396,31 @@ def get_job_status(
         response["error"] = job.error
 
     return response
+
+
+@router.get("/latest")
+def get_latest_scrape(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+
+    _verify_trigger_auth(x_api_key)
+
+    latest_run = get_latest_scrape_run()
+    if latest_run is None:
+        return {
+            "job_id": None,
+            "status": "idle",
+            "source": None,
+            "trigger_type": None,
+            "started_at": None,
+            "updated_at": None,
+            "event_count": 0,
+            "events": [],
+        }
+
+    return latest_run
 
 
 @router.get("/events")

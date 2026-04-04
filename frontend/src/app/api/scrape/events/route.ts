@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 
+import { authorizeScrapeControlRequest } from "../_proxy";
+
 export const dynamic = "force-dynamic";
 
 function buildBackendUrl(request: NextRequest): URL {
@@ -18,6 +20,11 @@ function buildBackendUrl(request: NextRequest): URL {
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
+  const authError = authorizeScrapeControlRequest(request);
+  if (authError) {
+    return authError;
+  }
+
   const backendUrl = buildBackendUrl(request);
   const headers = new Headers({
     Accept: "text/event-stream",

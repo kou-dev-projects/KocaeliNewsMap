@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ScrapeEventStreamClient } from "@/lib/scrape/ScrapeEventStreamClient";
 import { adaptScrapeEvent } from "@/lib/scrape/scrapeEventAdapter";
@@ -13,10 +13,14 @@ const MAX_VISIBLE_EVENTS = 200;
 
 type UseScrapeEventStreamOptions = {
   jobId?: string;
+  enabled?: boolean;
+  authorizationHeader?: string;
 };
 
 export function useScrapeEventStream({
   jobId,
+  enabled = true,
+  authorizationHeader,
 }: UseScrapeEventStreamOptions = {}) {
   const [events, setEvents] = useState<ScrapeLogEntry[]>([]);
   const [connectionState, setConnectionState] =
@@ -24,11 +28,22 @@ export function useScrapeEventStream({
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [lastActivityAt, setLastActivityAt] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const replaceEvents = useCallback((nextEvents: ScrapeLogEntry[]) => {
+    setEvents(nextEvents.slice(-MAX_VISIBLE_EVENTS));
+  }, []);
+  const clearEvents = useCallback(() => {
+    setEvents([]);
+  }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const client = new ScrapeEventStreamClient({
       url: "/api/scrape/events",
       jobId,
+      authorizationHeader,
       maxReconnectAttempts: 3,
       onStateChange: (nextState) => {
         if (nextState === "connected") {
@@ -60,14 +75,14 @@ export function useScrapeEventStream({
     return () => {
       client.disconnect();
     };
-  }, [jobId]);
+  }, [authorizationHeader, enabled, jobId]);
 
   const lastActivityLabel = useMemo(() => {
     if (!lastActivityAt) {
-      return "No stream activity yet";
+      return "Henüz akış aktivitesi yok";
     }
 
-    return new Intl.DateTimeFormat("en-GB", {
+    return new Intl.DateTimeFormat("tr-TR", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -76,10 +91,11 @@ export function useScrapeEventStream({
 
   return {
     events,
-    connectionState,
-    reconnectAttempt,
+    connectionState: enabled ? connectionState : "idle",
+    reconnectAttempt: enabled ? reconnectAttempt : 0,
     lastActivityLabel,
-    errorMessage,
-    clearEvents: () => setEvents([]),
+    errorMessage: enabled ? errorMessage : null,
+    clearEvents,
+    replaceEvents,
   };
 }

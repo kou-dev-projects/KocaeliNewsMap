@@ -5,7 +5,6 @@ from typing import Optional
 
 from .schemas import (
     ClassificationResult,
-    NewsCategory,
     CATEGORY_PRIORITY,
 )
 

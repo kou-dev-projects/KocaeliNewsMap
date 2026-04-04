@@ -1,303 +1,502 @@
-"use client";
+"use client"
 
-import { Suspense, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
+import { motion } from "framer-motion"
+import { Globe2, Loader2, MapPinned, Newspaper, TrendingUp, X } from "lucide-react"
 
-import FilterSidebar, {
-  type FilterState,
-} from "@/components/filters/FilterSidebar";
-import InfoCard from "@/components/map/InfoCard";
-import MapView, { type NewsMapItem } from "@/components/map/MapView";
-import { useNewsMap } from "@/hooks/useNewsMap";
-import { useNewsStats } from "@/hooks/useNewsStats";
-import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
+import { ScrapeLogPanel } from "@/components/ScrapeLogPanel"
+import InfoCard from "@/components/map/InfoCard"
+import MapView, { type MapThemeMode, type NewsMapItem } from "@/components/map/MapView"
+import { DateRangeSelector } from "@/components/pulse/date-range-selector"
+import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector"
+import { EnhancedCategoryBar } from "@/components/pulse/enhanced-category-bar"
+import { EnhancedSidebar } from "@/components/pulse/enhanced-sidebar"
+import { EnterpriseHeader } from "@/components/pulse/enterprise-header"
+import { LiveNewsFeed, type LiveNewsFeedItem } from "@/components/pulse/live-news-feed"
+import { SplashScreen } from "@/components/pulse/splash-screen"
+import { StatsCard } from "@/components/pulse/stats-card"
+import { useNewsDashboard } from "@/hooks/useNewsDashboard"
+import type { NewsQueryFilters } from "@/lib/filter-state"
+import { EMPTY_DASHBOARD_RESPONSE } from "@/lib/news-api"
 
-const EMPTY_FILTERS: FilterState = {
-  category: "",
-  district: "",
-  dateFrom: "",
-  dateTo: "",
-};
+const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "1000")
+type PulseCategory = LiveNewsFeedItem["pulseCategory"]
 
-const CATEGORY_LABELS: Record<string, string> = {
-  trafik_kazasi: "Trafik Kazasi",
-  yangin: "Yangin",
-  elektrik_kesintisi: "Elektrik Kesintisi",
-  hirsizlik: "Hirsizlik",
-  kulturel_etkinlik: "Kulturel Etkinlik",
-};
-
-const DISTRICT_LABELS: Record<string, string> = {
-  izmit: "Izmit",
-  gebze: "Gebze",
-  darica: "Darica",
-  golcuk: "Golcuk",
-  hereke: "Hereke",
-  korfez: "Korfez",
-  kartepe: "Kartepe",
-  basiskele: "Basiskele",
-  cayirova: "Cayirova",
-  dilovasi: "Dilovasi",
-  kandira: "Kandira",
-  karamursel: "Karamursel",
-  derince: "Derince",
-};
-
-type SearchParamsLike = {
-  get(name: string): string | null;
-};
-
-function filtersFromSearchParams(searchParams: SearchParamsLike) {
-  return {
-    category: searchParams.get("category") ?? "",
-    district: searchParams.get("district") ?? "",
-    dateFrom: searchParams.get("date_from") ?? "",
-    dateTo: searchParams.get("date_to") ?? "",
-  };
+function toFeedCategory(raw?: string | null): LiveNewsFeedItem["pulseCategory"] {
+  switch (raw) {
+    case "trafik_kazasi":
+      return "traffic"
+    case "yangin":
+      return "fire"
+    case "elektrik_kesintisi":
+      return "outage"
+    case "hirsizlik":
+      return "theft"
+    case "kulturel_etkinlik":
+      return "event"
+    default:
+      return "breaking"
+  }
 }
 
-function formatFilterSummary(filters: FilterState) {
-  const parts: string[] = [];
+function buildQueryFilters(input: {
+  districts?: string[]
+  search?: string
+  dateFrom?: string
+  dateTo?: string
+  limit?: number
+}): NewsQueryFilters {
+  const filters: NewsQueryFilters = {}
 
-  if (filters.category) {
-    parts.push(`Tur: ${CATEGORY_LABELS[filters.category] ?? filters.category}`);
+  if (input.districts && input.districts.length > 0) {
+    filters.districts = input.districts
+  }
+  if (input.search) {
+    filters.search = input.search
+  }
+  if (input.dateFrom) {
+    filters.dateFrom = input.dateFrom
+  }
+  if (input.dateTo) {
+    filters.dateTo = input.dateTo
+  }
+  if (input.limit) {
+    filters.limit = input.limit
   }
 
-  if (filters.district) {
-    parts.push(`Ilce: ${DISTRICT_LABELS[filters.district] ?? filters.district}`);
+  return filters
+}
+
+function normalizeDistrict(value?: string | null): string {
+  if (!value) {
+    return ""
   }
 
-  if (filters.dateFrom || filters.dateTo) {
-    const from = filters.dateFrom || "baslangic yok";
-    const to = filters.dateTo || "bugune kadar";
-    parts.push(`Tarih: ${from} - ${to}`);
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+}
+
+function formatDistrictName(value?: string | null): string {
+  if (!value) {
+    return "Bilinmeyen"
   }
 
-  if (parts.length === 0) {
-    return "Aktif filtre yok. Tum haberler gosterilecek.";
+  return value
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toLocaleUpperCase("tr-TR") + part.slice(1))
+    .join(" ")
+}
+
+function parseDateValue(value?: string | null): number {
+  if (!value) {
+    return 0
   }
 
-  return parts.join(" | ");
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 0
+  }
+
+  return date.getTime()
+}
+
+function formatRelativeTime(value?: string | null): string {
+  const timestamp = parseDateValue(value)
+  if (!timestamp) {
+    return "Bilinmeyen"
+  }
+
+  const diffMinutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000))
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes} dk önce`
+  }
+
+  const diffHours = Math.round(diffMinutes / 60)
+  if (diffHours < 24) {
+    return `${diffHours} saat önce`
+  }
+
+  const diffDays = Math.round(diffHours / 24)
+  return `${diffDays} gün önce`
+}
+
+function isLikelyLive(item: NewsMapItem): boolean {
+  const timestamp = parseDateValue(item.published_at_raw)
+  if (!timestamp) {
+    return false
+  }
+
+  return Date.now() - timestamp <= 6 * 60 * 60 * 1000
+}
+
+function isRecentNews(item: NewsMapItem): boolean {
+  const timestamp = parseDateValue(item.published_at_raw)
+  if (!timestamp) {
+    return false
+  }
+
+  return Date.now() - timestamp <= 90 * 60 * 1000
+}
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function getDefaultDateRange() {
+  const end = new Date()
+  end.setHours(0, 0, 0, 0)
+
+  const start = new Date(end)
+  start.setDate(end.getDate() - 2)
+
+  return {
+    dateFrom: formatDateInputValue(start),
+    dateTo: formatDateInputValue(end),
+  }
+}
+
+function normalizeDateRange(dateFrom: string, dateTo: string) {
+  if (!dateFrom && !dateTo) {
+    return { dateFrom: undefined, dateTo: undefined }
+  }
+
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    return { dateFrom: dateTo, dateTo: dateFrom }
+  }
+
+  return {
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  }
 }
 
 function HomeFallback() {
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:max-w-[1500px] lg:px-6">
-        <header className="rounded-2xl bg-white px-5 py-4 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
-            PULSE
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            Kocaeli Haber Haritasi
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Harita ve filtreler hazirlaniyor.
-          </p>
-        </header>
-
-        <section className="grid grid-cols-3 gap-3">
-          {[0, 1, 2].map((key) => (
-            <article
-              key={key}
-              className="rounded-xl bg-white px-4 py-3 shadow-sm"
-            >
-              <div className="h-4 w-20 rounded bg-slate-200" />
-              <div className="mt-3 h-8 w-14 rounded bg-slate-200" />
-            </article>
-          ))}
-        </section>
-
-        <section className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <div className="min-h-[320px] rounded-2xl bg-white shadow-sm" />
-          <div className="min-h-[560px] rounded-2xl bg-white shadow-sm" />
-        </section>
-      </main>
+    <div className="fixed inset-0 bg-background p-4">
+      <div className="h-16 w-full animate-shimmer rounded-2xl glass" />
+      <div className="mt-4 h-[calc(100%-6rem)] w-full animate-shimmer rounded-2xl glass" />
     </div>
-  );
+  )
 }
 
 function HomeContent() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const initialFilters = filtersFromSearchParams(searchParams);
+  const defaultDateRange = useMemo(() => getDefaultDateRange(), [])
+  const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null)
+  const [selectedCategory, setSelectedCategory] = useState<PulseCategory | null>(null)
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([])
+  const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom)
+  const [dateTo, setDateTo] = useState(defaultDateRange.dateTo)
+  const [searchKeyword, setSearchKeyword] = useState("")
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [mapThemeMode, setMapThemeMode] = useState<MapThemeMode>("light")
+  const [showSplash, setShowSplash] = useState(true)
+  const deferredSearchKeyword = useDeferredValue(searchKeyword)
+  const normalizedSearchKeyword = deferredSearchKeyword.trim()
+  const normalizedDateRange = useMemo(
+    () => normalizeDateRange(dateFrom, dateTo),
+    [dateFrom, dateTo],
+  )
 
-  const [draftFilters, setDraftFilters] = useState<FilterState>(initialFilters);
-  const [appliedFilters, setAppliedFilters] =
-    useState<FilterState>(initialFilters);
-  const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
+  const dashboardFilters = useMemo(
+    () =>
+      buildQueryFilters({
+        districts: selectedDistricts.length > 0 ? selectedDistricts : undefined,
+        search: normalizedSearchKeyword || undefined,
+        dateFrom: normalizedDateRange.dateFrom,
+        dateTo: normalizedDateRange.dateTo,
+        limit: DEFAULT_MAP_LIMIT,
+      }),
+    [
+      normalizedDateRange.dateFrom,
+      normalizedDateRange.dateTo,
+      normalizedSearchKeyword,
+      selectedDistricts,
+    ],
+  )
 
   const {
-    data: stats = EMPTY_STATS,
-    isLoading: statsLoading,
-    isError: statsIsError,
-  } = useNewsStats(appliedFilters);
+    data: dashboardData = EMPTY_DASHBOARD_RESPONSE,
+    error: dashboardError,
+    isLoading: dashboardLoading,
+  } = useNewsDashboard(dashboardFilters)
 
-  const {
-    data: mapData = EMPTY_MAP_RESPONSE,
-    isLoading: mapLoading,
-    isError: mapIsError,
-  } = useNewsMap(appliedFilters);
+  const stats = dashboardData.stats
+  const mapData = dashboardData.map
 
-  const statsError = statsIsError ? "Istatistikler su anda yuklenemedi." : "";
-  const mapError = mapIsError ? "Harita verileri su anda yuklenemedi." : "";
+  const districtOptions = useMemo<DistrictOption[]>(
+    () =>
+      dashboardData.district_facets.map((bucket) => ({
+        id: normalizeDistrict(bucket.key),
+        name: formatDistrictName(bucket.key),
+        newsCount: bucket.count,
+      })),
+    [dashboardData.district_facets],
+  )
+
+  const effectiveSelectedDistricts = useMemo(
+    () =>
+      selectedDistricts.length === 0
+        ? districtOptions.map((district) => district.id)
+        : selectedDistricts,
+    [districtOptions, selectedDistricts],
+  )
+
+  const mapItems = useMemo(() => {
+    return [...mapData.items].sort(
+      (a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw),
+    )
+  }, [mapData.items])
+
+  const categoryCounts = useMemo<Record<string, number>>(
+    () =>
+      dashboardData.category_facets.reduce<Record<string, number>>((accumulator, bucket) => {
+        const categoryKey = toFeedCategory(bucket.key)
+        accumulator[categoryKey] = (accumulator[categoryKey] || 0) + bucket.count
+        return accumulator
+      }, {}),
+    [dashboardData.category_facets],
+  )
+
+  const visibleMapItems = useMemo(() => {
+    if (!selectedCategory) {
+      return mapItems
+    }
+
+    return mapItems.filter((item) => toFeedCategory(item.category) === selectedCategory)
+  }, [mapItems, selectedCategory])
+
+  const liveFeedItems = useMemo<LiveNewsFeedItem[]>(() => {
+    return visibleMapItems.slice(0, 8).map((item) => ({
+      ...item,
+      isRecent: isRecentNews(item),
+      pulseCategory: toFeedCategory(item.category),
+      timeLabel: formatRelativeTime(item.published_at_raw),
+    }))
+  }, [visibleMapItems])
+
   const visibleSelectedNews =
-    selectedNews && mapData.items.some((item) => item.id === selectedNews.id)
+    selectedNews && visibleMapItems.some((item) => item.id === selectedNews.id)
       ? selectedNews
-      : null;
+      : null
 
-  const handleDraftChange = (field: keyof FilterState, value: string) => {
-    setDraftFilters((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  };
+  const globalTotalNews = stats.total || mapData.total
+  const liveCount = useMemo(() => visibleMapItems.filter(isLikelyLive).length, [visibleMapItems])
+  const filteredGeocodeCount = visibleMapItems.length
+  const filteredSourceCount = useMemo(
+    () =>
+      new Set(
+        visibleMapItems
+          .map((item) => item.source_domain || item.source_name)
+          .filter(Boolean),
+      ).size,
+    [visibleMapItems],
+  )
 
-  const handleApplyFilters = () => {
-    setAppliedFilters(draftFilters);
-
-    const nextParams = new URLSearchParams(searchParams.toString());
-
-    if (draftFilters.category) {
-      nextParams.set("category", draftFilters.category);
-    } else {
-      nextParams.delete("category");
+  const dataErrorMessage = useMemo(() => {
+    if (!dashboardError) {
+      return ""
     }
 
-    if (draftFilters.district) {
-      nextParams.set("district", draftFilters.district);
-    } else {
-      nextParams.delete("district");
-    }
-
-    if (draftFilters.dateFrom) {
-      nextParams.set("date_from", draftFilters.dateFrom);
-    } else {
-      nextParams.delete("date_from");
-    }
-
-    if (draftFilters.dateTo) {
-      nextParams.set("date_to", draftFilters.dateTo);
-    } else {
-      nextParams.delete("date_to");
-    }
-
-    const nextQuery = nextParams.toString();
-    const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
-    router.replace(nextUrl, { scroll: false });
-  };
-
-  const handleResetFilters = () => {
-    setDraftFilters(EMPTY_FILTERS);
-    setAppliedFilters(EMPTY_FILTERS);
-    router.replace(pathname, { scroll: false });
-  };
+    return dashboardError instanceof Error
+      ? dashboardError.message
+      : "Veri akışında beklenmeyen bir hata oluştu."
+  }, [dashboardError])
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-5 lg:max-w-[1500px] lg:px-6">
-        <header className="rounded-2xl bg-white px-5 py-4 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-700">
-            PULSE
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            Kocaeli Haber Haritasi
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Ilce ve mahalle odakli haberleri tek akista izlemek icin kontrol
-            paneli.
-          </p>
-        </header>
+    <>
+      {showSplash ? <SplashScreen onComplete={() => setShowSplash(false)} /> : null}
 
-        <section className="grid grid-cols-3 gap-3">
-          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">
-              Toplam Haber
-            </h2>
-            <p className="mt-1 text-xl font-bold sm:text-2xl">
-              {statsLoading ? "--" : stats.total}
-            </p>
-          </article>
-          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">
-              Aktif Kaynak
-            </h2>
-            <p className="mt-1 text-xl font-bold sm:text-2xl">
-              {statsLoading ? "--" : stats.active_sources}
-            </p>
-          </article>
-          <article className="rounded-xl bg-white px-4 py-3 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-500">Son 24 Saat</h2>
-            <p className="mt-1 text-xl font-bold sm:text-2xl">
-              {statsLoading ? "--" : stats.last_24h_total}
-            </p>
-          </article>
-        </section>
+      <main className="relative h-screen w-screen overflow-hidden bg-transparent">
+        <EnterpriseHeader
+          searchQuery={searchKeyword}
+          onSearchChange={setSearchKeyword}
+          onMenuToggle={() => setIsPanelOpen((current) => !current)}
+          isMenuOpen={isPanelOpen}
+          totalNews={globalTotalNews}
+          liveCount={liveCount}
+          mapThemeMode={mapThemeMode}
+          onMapThemeModeChange={setMapThemeMode}
+        />
 
-        {statsError ? (
-          <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {statsError}
-          </section>
-        ) : null}
+        <div className="absolute inset-0 z-0">
+          <motion.div
+            className="h-full w-full overflow-hidden"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+          >
+            <MapView
+              className="h-full w-full"
+              themeMode={mapThemeMode}
+              items={visibleMapItems}
+              onMarkerSelect={setSelectedNews}
+            />
+          </motion.div>
 
-        <section className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <FilterSidebar
-            values={draftFilters}
-            onChange={handleDraftChange}
-            onApply={handleApplyFilters}
-            onReset={handleResetFilters}
-          />
-
-          <article className="flex min-h-[560px] flex-col rounded-2xl bg-white p-4 shadow-sm lg:min-h-0 lg:overflow-hidden">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold">Harita Gorunumu</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Filtre sonuclari burada harita uzerinde goruntulenecek.
-                </p>
+          {dashboardLoading ? (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="glass inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                Veriler yükleniyor...
               </div>
             </div>
+          ) : null}
 
-            <div className="mt-4 rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">
-                Aktif Filtreler
-              </p>
-              <p className="mt-2 text-sm text-slate-700">
-                {formatFilterSummary(appliedFilters)}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                {mapLoading
-                  ? "Harita haberleri yukleniyor..."
-                  : `${mapData.total} geocoded haber haritada gosteriliyor.`}
-              </p>
+          {!dashboardLoading && dataErrorMessage ? (
+            <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+              <div className="glass rounded-xl border border-destructive/30 px-4 py-3 text-sm text-destructive shadow-lg">
+                {dataErrorMessage}
+              </div>
             </div>
+          ) : null}
 
-            {mapError ? (
-              <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                {mapError}
-              </section>
-            ) : null}
+          {!dashboardLoading && !dataErrorMessage && visibleMapItems.length === 0 ? (
+            <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+              <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
+                Aktif filtrelere göre gösterilecek haber bulunamadı.
+              </div>
+            </div>
+          ) : null}
+        </div>
 
-            <div className="mt-4 grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="min-h-0 overflow-hidden rounded-xl border border-slate-200">
-                <MapView
-                  className="h-[360px] w-full sm:h-[420px] lg:h-full"
-                  items={mapData.items}
-                  onMarkerSelect={setSelectedNews}
+        <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
+
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 hidden w-full max-w-[1600px] -translate-x-1/2 px-4 xl:block">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{
+              opacity: isPanelOpen ? 0 : 1,
+              y: isPanelOpen ? 12 : 0,
+              pointerEvents: isPanelOpen ? "none" : "auto",
+            }}
+            transition={{ delay: 0.26 }}
+            className="pointer-events-auto hidden xl:block"
+          >
+            <div className="rounded-2xl glass p-1.5 shadow-2xl">
+              <div
+                className="grid items-stretch gap-2"
+                style={{ gridTemplateColumns: "1.08fr 1.08fr 7.84fr" }}
+              >
+                <DistrictSelector
+                  districts={districtOptions}
+                  selected={effectiveSelectedDistricts}
+                  onChange={setSelectedDistricts}
                 />
+                <DateRangeSelector
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  onDateFromChange={setDateFrom}
+                  onDateToChange={setDateTo}
+                  onResetToDefault={() => {
+                    setDateFrom(defaultDateRange.dateFrom)
+                    setDateTo(defaultDateRange.dateTo)
+                  }}
+                />
+                <div>
+                  <EnhancedCategoryBar
+                    selectedCategory={selectedCategory}
+                    onCategoryChange={(category) =>
+                      setSelectedCategory(category as PulseCategory | null)
+                    }
+                    categoryCounts={categoryCounts}
+                    embedded
+                  />
+                  </div>
               </div>
+            </div>
+          </motion.div>
+        </div>
 
-              <InfoCard
-                item={visibleSelectedNews}
-                className="lg:min-h-0 lg:overflow-auto"
+        <EnhancedSidebar
+          isOpen={isPanelOpen}
+          onClose={() => setIsPanelOpen(false)}
+          title="Canlı Kontrol Paneli"
+          subtitle="Özet kartlar üstte, scrape işlemleri hemen altında."
+        >
+          {dataErrorMessage ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {dataErrorMessage}
+            </div>
+          ) : null}
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <StatsCard
+                title="Görünüm"
+                value={visibleMapItems.length}
+                icon={<Newspaper className="h-4 w-4" />}
+                color="bg-primary"
+                delay={0}
+              />
+              <StatsCard
+                title="Konumlu"
+                value={filteredGeocodeCount}
+                icon={<MapPinned className="h-4 w-4" />}
+                color="bg-emerald-500"
+                delay={0.05}
+              />
+              <StatsCard
+                title="Kaynak"
+                value={filteredSourceCount || stats.active_sources}
+                icon={<Globe2 className="h-4 w-4" />}
+                color="bg-sky-500"
+                delay={0.1}
+              />
+              <StatsCard
+                title="Son 6 Saat"
+                value={liveCount}
+                icon={<TrendingUp className="h-4 w-4" />}
+                color="bg-violet-500"
+                delay={0.15}
               />
             </div>
-          </article>
-        </section>
+
+            <div
+              className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+              data-testid="visible-news-count"
+            >
+              {visibleMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
+            </div>
+
+            <ScrapeLogPanel variant="embedded" />
+          </div>
+        </EnhancedSidebar>
+
+        {visibleSelectedNews ? (
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ duration: 0.22 }}
+            className="pointer-events-none absolute inset-x-4 top-28 z-20 flex justify-center xl:inset-x-auto xl:right-6 xl:top-28"
+          >
+            <div className="pointer-events-auto relative w-full max-w-[58rem]">
+              <button
+                type="button"
+                onClick={() => setSelectedNews(null)}
+                className="absolute right-3 top-3 z-10 rounded-full border border-border/70 bg-background/80 p-2 text-foreground shadow-sm backdrop-blur transition hover:bg-background"
+                aria-label="Haber detayını kapat"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <InfoCard
+                item={visibleSelectedNews}
+                className="shadow-[0_24px_60px_rgba(15,23,42,0.22)]"
+              />
+            </div>
+          </motion.div>
+        ) : null}
       </main>
-    </div>
-  );
+    </>
+  )
 }
 
 export default function Home() {
@@ -305,5 +504,5 @@ export default function Home() {
     <Suspense fallback={<HomeFallback />}>
       <HomeContent />
     </Suspense>
-  );
+  )
 }

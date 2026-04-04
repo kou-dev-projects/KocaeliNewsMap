@@ -39,6 +39,8 @@ class LocationCandidate:
     is_kocaeli_district: bool
     district: Optional[str] = None
     neighborhood: Optional[str] = None
+    feature_type: Optional[str] = None
+    source_key: Optional[str] = None
 
 
 @dataclass(frozen=True)

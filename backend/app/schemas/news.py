@@ -3,6 +3,12 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class NewsSourceSite(BaseModel):
+    domain: str
+    url: str
+    is_primary: bool = False
+
+
 class NewsBase(BaseModel):
     title: str
     summary: Optional[str] = None
@@ -33,8 +39,12 @@ class NewsListItem(NewsBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class NewsResponse(NewsListItem):
+class NewsResponse(NewsBase):
+    id: str
+    scraped_at: Optional[str] = None
     content_text: str
+    location_text_extracted: Optional[str] = None
+    source_sites: list[NewsSourceSite] = Field(default_factory=list)
 
 
 class NewsListResponse(BaseModel):
@@ -71,7 +81,14 @@ class StatsBucket(BaseModel):
 class NewsStatsResponse(BaseModel):
     total: int
     geocoded_total: int
-    last_24h_total: int
+    last_3d_total: int
     active_sources: int
     categories: list[StatsBucket]
     districts: list[StatsBucket]
+
+
+class NewsDashboardResponse(BaseModel):
+    map: NewsMapResponse
+    stats: NewsStatsResponse
+    category_facets: list[StatsBucket]
+    district_facets: list[StatsBucket]

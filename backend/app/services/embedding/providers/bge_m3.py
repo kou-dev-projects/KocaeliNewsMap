@@ -10,9 +10,11 @@ logger = logging.getLogger(__name__)
 
 try:
     from FlagEmbedding import BGEM3FlagModel
+    import torch
 
     _AVAILABLE = True
 except ImportError:
+    torch = None
     _AVAILABLE = False
 
 
@@ -48,6 +50,6 @@ class BGEM3Provider:
             logger.info("BGE-M3 modeli yükleniyor")
             self._model = BGEM3FlagModel(
                 "BAAI/bge-m3",
-                use_fp16=True,
+                use_fp16=bool(torch is not None and torch.cuda.is_available()),
             )
         return self._model

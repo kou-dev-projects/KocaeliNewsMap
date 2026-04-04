@@ -4,7 +4,6 @@ const API_CACHE = "pulse-api-v1";
 const OFFLINE_URL = "/offline.html";
 const SHELL_ASSETS = [
   "/",
-  "/scrape-log",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -55,7 +54,11 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
 
-  if (url.origin === self.location.origin && url.pathname === "/api/scrape/events") {
+  if (
+    url.origin === self.location.origin &&
+    (url.pathname.startsWith("/scrape-log") ||
+      url.pathname.startsWith("/api/scrape/"))
+  ) {
     return;
   }
 

@@ -1,25 +1,12 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type FormEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, LogOut, Play, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, RotateCcw } from "lucide-react";
 
 import { useScrapeEventStream } from "@/hooks/useScrapeEventStream";
 import { newsKeys } from "@/lib/news-query-keys";
 import { adaptScrapeEvent } from "@/lib/scrape/scrapeEventAdapter";
-import {
-  clearScrapeOpsCredentials,
-  getScrapeOpsAuthSnapshot,
-  setScrapeOpsCredentials,
-  subscribeScrapeOpsAuth,
-} from "@/lib/scrape-ops-client-auth";
 import {
   fetchLatestScrapeRun,
   fetchScrapeJobStatus,
@@ -33,7 +20,6 @@ import type {
   ScrapeStreamConnectionState,
 } from "@/lib/scrape/types";
 
-const DEFAULT_USERNAME = "ops";
 const NEAR_BOTTOM_THRESHOLD_PX = 80;
 
 type ScrapeLogPanelProps = {
@@ -72,8 +58,10 @@ const connectionMeta: Record<
 
 const toneMeta: Record<ScrapeLogTone, string> = {
   info: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  warning: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  success:
+    "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  warning:
+    "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   error: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
   muted: "border-border/70 bg-secondary/45 text-muted-foreground",
 };
@@ -133,7 +121,7 @@ function summarizeRefreshResult(result: Record<string, unknown> | undefined): st
     "status" in refreshCleanup &&
     refreshCleanup.status === "discarded"
   ) {
-    return "Refresh kısmi kaldı. Aday veri atıldı, aktif görünüm korundu.";
+    return "Refresh kısmı kaldı. Aday veri atıldı, aktif görünüm korundu.";
   }
 
   if (
@@ -149,7 +137,7 @@ function summarizeRefreshResult(result: Record<string, unknown> | undefined): st
     "status" in refreshCleanup &&
     refreshCleanup.status === "completed"
   ) {
-    return "Refresh tamamlandı. Yeni dataset aktive edildi.";
+    return "Refresh tamamlandı. Yeni veri kümesi aktive edildi.";
   }
 
   return "Scrape tamamlandı.";
@@ -169,9 +157,9 @@ function buildLiveJobMessage(
 
   switch (latestEvent.event) {
     case "refresh_preserving_active_dataset":
-      return "Aktif veri korunuyor. Yeni dataset arka planda hazırlanıyor.";
+      return "Aktif veri korunuyor. Yeni veri kümesi arka planda hazırlanıyor.";
     case "refresh_generation_started":
-      return "Yeni dataset jenerasyonu açıldı. Kaynak taraması başlıyor.";
+      return "Yeni veri kümesi oluşturuldu. Kaynak taraması başlıyor.";
     case "source_crawl_started":
       return `${sourceLabel} taranıyor.`;
     case "source_listing_collected":
@@ -185,13 +173,13 @@ function buildLiveJobMessage(
     case "source_crawl_failed":
       return `${sourceLabel} hata verdi. Detaylar logda.`;
     case "source_crawl_skipped":
-      return `${sourceLabel} atlandı. Neden logda görünüyor.`;
+      return `${sourceLabel} atlandı. Nedeni logda görünüyor.`;
     case "refresh_cutover_started":
-      return "Kaynak taraması bitti. Yeni dataset aktive ediliyor.";
+      return "Kaynak taraması bitti. Yeni veri kümesi aktive ediliyor.";
     case "refresh_cleanup_completed":
-      return "Yeni dataset aktive edildi. Görünüm yenileniyor.";
+      return "Yeni veri kümesi aktive edildi. Görünüm yenileniyor.";
     case "refresh_cleanup_skipped":
-      return "Refresh kısmi kaldı. Aktif görünüm korunuyor.";
+      return "Refresh kısmı kaldı. Aktif görünüm korunuyor.";
     case "refresh_cleanup_failed":
       return "Cutover hata verdi. Aktif görünüm korunuyor.";
     default:
@@ -208,17 +196,17 @@ function buildLatestRunMessage(
   latestEvent: ScrapeLogEntry | null,
 ): string {
   if (latestRun.event_count === 0) {
-    return "Henuz scrape gecmisi yok.";
+    return "Henüz scrape geçmişi yok.";
   }
 
   const fallback =
     latestRun.status === "pending"
       ? "Son scrape kuyrukta bekliyor."
       : latestRun.status === "running"
-        ? "Son scrape calisiyor. Adimlar canli logda akiyor."
+        ? "Son scrape çalışıyor. Adımlar canlı logda akıyor."
         : latestRun.status === "failed"
           ? "Son scrape hata ile bitti."
-          : "Son scrape tamamlandi.";
+          : "Son scrape tamamlandı.";
 
   return buildLiveJobMessage(latestEvent, fallback);
 }
@@ -227,14 +215,7 @@ export function ScrapeLogPanel({
   variant = "full",
 }: ScrapeLogPanelProps) {
   const queryClient = useQueryClient();
-  const authSnapshot = useSyncExternalStore(
-    subscribeScrapeOpsAuth,
-    getScrapeOpsAuthSnapshot,
-    () => null,
-  );
-  const authorizationHeader = authSnapshot?.authorizationHeader;
   const isEmbedded = variant === "embedded";
-  const [passwordInput, setPasswordInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [jobStatusMessage, setJobStatusMessage] = useState("Scrape paneli hazır.");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -251,21 +232,13 @@ export function ScrapeLogPanel({
     clearEvents,
     replaceEvents,
   } = useScrapeEventStream({
-    enabled: Boolean(authorizationHeader) && isLatestRunHydrated && activeJobId !== null,
-    authorizationHeader,
+    enabled: isLatestRunHydrated && activeJobId !== null,
     jobId: activeJobId ?? undefined,
   });
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const lastInvalidatedEventIdRef = useRef<string | null>(null);
-  const controlsDisabled =
-    !authorizationHeader ||
-    !isLatestRunHydrated ||
-    isSubmitting ||
-    activeJobId !== null;
-  const latestEvent = useMemo(
-    () => events.at(-1) ?? null,
-    [events],
-  );
+  const controlsDisabled = !isLatestRunHydrated || isSubmitting || activeJobId !== null;
+  const latestEvent = useMemo(() => events.at(-1) ?? null, [events]);
   const liveJobMessage = useMemo(
     () => buildLiveJobMessage(latestEvent, jobStatusMessage),
     [jobStatusMessage, latestEvent],
@@ -285,19 +258,13 @@ export function ScrapeLogPanel({
   }, [latestEvent, queryClient]);
 
   useEffect(() => {
-    if (!authorizationHeader) {
-      replaceEvents([]);
-      setIsLatestRunHydrated(false);
-      return;
-    }
-
     let cancelled = false;
     setIsLatestRunHydrated(false);
     setIsReloadingLatestRun(true);
 
     const loadLatestRun = async () => {
       try {
-        const latestRun = await fetchLatestScrapeRun(authorizationHeader);
+        const latestRun = await fetchLatestScrapeRun();
         if (cancelled) {
           return;
         }
@@ -336,11 +303,9 @@ export function ScrapeLogPanel({
         setActiveJobId(null);
         setIsSubmitting(false);
         setActionError(
-          error instanceof Error
-            ? error.message
-            : "Son scrape loglari yuklenemedi.",
+          error instanceof Error ? error.message : "Son scrape logları yüklenemedi.",
         );
-        setJobStatusMessage("Son scrape loglari okunamadi.");
+        setJobStatusMessage("Son scrape logları okunamadı.");
       } finally {
         if (!cancelled) {
           setIsLatestRunHydrated(true);
@@ -354,7 +319,7 @@ export function ScrapeLogPanel({
     return () => {
       cancelled = true;
     };
-  }, [authorizationHeader, latestRunReloadCount, replaceEvents]);
+  }, [latestRunReloadCount, replaceEvents]);
 
   useEffect(() => {
     if (!isLogOpen) {
@@ -391,7 +356,7 @@ export function ScrapeLogPanel({
   }, [events.length, isLogOpen]);
 
   useEffect(() => {
-    if (!activeJobId || !authorizationHeader) {
+    if (!activeJobId) {
       return;
     }
 
@@ -399,7 +364,7 @@ export function ScrapeLogPanel({
 
     const syncJobStatus = async () => {
       try {
-        const status = await fetchScrapeJobStatus(activeJobId, authorizationHeader);
+        const status = await fetchScrapeJobStatus(activeJobId);
         if (cancelled) {
           return;
         }
@@ -451,7 +416,7 @@ export function ScrapeLogPanel({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeJobId, authorizationHeader, queryClient]);
+  }, [activeJobId, queryClient]);
 
   const startQueuedJob = (result: ScrapeQueuedResponse, message: string) => {
     replaceEvents([]);
@@ -461,45 +426,13 @@ export function ScrapeLogPanel({
     setJobStatusMessage(message);
   };
 
-  const handleAuthSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    try {
-      setScrapeOpsCredentials(DEFAULT_USERNAME, passwordInput);
-      setPasswordInput("");
-      setActionError(null);
-      setJobStatusMessage("Operasyon bağlantısı açıldı.");
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Parola kaydedilemedi.",
-      );
-    }
-  };
-
-  const handleAuthClear = () => {
-    clearScrapeOpsCredentials();
-    replaceEvents([]);
-    clearEvents();
-    setPasswordInput("");
-    setActionError(null);
-    setActiveJobId(null);
-    setIsSubmitting(false);
-    setIsLatestRunHydrated(false);
-    setJobStatusMessage("Operasyon bağlantısı kapatıldı.");
-  };
-
   const handleRunScrape = async () => {
-    if (!authorizationHeader) {
-      setActionError("Önce parola girilip bağlanılmalı.");
-      return;
-    }
-
     setIsSubmitting(true);
     setActionError(null);
     setJobStatusMessage("Scrape kuyruğa alınıyor...");
 
     try {
-      const result = await refreshScrape(authorizationHeader);
+      const result = await refreshScrape();
       startQueuedJob(result, "Refresh başlatıldı.");
     } catch (error) {
       setIsSubmitting(false);
@@ -511,10 +444,6 @@ export function ScrapeLogPanel({
   };
 
   const handleReloadLatestRun = () => {
-    if (!authorizationHeader) {
-      return;
-    }
-
     setLatestRunReloadCount((current) => current + 1);
   };
 
@@ -541,45 +470,16 @@ export function ScrapeLogPanel({
       </div>
 
       <div className="mt-4 rounded-2xl border border-border/70 bg-background/70 p-3">
-        {authorizationHeader ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Bağlı kullanıcı: {DEFAULT_USERNAME}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Son aktivite: {lastActivityLabel}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleAuthClear}
-              className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-secondary/60 px-3 py-2 text-sm font-medium text-foreground transition hover:bg-secondary"
-            >
-              <LogOut className="h-4 w-4" />
-              Oturumu kapat
-            </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Scrape erişimi açık
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Son aktivite: {lastActivityLabel}
+            </p>
           </div>
-        ) : (
-          <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleAuthSubmit}>
-            <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/70 bg-background px-3">
-              <span className="shrink-0 text-sm font-medium text-muted-foreground">ops</span>
-              <input
-                type="password"
-                value={passwordInput}
-                onChange={(event) => setPasswordInput(event.target.value)}
-                placeholder="Scrape şifresi"
-                className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              />
-            </div>
-            <button
-              type="submit"
-              className="rounded-xl border border-primary/30 bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-            >
-              Bağlan
-            </button>
-          </form>
-        )}
+        </div>
       </div>
 
       <div className="mt-4 flex items-center gap-3">
@@ -599,8 +499,8 @@ export function ScrapeLogPanel({
 
       {activeJobId ? (
         <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-3 text-sm text-sky-800 dark:text-sky-200">
-          Aktif görünüm şu an mevcut dataset&apos;i gösteriyor. Yeni haberler cutover tamamlanınca
-          otomatik olarak tekrar çekilecek.
+          Aktif görünüm şu an mevcut veri kümesini gösteriyor. Yeni haberler
+          cutover tamamlanınca otomatik olarak tekrar çekilecek.
         </div>
       ) : null}
 
@@ -639,9 +539,9 @@ export function ScrapeLogPanel({
           <button
             type="button"
             onClick={handleReloadLatestRun}
-            disabled={!authorizationHeader || isReloadingLatestRun}
+            disabled={isReloadingLatestRun}
             className="rounded-lg border border-border/70 bg-background px-2.5 py-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-            aria-label="Son scrape loglarini yenile"
+            aria-label="Son scrape loglarını yenile"
           >
             <RotateCcw className="h-4 w-4" />
           </button>
@@ -653,9 +553,7 @@ export function ScrapeLogPanel({
               {events.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border/70 bg-secondary/20 px-4 py-8 text-center">
                   <p className="text-sm font-medium text-foreground">
-                    {authorizationHeader
-                      ? "Henüz canlı scrape olayı yok."
-                      : "Log akışı için önce bağlanın."}
+                    Henüz canlı scrape olayı yok.
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Scrape başladıktan sonra kaynak bazlı olaylar burada akacak.

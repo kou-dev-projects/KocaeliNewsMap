@@ -1,17 +1,11 @@
 import {
-  authorizeScrapeControlRequest,
   buildScrapeBackendUrl,
   createScrapeProxyHeaders,
 } from "../_proxy";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request): Promise<Response> {
-  const authError = authorizeScrapeControlRequest(request);
-  if (authError) {
-    return authError;
-  }
-
+export async function GET(_request: Request): Promise<Response> {
   let upstream: Response;
   try {
     upstream = await fetch(buildScrapeBackendUrl("/api/v1/scrape/latest"), {

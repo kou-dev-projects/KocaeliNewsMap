@@ -7,7 +7,6 @@ FROM ${ML_BASE_IMAGE}
 WORKDIR /app
 
 COPY --chown=appuser:appuser app ./app
-COPY --chown=appuser:appuser _codex_restore_pyc ./_codex_restore_pyc
 
 EXPOSE 8010
 

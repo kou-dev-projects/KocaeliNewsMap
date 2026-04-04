@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --webpack",
-    "test": "node --experimental-strip-types --experimental-specifier-resolution=node --test --test-isolation=none --test-concurrency=1 tests/**/*.test.mts",
+    "test": "node ./scripts/run-node-tests.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

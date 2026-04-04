@@ -1,8 +1,24 @@
 import type { NewsQueryFilters } from "@/lib/filter-state";
 import type { NewsMapItem } from "@/components/map/MapView";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+function resolveApiBaseUrl() {
+  // Browser requests go through Next.js /api rewrite to avoid CORS and loopback pitfalls.
+  if (typeof window !== "undefined") {
+    return "";
+  }
+
+  return process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+}
+
+function buildApiPath(pathname: string) {
+  const apiBaseUrl = resolveApiBaseUrl();
+  if (!apiBaseUrl) {
+    return pathname;
+  }
+
+  return new URL(pathname, apiBaseUrl).toString();
+}
+
 const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "1000");
 
 export type NewsStats = {
@@ -74,7 +90,7 @@ function appendMultiValue(url: URL, key: string, values?: string[]) {
 }
 
 export function buildStatsUrl(filters: NewsQueryFilters) {
-  const url = new URL("/api/v1/news/stats", API_BASE_URL);
+  const url = new URL(buildApiPath("/api/v1/news/stats"), "http://localhost");
 
   appendMultiValue(url, "categories", filters.categories);
   appendMultiValue(url, "districts", filters.districts);
@@ -91,11 +107,11 @@ export function buildStatsUrl(filters: NewsQueryFilters) {
     url.searchParams.set("date_to", filters.dateTo);
   }
 
-  return url.toString();
+  return resolveApiBaseUrl() ? url.toString() : `${url.pathname}${url.search}`;
 }
 
 export function buildMapUrl(filters: NewsQueryFilters) {
-  const url = new URL("/api/v1/news/map", API_BASE_URL);
+  const url = new URL(buildApiPath("/api/v1/news/map"), "http://localhost");
 
   appendMultiValue(url, "categories", filters.categories);
   appendMultiValue(url, "districts", filters.districts);
@@ -114,11 +130,11 @@ export function buildMapUrl(filters: NewsQueryFilters) {
 
   url.searchParams.set("limit", String(filters.limit ?? DEFAULT_MAP_LIMIT));
 
-  return url.toString();
+  return resolveApiBaseUrl() ? url.toString() : `${url.pathname}${url.search}`;
 }
 
 export function buildDashboardUrl(filters: NewsQueryFilters) {
-  const url = new URL("/api/v1/news/dashboard", API_BASE_URL);
+  const url = new URL(buildApiPath("/api/v1/news/dashboard"), "http://localhost");
 
   appendMultiValue(url, "categories", filters.categories);
   appendMultiValue(url, "districts", filters.districts);
@@ -137,7 +153,7 @@ export function buildDashboardUrl(filters: NewsQueryFilters) {
 
   url.searchParams.set("limit", String(filters.limit ?? DEFAULT_MAP_LIMIT));
 
-  return url.toString();
+  return resolveApiBaseUrl() ? url.toString() : `${url.pathname}${url.search}`;
 }
 
 export async function fetchNewsStats(filters: NewsQueryFilters): Promise<NewsStats> {
@@ -179,7 +195,7 @@ export async function fetchNewsDashboard(
 }
 
 export async function fetchNewsDetail(newsId: string): Promise<NewsDetail> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/news/${encodeURIComponent(newsId)}`, {
+  const response = await fetch(buildApiPath(`/api/v1/news/${encodeURIComponent(newsId)}`), {
     method: "GET",
   });
 

@@ -26,7 +26,7 @@ x-backend-common: &backend-common
     mongo-migrate:
       condition: service_completed_successfully
     ml:
-      condition: service_healthy
+      condition: service_started
   env_file:
     - .env
   volumes:
@@ -37,7 +37,7 @@ services:
     image: mongo:8.0
     container_name: kocaeli-news_map_mongodb
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongo_data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d
@@ -79,7 +79,7 @@ services:
     image: redis:7-alpine
     container_name: kocaeli-news_map_redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
 
@@ -109,8 +109,6 @@ services:
     build: *backend-build
     container_name: kocaeli-news_map_backend
     command: ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-    ports:
-      - "8000:8000"
     environment:
       <<: *backend-environment
       WORKER_ID: api
@@ -138,6 +136,8 @@ services:
     build:
       context: ./frontend
     container_name: kocaeli-news_map_frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_DEV_PORT:-3001}:3000"
     expose:
       - "3000"
     depends_on:
@@ -148,7 +148,7 @@ services:
       mongo-migrate:
         condition: service_completed_successfully
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
       - API_INTERNAL_URL=http://backend:8000
       - NEXT_PUBLIC_ENABLE_PWA_IN_DEV=${NEXT_PUBLIC_ENABLE_PWA_IN_DEV:-false}
       - NEXT_PUBLIC_ENABLE_PUSH_TEST=${NEXT_PUBLIC_ENABLE_PUSH_TEST:-false}
@@ -180,7 +180,7 @@ services:
       frontend:
         condition: service_started
     ports:
-      - "${FRONTEND_EDGE_PORT:-3000}:80"
+      - "127.0.0.1:${FRONTEND_EDGE_PORT:-3000}:80"
     environment:
       EDGE_SERVER_NAME: "${EDGE_SERVER_NAME:-_}"
       FRONTEND_UPSTREAM: "${FRONTEND_UPSTREAM:-frontend:3000}"

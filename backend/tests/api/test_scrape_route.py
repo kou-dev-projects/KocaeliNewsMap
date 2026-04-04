@@ -65,6 +65,7 @@ def reset_scrape_route_state(monkeypatch):
     monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_rate_limit_requests", 5)
     monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_rate_limit_window_seconds", 60)
     monkeypatch.setattr("app.routes.scrape.settings.trusted_proxy_cidrs", "")
+    monkeypatch.setattr("app.routes.scrape._get_rate_limit_redis", lambda: None)
     monkeypatch.setattr("app.routes.scrape._job_manager", None)
     monkeypatch.setattr("app.routes.scrape._rate_limit_redis", None)
     monkeypatch.setattr("app.routes.scrape._trusted_networks", None)

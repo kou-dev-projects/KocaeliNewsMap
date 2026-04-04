@@ -51,8 +51,17 @@ class SlowOrchestrator:
             "dataset_state": _FakeStateCollection(),
         }
 
-    def crawl_source(self, source, *, trigger_type):
+    def crawl_source(self, source, *, trigger_type, progress_callback=None):
         time.sleep(1.1)
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "event": "source_crawl_started",
+                    "source": source,
+                    "status": "running",
+                    "message": "Source crawl started",
+                }
+            )
         return {"status": "success", "source": source, "trigger_type": trigger_type}
 
     def drain_pending_writes(self, *, batch_size):

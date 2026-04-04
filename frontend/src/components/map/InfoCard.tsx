@@ -488,7 +488,7 @@ export default function InfoCard({ item, className = "" }: InfoCardProps) {
                 {categoryPresentation.icon}
               </div>
 
-              <div className="min-w-0 space-y-2">
+              <div className="min-w-0 space-y-2 text-left">
                 <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                   <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${categoryPresentation.badgeClass}`}>
                     {formatCategory(activeItem.category)}
@@ -505,7 +505,7 @@ export default function InfoCard({ item, className = "" }: InfoCardProps) {
 
                 <h3
                   data-testid="news-info-title"
-                  className="text-[1.4rem] font-semibold leading-tight tracking-[-0.02em] text-foreground"
+                  className="text-left text-[1.4rem] font-semibold leading-tight tracking-[-0.02em] text-foreground"
                 >
                   {normalizeText(activeItem.title)}
                 </h3>

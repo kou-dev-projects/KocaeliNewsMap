@@ -3,14 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from .gazetteer_data import (
-    AREA_ENTRIES,
-    CURATED_VENUES,
-    DISTRICT_DISPLAY_NAMES,
-    NEIGHBORHOODS_BY_DISTRICT,
-    SOURCE_METADATA,
-    STRONG_NEIGHBORHOOD_ALIASES,
-)
+from .gazetteer_data import SOURCE_METADATA
 
 
 @dataclass(frozen=True)

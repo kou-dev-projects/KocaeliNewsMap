@@ -40,8 +40,8 @@ test("news items adapt to deck points with confidence-scaled radius", () => {
   ]);
 
   assert.equal(points.length, 2);
-  assert.equal(points[0]?.radius, 6);
-  assert.equal(points[1]?.radius, 20);
+  assert.equal(points[0]?.radius, 8);
+  assert.equal(points[1]?.radius, 18);
   assert.deepEqual(points[1]?.position, [29.9213, 40.7654]);
 });
 

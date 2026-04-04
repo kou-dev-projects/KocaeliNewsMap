@@ -13,6 +13,7 @@ from app.services.dataset_generation import (
     begin_refresh_generation,
     clear_pending_refresh_generation,
 )
+from app.services.scrape_reset import reset_scraped_news_data
 from app.services.scrape_orchestrator import (
     cleanup_refresh_data,
     discard_refresh_generation,
@@ -78,17 +79,50 @@ def _publish(event: ScrapeEvent) -> None:
     get_scrape_event_publisher().publish(event)
 
 
+def _reset_dataset_before_scrape(
+    orchestrator: ScrapeOrchestrator,
+    *,
+    trigger_type: str,
+    source: str | None,
+) -> dict[str, Any]:
+    reset_result = reset_scraped_news_data(orchestrator.database)
+    clear_pending_refresh_generation(orchestrator.database)
+
+    details = {
+        "deleted_counts": reset_result.deleted_counts,
+        "total_deleted": reset_result.total_deleted,
+    }
+    _publish(
+        ScrapeEvent(
+            event="dataset_reset",
+            message="Existing scraped dataset cleared before scrape start",
+            source=source,
+            trigger_type=trigger_type,
+            status="running",
+            details=details,
+        )
+    )
+    return details
+
+
 def _run_scrape_job(orchestrator: ScrapeOrchestrator, source: str | None, trigger_type: str) -> dict[str, Any]:
     refresh_generation: str | None = None
+    result: dict[str, Any] = {
+        "pre_scrape_reset": _reset_dataset_before_scrape(
+            orchestrator,
+            trigger_type=trigger_type,
+            source=source,
+        )
+    }
 
     if trigger_type == "refresh" and source is None:
         refresh_generation = begin_refresh_generation(orchestrator.database)
 
     try:
         if source:
-            result = orchestrator.crawl_source(source, trigger_type=trigger_type)
+            crawl_result = orchestrator.crawl_source(source, trigger_type=trigger_type)
         else:
-            result = orchestrator.crawl_active_sources(
+            crawl_result = orchestrator.crawl_active_sources(
                 trigger_type=trigger_type,
                 dataset_generation=refresh_generation,
             )
@@ -96,6 +130,8 @@ def _run_scrape_job(orchestrator: ScrapeOrchestrator, source: str | None, trigge
         if refresh_generation is not None:
             _abort_refresh_generation(orchestrator, refresh_generation)
         raise
+
+    result.update(crawl_result)
 
     if refresh_generation is not None:
         result["dataset_generation"] = refresh_generation

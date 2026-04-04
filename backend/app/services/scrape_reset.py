@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 SCRAPED_DATA_COLLECTIONS: tuple[str, ...] = (
     "raw_documents",
     "source_records",
+    "crawl_sessions",
 )
 
 

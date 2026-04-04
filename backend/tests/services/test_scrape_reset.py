@@ -56,13 +56,13 @@ def test_reset_scraped_news_data_only_clears_target_collections():
     assert result.deleted_counts == {
         "raw_documents": 12,
         "source_records": 8,
+        "crawl_sessions": 3,
     }
-    assert result.total_deleted == 20
+    assert result.total_deleted == 23
 
     for collection_name in SCRAPED_DATA_COLLECTIONS:
         assert database.collections[collection_name].calls == [{}]
 
-    assert database.collections["crawl_sessions"].calls == []
     assert database.collections["sources"].calls == []
 
 

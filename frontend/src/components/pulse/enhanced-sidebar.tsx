@@ -35,7 +35,7 @@ export function EnhancedSidebar({
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 20, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 280, damping: 28 }}
-            className="fixed right-4 top-24 bottom-4 z-50 flex w-[min(30rem,calc(100vw-2rem))] max-w-[30rem] min-h-0 flex-col overflow-hidden rounded-[28px] border border-border/70 bg-background/92 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl"
+            className="fixed right-3 top-24 bottom-3 z-50 flex w-[min(25.5rem,calc(100vw-1rem))] max-w-[25.5rem] min-h-0 flex-col overflow-hidden rounded-[24px] border border-border/70 bg-background/92 shadow-[0_24px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl"
           >
             <div className="border-b border-border/70 bg-background/85 px-5 py-4">
               <div className="flex items-start justify-between gap-4">

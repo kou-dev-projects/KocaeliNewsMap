@@ -96,7 +96,7 @@ export function LiveNewsFeed({ news, onNewsClick, hidden = false }: LiveNewsFeed
             transition={{ duration: 0.3 }}
             className="overflow-hidden rounded-b-xl border-t border-border glass"
           >
-            <div className="max-h-80 space-y-2 overflow-y-auto p-2">
+            <div className="max-h-[calc(100vh-12rem)] space-y-2 overflow-y-auto p-2">
               {news.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/70 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
                   Aktif filtrelere göre gösterilecek canlı haber yok.

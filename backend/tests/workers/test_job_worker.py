@@ -26,7 +26,30 @@ class FakeJobManager:
         )
 
 
+class _FakeDeleteResult:
+    def __init__(self, deleted_count: int = 0):
+        self.deleted_count = deleted_count
+
+
+class _FakeCollection:
+    def delete_many(self, _query):
+        return _FakeDeleteResult(0)
+
+
+class _FakeStateCollection:
+    def update_one(self, _query, _update):
+        return None
+
+
 class SlowOrchestrator:
+    def __init__(self):
+        self.database = {
+            "raw_documents": _FakeCollection(),
+            "source_records": _FakeCollection(),
+            "crawl_sessions": _FakeCollection(),
+            "dataset_state": _FakeStateCollection(),
+        }
+
     def crawl_source(self, source, *, trigger_type):
         time.sleep(1.1)
         return {"status": "success", "source": source, "trigger_type": trigger_type}

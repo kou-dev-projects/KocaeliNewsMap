@@ -1,10 +1,28 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FormEvent,
+} from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  LogOut,
+  Play,
+  Trash2,
+} from "lucide-react";
 
 import { useScrapeEventStream } from "@/hooks/useScrapeEventStream";
 import {
-  bootstrapScrape,
+  clearScrapeOpsCredentials,
+  getScrapeOpsAuthSnapshot,
+  setScrapeOpsCredentials,
+  subscribeScrapeOpsAuth,
+} from "@/lib/scrape-ops-client-auth";
+import {
   fetchScrapeJobStatus,
   refreshScrape,
   type ScrapeQueuedResponse,
@@ -15,68 +33,61 @@ import type {
   ScrapeStreamConnectionState,
 } from "@/lib/scrape/types";
 
+const DEFAULT_USERNAME = "ops";
 const NEAR_BOTTOM_THRESHOLD_PX = 80;
+
+type ScrapeLogPanelProps = {
+  variant?: "full" | "embedded";
+};
 
 const connectionMeta: Record<
   ScrapeStreamConnectionState,
   { label: string; className: string }
 > = {
   idle: {
-    label: "Idle",
-    className: "border-slate-500/40 bg-slate-500/10 text-slate-200",
+    label: "Hazır",
+    className: "border-slate-300 bg-slate-100 text-slate-700",
   },
   connecting: {
-    label: "Connecting",
-    className: "border-sky-500/40 bg-sky-500/10 text-sky-200",
+    label: "Bağlanıyor",
+    className: "border-sky-200 bg-sky-50 text-sky-700",
   },
   connected: {
-    label: "Connected",
-    className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
+    label: "Bağlı",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
   reconnecting: {
-    label: "Reconnecting",
-    className: "border-amber-500/40 bg-amber-500/10 text-amber-200",
+    label: "Yeniden bağlanıyor",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
   },
   disconnected: {
-    label: "Disconnected",
-    className: "border-rose-500/40 bg-rose-500/10 text-rose-200",
+    label: "Bağlantı yok",
+    className: "border-rose-200 bg-rose-50 text-rose-700",
   },
   closed: {
-    label: "Closed",
-    className: "border-slate-500/40 bg-slate-500/10 text-slate-200",
+    label: "Kapalı",
+    className: "border-slate-300 bg-slate-100 text-slate-700",
   },
 };
 
 const toneMeta: Record<ScrapeLogTone, string> = {
-  info: "border-sky-500/25 bg-sky-500/[0.08] text-sky-50",
-  success: "border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-50",
-  warning: "border-amber-500/25 bg-amber-500/[0.08] text-amber-50",
-  error: "border-rose-500/25 bg-rose-500/[0.08] text-rose-50",
-  muted: "border-slate-500/20 bg-slate-500/[0.08] text-slate-300",
+  info: "border-sky-200 bg-sky-50 text-sky-700",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  warning: "border-amber-200 bg-amber-50 text-amber-700",
+  error: "border-rose-200 bg-rose-50 text-rose-700",
+  muted: "border-slate-200 bg-slate-50 text-slate-600",
 };
 
 function LogRow({ entry }: { entry: ScrapeLogEntry }) {
   return (
-    <article
-      className={`rounded-xl border px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] ${toneMeta[entry.tone]}`}
-    >
-      <div className="flex items-center justify-between gap-4 text-xs uppercase tracking-[0.22em] text-white/[0.55]">
+    <article className={`rounded-2xl border px-3 py-3 ${toneMeta[entry.tone]}`}>
+      <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em]">
         <span>{entry.timestampLabel}</span>
         <span>{entry.event.replaceAll("_", " ")}</span>
       </div>
-      <div className="mt-2 flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="font-semibold text-white">{entry.title}</p>
-          {entry.metadata.map((item) => (
-            <span
-              key={`${entry.id}-${item}`}
-              className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/[0.60]"
-            >
-              {item}
-            </span>
-          ))}
-        </div>
-        <p className="text-sm text-white/[0.75]">{entry.message}</p>
+      <div className="mt-2">
+        <p className="font-semibold">{entry.title}</p>
+        <p className="mt-1 text-sm leading-6">{entry.message}</p>
       </div>
     </article>
   );
@@ -90,31 +101,47 @@ function summarizeRefreshResult(result: Record<string, unknown> | undefined): st
     "status" in refreshCleanup &&
     refreshCleanup.status === "discarded"
   ) {
-    return "Refresh kismi kaldi. Aday veri atildi ve aktif gorunum korundu.";
+    return "Refresh kısmi kaldı. Aday veri atıldı, aktif görünüm korundu.";
   }
 
-  return "Job tamamlandi.";
+  return "Scrape tamamlandı.";
 }
 
-export function ScrapeLogPanel() {
+export function ScrapeLogPanel({
+  variant = "full",
+}: ScrapeLogPanelProps) {
+  const authSnapshot = useSyncExternalStore(
+    subscribeScrapeOpsAuth,
+    getScrapeOpsAuthSnapshot,
+    () => null,
+  );
+  const authorizationHeader = authSnapshot?.authorizationHeader;
+  const isEmbedded = variant === "embedded";
+  const [passwordInput, setPasswordInput] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [jobStatusMessage, setJobStatusMessage] = useState("Scrape paneli hazır.");
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLogOpen, setIsLogOpen] = useState(true);
   const {
     events,
     connectionState,
-    reconnectAttempt,
     lastActivityLabel,
     errorMessage,
     clearEvents,
-  } = useScrapeEventStream();
+  } = useScrapeEventStream({
+    enabled: Boolean(authorizationHeader),
+    authorizationHeader,
+  });
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [jobStatusMessage, setJobStatusMessage] = useState(
-    "No operator job running.",
-  );
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const controlsDisabled = isSubmitting || activeJobId !== null;
+  const controlsDisabled =
+    !authorizationHeader || isSubmitting || activeJobId !== null;
 
   useEffect(() => {
+    if (!isLogOpen) {
+      return;
+    }
+
     const bottomElement = bottomRef.current;
     if (!bottomElement) {
       return;
@@ -142,10 +169,10 @@ export function ScrapeLogPanel() {
       behavior: prefersReducedMotion ? "auto" : "smooth",
       block: "end",
     });
-  }, [events.length]);
+  }, [events.length, isLogOpen]);
 
   useEffect(() => {
-    if (!activeJobId) {
+    if (!activeJobId || !authorizationHeader) {
       return;
     }
 
@@ -153,18 +180,18 @@ export function ScrapeLogPanel() {
 
     const syncJobStatus = async () => {
       try {
-        const status = await fetchScrapeJobStatus(activeJobId);
+        const status = await fetchScrapeJobStatus(activeJobId, authorizationHeader);
         if (cancelled) {
           return;
         }
 
         if (status.status === "pending") {
-          setJobStatusMessage("Job kuyrukta bekliyor.");
+          setJobStatusMessage("Scrape kuyruğa alındı.");
           return;
         }
 
         if (status.status === "running") {
-          setJobStatusMessage("Job calisiyor.");
+          setJobStatusMessage("Scrape çalışıyor.");
           return;
         }
 
@@ -177,8 +204,8 @@ export function ScrapeLogPanel() {
           return;
         }
 
-        setActionError(status.error || "Job basarisiz oldu.");
-        setJobStatusMessage("Job hata ile bitti.");
+        setActionError(status.error || "Scrape başarısız oldu.");
+        setJobStatusMessage("Scrape hata ile bitti.");
       } catch (error) {
         if (cancelled) {
           return;
@@ -189,9 +216,9 @@ export function ScrapeLogPanel() {
         setActionError(
           error instanceof Error
             ? error.message
-            : "Job durumu kontrol edilemiyor.",
+            : "Scrape durumu kontrol edilemiyor.",
         );
-        setJobStatusMessage("Job durumu alinmadi.");
+        setJobStatusMessage("Scrape durumu alınamadı.");
       }
     };
 
@@ -204,7 +231,7 @@ export function ScrapeLogPanel() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeJobId]);
+  }, [activeJobId, authorizationHeader]);
 
   const startQueuedJob = (result: ScrapeQueuedResponse, message: string) => {
     setActionError(null);
@@ -212,167 +239,190 @@ export function ScrapeLogPanel() {
     setJobStatusMessage(message);
   };
 
-  const handleBootstrap = async () => {
-    setIsSubmitting(true);
-    setActionError(null);
-    setJobStatusMessage("Bootstrap scrape kuyruga aliniyor...");
+  const handleAuthSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
 
     try {
-      const result = await bootstrapScrape();
-      if ("job_id" in result) {
-        startQueuedJob(result, "Bootstrap scrape baslatildi.");
-        return;
-      }
-
-      setIsSubmitting(false);
-      setJobStatusMessage("Veri zaten hazir.");
+      setScrapeOpsCredentials(DEFAULT_USERNAME, passwordInput);
+      setPasswordInput("");
+      setActionError(null);
+      setJobStatusMessage("Operasyon bağlantısı açıldı.");
     } catch (error) {
-      setIsSubmitting(false);
       setActionError(
-        error instanceof Error ? error.message : "Bootstrap baslatilamadi.",
+        error instanceof Error ? error.message : "Parola kaydedilemedi.",
       );
-      setJobStatusMessage("Bootstrap istegi hata verdi.");
     }
   };
 
-  const handleRefresh = async () => {
+  const handleAuthClear = () => {
+    clearScrapeOpsCredentials();
+    setPasswordInput("");
+    setActionError(null);
+    setActiveJobId(null);
+    setIsSubmitting(false);
+    setJobStatusMessage("Operasyon bağlantısı kapatıldı.");
+  };
+
+  const handleRunScrape = async () => {
+    if (!authorizationHeader) {
+      setActionError("Önce parola girilip bağlanılmalı.");
+      return;
+    }
+
     setIsSubmitting(true);
     setActionError(null);
-    setJobStatusMessage("Refresh scrape kuyruga aliniyor...");
+    setJobStatusMessage("Scrape kuyruğa alınıyor...");
 
     try {
-      const result = await refreshScrape();
-      startQueuedJob(result, "Refresh scrape baslatildi.");
+      const result = await refreshScrape(authorizationHeader);
+      startQueuedJob(result, "Scrape başlatıldı.");
     } catch (error) {
       setIsSubmitting(false);
       setActionError(
-        error instanceof Error ? error.message : "Refresh baslatilamadi.",
+        error instanceof Error ? error.message : "Scrape başlatılamadı.",
       );
-      setJobStatusMessage("Refresh istegi hata verdi.");
+      setJobStatusMessage("Scrape isteği hata verdi.");
     }
   };
+
+  const containerClassName = isEmbedded
+    ? "rounded-2xl border border-border/70 bg-card/85 p-4 shadow-sm"
+    : "rounded-[28px] border border-border/70 bg-card/90 p-5 shadow-[0_20px_60px_rgba(15,23,42,0.12)]";
 
   return (
-    <section className="rounded-[28px] border border-white/10 bg-[#06111d]/90 p-5 text-white shadow-[0_24px_80px_rgba(3,8,20,0.45)] backdrop-blur">
-      <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-200/[0.70]">
-            Live scrape monitor
+    <section className={containerClassName}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/70">
+            Scrape kontrolü
           </p>
-          <h2 className="text-2xl font-semibold tracking-tight">
-            Real-time crawler activity
-          </h2>
-          <p className="max-w-2xl text-sm text-slate-300">
-            This panel follows the backend scrape event stream and lets operators
-            trigger bootstrap and refresh jobs from a protected route.
-          </p>
+          <h3 className="mt-1 text-xl font-semibold text-foreground">Canlı log ve tetikleme</h3>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <span
-            className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${connectionMeta[connectionState].className}`}
-          >
-            {connectionMeta[connectionState].label}
-          </span>
-          <button
-            type="button"
-            onClick={clearEvents}
-            className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200 transition hover:bg-white/10"
-          >
-            Clear log
-          </button>
-        </div>
+        <span
+          className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${connectionMeta[connectionState].className}`}
+        >
+          {connectionMeta[connectionState].label}
+        </span>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-3">
+      <div className="mt-4 rounded-2xl border border-border/70 bg-background/70 p-3">
+        {authorizationHeader ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Bağlı kullanıcı: {DEFAULT_USERNAME}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Son aktivite: {lastActivityLabel}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAuthClear}
+              className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-secondary/60 px-3 py-2 text-sm font-medium text-foreground transition hover:bg-secondary"
+            >
+              <LogOut className="h-4 w-4" />
+              Oturumu kapat
+            </button>
+          </div>
+        ) : (
+          <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleAuthSubmit}>
+            <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/70 bg-background px-3">
+              <span className="shrink-0 text-sm font-medium text-muted-foreground">ops</span>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(event) => setPasswordInput(event.target.value)}
+                placeholder="Scrape şifresi"
+                className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded-xl border border-primary/30 bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+            >
+              Bağlan
+            </button>
+          </form>
+        )}
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
         <button
           type="button"
-          onClick={handleBootstrap}
+          onClick={handleRunScrape}
           disabled={controlsDisabled}
-          className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-50 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Bootstrap
+          <Play className="h-4 w-4" />
+          Scrape Başlat
         </button>
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={controlsDisabled}
-          className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-4 py-3 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Refresh
-        </button>
-        <div className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+        <div className="min-w-0 flex-1 rounded-xl border border-border/70 bg-secondary/35 px-3 py-3 text-sm text-foreground">
           {jobStatusMessage}
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-            Reconnect policy
-          </p>
-          <p className="mt-2 text-lg font-semibold text-white">
-            {reconnectAttempt > 0 ? `Attempt ${reconnectAttempt} of 3` : "Standing by"}
-          </p>
+      {actionError ? (
+        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-700">
+          {actionError}
         </div>
-        <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-            Last activity
-          </p>
-          <p className="mt-2 text-lg font-semibold text-white">{lastActivityLabel}</p>
-        </div>
-        <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-            Stream buffer
-          </p>
-          <p className="mt-2 text-lg font-semibold text-white">
-            {events.length} events in memory
-          </p>
-        </div>
-      </div>
+      ) : null}
 
-      <div className="mt-5 rounded-[24px] border border-white/10 bg-[#02060c] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-        <div className="mb-4 flex items-center justify-between gap-4 border-b border-white/8 pb-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Terminal feed
-            </p>
-            <p className="mt-1 text-sm text-slate-400">
-              Errors stay red, completions stay green, and retries stay amber.
+      {errorMessage ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-700">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      <div className="mt-4 rounded-2xl border border-border/70 bg-background/75">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setIsLogOpen((current) => !current)}
+            className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+            aria-expanded={isLogOpen}
+          >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">Canlı log</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {events.length} olay, son aktivite {lastActivityLabel}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-rose-400/90" />
-            <span className="h-3 w-3 rounded-full bg-amber-400/90" />
-            <span className="h-3 w-3 rounded-full bg-emerald-400/90" />
-          </div>
-        </div>
-
-        {actionError ? (
-          <div className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-            {actionError}
-          </div>
-        ) : null}
-
-        {errorMessage ? (
-          <div className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-            {errorMessage}
-          </div>
-        ) : null}
-
-        <div className="flex max-h-[32rem] flex-col gap-3 overflow-y-auto pr-1 font-mono">
-          {events.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-10 text-center">
-              <p className="text-sm text-slate-300">Waiting for live scrape events.</p>
-              <p className="mt-2 text-xs uppercase tracking-[0.24em] text-slate-500">
-                The first queued or running job will appear here.
-              </p>
-            </div>
+          {isLogOpen ? (
+            <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
           ) : (
-            events.map((entry) => <LogRow key={entry.id} entry={entry} />)
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
-          <div ref={bottomRef} />
+          </button>
+          <button
+            type="button"
+            onClick={clearEvents}
+            className="rounded-lg border border-border/70 bg-background px-2.5 py-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+            aria-label="Log temizle"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
+
+        {isLogOpen ? (
+          <div className="border-t border-border/70 px-4 py-3">
+            <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+              {events.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border/70 bg-secondary/20 px-4 py-8 text-center">
+                  <p className="text-sm font-medium text-foreground">
+                    {authorizationHeader
+                      ? "Henüz canlı scrape olayı yok."
+                      : "Log akışı için önce bağlanın."}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Scrape başladıktan sonra olaylar burada akacak.
+                  </p>
+                </div>
+              ) : (
+                events.map((entry) => <LogRow key={entry.id} entry={entry} />)
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );

@@ -14,11 +14,13 @@ const MAX_VISIBLE_EVENTS = 200;
 type UseScrapeEventStreamOptions = {
   jobId?: string;
   enabled?: boolean;
+  authorizationHeader?: string;
 };
 
 export function useScrapeEventStream({
   jobId,
   enabled = true,
+  authorizationHeader,
 }: UseScrapeEventStreamOptions = {}) {
   const [events, setEvents] = useState<ScrapeLogEntry[]>([]);
   const [connectionState, setConnectionState] =
@@ -35,6 +37,7 @@ export function useScrapeEventStream({
     const client = new ScrapeEventStreamClient({
       url: "/api/scrape/events",
       jobId,
+      authorizationHeader,
       maxReconnectAttempts: 3,
       onStateChange: (nextState) => {
         if (nextState === "connected") {
@@ -66,7 +69,7 @@ export function useScrapeEventStream({
     return () => {
       client.disconnect();
     };
-  }, [enabled, jobId]);
+  }, [authorizationHeader, enabled, jobId]);
 
   const lastActivityLabel = useMemo(() => {
     if (!lastActivityAt) {

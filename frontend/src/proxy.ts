@@ -26,5 +26,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/scrape-log/:path*", "/api/scrape/:path*"],
+  matcher: ["/api/scrape/:path*"],
 };

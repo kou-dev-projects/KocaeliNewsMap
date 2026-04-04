@@ -40,10 +40,22 @@ async function readErrorDetail(response: Response, fallback: string) {
   }
 }
 
-async function postScrapeTrigger<T>(path: string): Promise<T> {
+function buildScrapeRequestHeaders(authorizationHeader?: string) {
+  const headers = new Headers();
+  if (authorizationHeader) {
+    headers.set("Authorization", authorizationHeader);
+  }
+  return headers;
+}
+
+async function postScrapeTrigger<T>(
+  path: string,
+  authorizationHeader?: string,
+): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
     cache: "no-store",
+    headers: buildScrapeRequestHeaders(authorizationHeader),
   });
 
   if (!response.ok) {
@@ -55,20 +67,30 @@ async function postScrapeTrigger<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function bootstrapScrape() {
-  return postScrapeTrigger<ScrapeBootstrapResponse>("/api/scrape/bootstrap");
+export async function bootstrapScrape(authorizationHeader?: string) {
+  return postScrapeTrigger<ScrapeBootstrapResponse>(
+    "/api/scrape/bootstrap",
+    authorizationHeader,
+  );
 }
 
-export async function refreshScrape() {
-  return postScrapeTrigger<ScrapeQueuedResponse>("/api/scrape/refresh");
+export async function refreshScrape(authorizationHeader?: string) {
+  return postScrapeTrigger<ScrapeQueuedResponse>(
+    "/api/scrape/refresh",
+    authorizationHeader,
+  );
 }
 
-export async function fetchScrapeJobStatus(jobId: string) {
+export async function fetchScrapeJobStatus(
+  jobId: string,
+  authorizationHeader?: string,
+) {
   const response = await fetch(
     `/api/scrape/job-status?job_id=${encodeURIComponent(jobId)}`,
     {
       method: "GET",
       cache: "no-store",
+      headers: buildScrapeRequestHeaders(authorizationHeader),
     },
   );
 

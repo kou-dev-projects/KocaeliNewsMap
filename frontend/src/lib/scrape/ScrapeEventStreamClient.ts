@@ -21,12 +21,14 @@ type ScrapeEventStreamCallbacks = {
 type ScrapeEventStreamOptions = {
   url: string;
   jobId?: string;
+  authorizationHeader?: string;
   maxReconnectAttempts?: number;
 } & ScrapeEventStreamCallbacks;
 
 export class ScrapeEventStreamClient {
   private readonly url: string;
   private readonly jobId?: string;
+  private readonly authorizationHeader?: string;
   private readonly maxReconnectAttempts: number;
   private readonly callbacks: ScrapeEventStreamCallbacks;
 
@@ -41,6 +43,7 @@ export class ScrapeEventStreamClient {
   constructor(options: ScrapeEventStreamOptions) {
     this.url = options.url;
     this.jobId = options.jobId;
+    this.authorizationHeader = options.authorizationHeader;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 3;
     this.callbacks = options;
   }
@@ -114,6 +117,10 @@ export class ScrapeEventStreamClient {
       "Cache-Control": "no-cache",
     });
 
+    if (this.authorizationHeader) {
+      headers.set("Authorization", this.authorizationHeader);
+    }
+
     if (this.lastEventId) {
       headers.set("Last-Event-ID", this.lastEventId);
     }
@@ -128,7 +135,7 @@ export class ScrapeEventStreamClient {
 
       if (!response.ok || !response.body) {
         if ([401, 403, 404].includes(response.status)) {
-          this.callbacks.onError?.("The scrape log stream was rejected.");
+          this.callbacks.onError?.("Tarama olay akisi reddedildi.");
           this.setState("disconnected");
           return;
         }

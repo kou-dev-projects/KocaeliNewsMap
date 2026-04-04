@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     scheduler_timezone: str = "Europe/Istanbul"
     scheduler_interval_hours: int = 3
     scheduler_lookback_days: int = 3
-    scheduler_max_urls_per_source: int = 100
+    scheduler_max_urls_per_source: int = 30
     scheduler_skip_domains: str = ""
     scrape_trigger_api_key: str | None = None
     scrape_trigger_rate_limit_enabled: bool = True

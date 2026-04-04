@@ -2,27 +2,11 @@
 
 import { Suspense, useDeferredValue, useMemo, useState } from "react"
 import { motion } from "framer-motion"
-import { useTheme } from "next-themes"
-import {
-  AlertTriangle,
-  BriefcaseBusiness,
-  CalendarDays,
-  Car,
-  CloudRain,
-  Globe2,
-  Loader2,
-  MapPinned,
-  Newspaper,
-  TrendingUp,
-  X,
-} from "lucide-react"
+import { Globe2, Loader2, MapPinned, Newspaper, TrendingUp, X } from "lucide-react"
 
+import { ScrapeLogPanel } from "@/components/ScrapeLogPanel"
 import InfoCard from "@/components/map/InfoCard"
-import MapView, { type NewsMapItem } from "@/components/map/MapView"
-import {
-  CategoryFilter,
-  type PulseCategoryOption,
-} from "@/components/pulse/category-filter"
+import MapView, { type MapThemeMode, type NewsMapItem } from "@/components/map/MapView"
 import { DateRangeSelector } from "@/components/pulse/date-range-selector"
 import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector"
 import { EnhancedCategoryBar } from "@/components/pulse/enhanced-category-bar"
@@ -31,70 +15,31 @@ import { EnterpriseHeader } from "@/components/pulse/enterprise-header"
 import { LiveNewsFeed, type LiveNewsFeedItem } from "@/components/pulse/live-news-feed"
 import { SplashScreen } from "@/components/pulse/splash-screen"
 import { StatsCard } from "@/components/pulse/stats-card"
-import { StatsPanel } from "@/components/pulse/stats-panel"
-import { TimelineSlider } from "@/components/pulse/timeline-slider"
 import { useNewsDashboard } from "@/hooks/useNewsDashboard"
 import type { NewsQueryFilters } from "@/lib/filter-state"
 import { EMPTY_DASHBOARD_RESPONSE } from "@/lib/news-api"
 
-type PulseCategoryId = "traffic" | "crime" | "weather" | "event" | "economy"
-type FeedCategoryId = LiveNewsFeedItem["pulseCategory"]
-
-const CATEGORY_OPTIONS: PulseCategoryOption[] = [
-  { id: "traffic", label: "Trafik", icon: <Car className="h-3.5 w-3.5" />, color: "bg-amber-500" },
-  { id: "crime", label: "Asayiş", icon: <AlertTriangle className="h-3.5 w-3.5" />, color: "bg-red-500" },
-  { id: "weather", label: "Hava", icon: <CloudRain className="h-3.5 w-3.5" />, color: "bg-blue-500" },
-  { id: "event", label: "Etkinlik", icon: <CalendarDays className="h-3.5 w-3.5" />, color: "bg-emerald-500" },
-  { id: "economy", label: "Gündem", icon: <BriefcaseBusiness className="h-3.5 w-3.5" />, color: "bg-purple-500" },
-]
-
-const ALL_CATEGORY_IDS = CATEGORY_OPTIONS.map((option) => option.id)
 const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "1000")
-const EMPTY_COUNTS: Record<FeedCategoryId, number> = {
-  breaking: 0,
-  traffic: 0,
-  crime: 0,
-  weather: 0,
-  event: 0,
-  economy: 0,
-  sports: 0,
-  health: 0,
-}
-const CATEGORY_FILTER_MAP: Record<PulseCategoryId, string[]> = {
-  traffic: ["trafik_kazasi"],
-  crime: ["hirsizlik", "yangin"],
-  weather: ["elektrik_kesintisi"],
-  event: ["kulturel_etkinlik"],
-  economy: ["unknown"],
-}
+type PulseCategory = LiveNewsFeedItem["pulseCategory"]
 
-function toPulseCategory(raw?: string | null): PulseCategoryId {
+function toFeedCategory(raw?: string | null): LiveNewsFeedItem["pulseCategory"] {
   switch (raw) {
     case "trafik_kazasi":
       return "traffic"
-    case "hirsizlik":
-      return "crime"
     case "yangin":
-      return "crime"
+      return "fire"
     case "elektrik_kesintisi":
-      return "weather"
+      return "outage"
+    case "hirsizlik":
+      return "theft"
     case "kulturel_etkinlik":
       return "event"
     default:
-      return "economy"
+      return "breaking"
   }
-}
-
-function toFeedCategory(raw?: string | null): LiveNewsFeedItem["pulseCategory"] {
-  if (raw === "yangin") {
-    return "breaking"
-  }
-
-  return toPulseCategory(raw)
 }
 
 function buildQueryFilters(input: {
-  categories?: string[]
   districts?: string[]
   search?: string
   dateFrom?: string
@@ -103,9 +48,6 @@ function buildQueryFilters(input: {
 }): NewsQueryFilters {
   const filters: NewsQueryFilters = {}
 
-  if (input.categories && input.categories.length > 0) {
-    filters.categories = input.categories
-  }
   if (input.districts && input.districts.length > 0) {
     filters.districts = input.districts
   }
@@ -123,36 +65,6 @@ function buildQueryFilters(input: {
   }
 
   return filters
-}
-
-function accumulateCategoryCounts(
-  target: Record<FeedCategoryId, number>,
-  category: FeedCategoryId,
-  count: number,
-) {
-  target[category] = (target[category] || 0) + count
-}
-
-function buildCategoryCountsFromStats(
-  buckets: Array<{ key: string; count: number }>,
-): Record<FeedCategoryId, number> {
-  const counts = { ...EMPTY_COUNTS }
-
-  buckets.forEach((bucket) => {
-    accumulateCategoryCounts(counts, toFeedCategory(bucket.key), bucket.count)
-  })
-
-  return counts
-}
-
-function buildCategoryCountsFromItems(items: NewsMapItem[]): Record<FeedCategoryId, number> {
-  const counts = { ...EMPTY_COUNTS }
-
-  items.forEach((item) => {
-    accumulateCategoryCounts(counts, toFeedCategory(item.category), 1)
-  })
-
-  return counts
 }
 
 function normalizeDistrict(value?: string | null): string {
@@ -269,24 +181,22 @@ function normalizeDateRange(dateFrom: string, dateTo: string) {
 function HomeFallback() {
   return (
     <div className="fixed inset-0 bg-background p-4">
-      <div className="h-16 w-full rounded-2xl glass animate-shimmer" />
-      <div className="mt-4 h-[calc(100%-6rem)] w-full rounded-2xl glass animate-shimmer" />
+      <div className="h-16 w-full animate-shimmer rounded-2xl glass" />
+      <div className="mt-4 h-[calc(100%-6rem)] w-full animate-shimmer rounded-2xl glass" />
     </div>
   )
 }
 
 function HomeContent() {
-  const { resolvedTheme } = useTheme()
   const defaultDateRange = useMemo(() => getDefaultDateRange(), [])
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(ALL_CATEGORY_IDS)
+  const [selectedCategory, setSelectedCategory] = useState<PulseCategory | null>(null)
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([])
   const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom)
   const [dateTo, setDateTo] = useState(defaultDateRange.dateTo)
-  const [timelineTime, setTimelineTime] = useState(new Date())
   const [searchKeyword, setSearchKeyword] = useState("")
   const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [mapThemeMode, setMapThemeMode] = useState<MapThemeMode>("light")
   const [showSplash, setShowSplash] = useState(true)
   const deferredSearchKeyword = useDeferredValue(searchKeyword)
   const normalizedSearchKeyword = deferredSearchKeyword.trim()
@@ -295,33 +205,10 @@ function HomeContent() {
     [dateFrom, dateTo],
   )
 
-  const selectedServerCategories = useMemo(() => {
-    if (
-      selectedCategories.length === 0 ||
-      selectedCategories.length === ALL_CATEGORY_IDS.length
-    ) {
-      return undefined
-    }
-
-    return selectedCategories.flatMap((category) => {
-      const categoryId = category as PulseCategoryId
-      return CATEGORY_FILTER_MAP[categoryId] ?? []
-    })
-  }, [selectedCategories])
-
-  const selectedServerDistricts = useMemo(() => {
-    if (selectedDistricts.length === 0) {
-      return undefined
-    }
-
-    return selectedDistricts
-  }, [selectedDistricts])
-
   const dashboardFilters = useMemo(
     () =>
       buildQueryFilters({
-        categories: selectedServerCategories,
-        districts: selectedServerDistricts,
+        districts: selectedDistricts.length > 0 ? selectedDistricts : undefined,
         search: normalizedSearchKeyword || undefined,
         dateFrom: normalizedDateRange.dateFrom,
         dateTo: normalizedDateRange.dateTo,
@@ -331,8 +218,7 @@ function HomeContent() {
       normalizedDateRange.dateFrom,
       normalizedDateRange.dateTo,
       normalizedSearchKeyword,
-      selectedServerCategories,
-      selectedServerDistricts,
+      selectedDistricts,
     ],
   )
 
@@ -363,119 +249,55 @@ function HomeContent() {
     [districtOptions, selectedDistricts],
   )
 
-  const baseFilteredItems = useMemo(() => {
-    return mapData.items
-      .filter((item) => {
-        const timestamp = parseDateValue(item.published_at_raw)
-        if (!timestamp) {
-          return true
-        }
-        return timestamp <= timelineTime.getTime()
-      })
-      .sort((a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw))
-  }, [mapData.items, timelineTime])
+  const mapItems = useMemo(() => {
+    return [...mapData.items].sort(
+      (a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw),
+    )
+  }, [mapData.items])
 
-  const hasTimelineFilter = baseFilteredItems.length !== mapData.items.length
+  const categoryCounts = useMemo<Record<string, number>>(
+    () =>
+      dashboardData.category_facets.reduce<Record<string, number>>((accumulator, bucket) => {
+        const categoryKey = toFeedCategory(bucket.key)
+        accumulator[categoryKey] = (accumulator[categoryKey] || 0) + bucket.count
+        return accumulator
+      }, {}),
+    [dashboardData.category_facets],
+  )
 
-  const categoryCounts = useMemo<Record<string, number>>(() => {
-    if (!hasTimelineFilter && mapData.total > mapData.items.length) {
-      return buildCategoryCountsFromStats(dashboardData.category_facets)
+  const visibleMapItems = useMemo(() => {
+    if (!selectedCategory) {
+      return mapItems
     }
 
-    return buildCategoryCountsFromItems(baseFilteredItems)
-  }, [
-    baseFilteredItems,
-    dashboardData.category_facets,
-    hasTimelineFilter,
-    mapData.items.length,
-    mapData.total,
-  ])
-
-  const filteredMapItems = useMemo(() => {
-    return baseFilteredItems
-      .filter((item) => {
-        if (selectedCategory) {
-          return toFeedCategory(item.category) === selectedCategory
-        }
-        return true
-      })
-      .sort((a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw))
-  }, [baseFilteredItems, selectedCategory])
+    return mapItems.filter((item) => toFeedCategory(item.category) === selectedCategory)
+  }, [mapItems, selectedCategory])
 
   const liveFeedItems = useMemo<LiveNewsFeedItem[]>(() => {
-    return filteredMapItems.slice(0, 8).map((item) => ({
+    return visibleMapItems.slice(0, 8).map((item) => ({
       ...item,
       isRecent: isRecentNews(item),
       pulseCategory: toFeedCategory(item.category),
       timeLabel: formatRelativeTime(item.published_at_raw),
     }))
-  }, [filteredMapItems])
+  }, [visibleMapItems])
 
   const visibleSelectedNews =
-    selectedNews && filteredMapItems.some((item) => item.id === selectedNews.id)
+    selectedNews && visibleMapItems.some((item) => item.id === selectedNews.id)
       ? selectedNews
       : null
 
   const globalTotalNews = stats.total || mapData.total
-  const liveCount = useMemo(() => mapData.items.filter(isLikelyLive).length, [mapData.items])
-  const filteredLiveCount = useMemo(
-    () => filteredMapItems.filter(isLikelyLive).length,
-    [filteredMapItems],
-  )
-
-  const topDistrict = useMemo(() => {
-    if (filteredMapItems.length === 0) {
-      if (stats.districts.length === 0) {
-        return "İzmit"
-      }
-
-      const top = [...stats.districts].sort((a, b) => b.count - a.count)[0]
-      return formatDistrictName(top?.key || "İzmit")
-    }
-
-    const counts = new Map<string, number>()
-    filteredMapItems.forEach((item) => {
-      const id = normalizeDistrict(item.district)
-      if (!id) {
-        return
-      }
-      counts.set(id, (counts.get(id) || 0) + 1)
-    })
-
-    const topEntry = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
-    return formatDistrictName(topEntry?.[0] || "İzmit")
-  }, [filteredMapItems, stats.districts])
-
-  const avgNewsPerHour = useMemo(() => {
-    if (filteredMapItems.length === 0) {
-      return 0
-    }
-
-    return Math.round((filteredMapItems.length / 72) * 10) / 10
-  }, [filteredMapItems.length])
-
-  const mapThemeMode = resolvedTheme === "dark" ? "dark" : "light"
-  const filteredGeocodeCount = useMemo(() => {
-    if (selectedCategory || hasTimelineFilter) {
-      return filteredMapItems.length
-    }
-
-    return stats.geocoded_total || filteredMapItems.length
-  }, [
-    filteredMapItems.length,
-    hasTimelineFilter,
-    selectedCategory,
-    stats.geocoded_total,
-  ])
-
+  const liveCount = useMemo(() => visibleMapItems.filter(isLikelyLive).length, [visibleMapItems])
+  const filteredGeocodeCount = visibleMapItems.length
   const filteredSourceCount = useMemo(
     () =>
       new Set(
-        filteredMapItems
+        visibleMapItems
           .map((item) => item.source_domain || item.source_name)
           .filter(Boolean),
       ).size,
-    [filteredMapItems],
+    [visibleMapItems],
   )
 
   const dataErrorMessage = useMemo(() => {
@@ -500,6 +322,8 @@ function HomeContent() {
           isMenuOpen={isPanelOpen}
           totalNews={globalTotalNews}
           liveCount={liveCount}
+          mapThemeMode={mapThemeMode}
+          onMapThemeModeChange={setMapThemeMode}
         />
 
         <div className="absolute inset-0 z-0">
@@ -512,7 +336,7 @@ function HomeContent() {
             <MapView
               className="h-full w-full"
               themeMode={mapThemeMode}
-              items={filteredMapItems}
+              items={visibleMapItems}
               onMarkerSelect={setSelectedNews}
             />
           </motion.div>
@@ -534,7 +358,7 @@ function HomeContent() {
             </div>
           ) : null}
 
-          {!dashboardLoading && !dataErrorMessage && filteredMapItems.length === 0 ? (
+          {!dashboardLoading && !dataErrorMessage && visibleMapItems.length === 0 ? (
             <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
               <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
                 Aktif filtrelere göre gösterilecek haber bulunamadı.
@@ -543,17 +367,9 @@ function HomeContent() {
           ) : null}
         </div>
 
-        <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} collapsed={isPanelOpen} />
+        <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
 
-        <StatsPanel
-          totalNews={filteredMapItems.length}
-          liveCount={filteredLiveCount}
-          topDistrict={topDistrict}
-          avgNewsPerHour={avgNewsPerHour}
-          hidden={isPanelOpen}
-        />
-
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 hidden w-full max-w-[112rem] -translate-x-1/2 px-4 xl:block">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 hidden w-full max-w-[1720px] -translate-x-1/2 px-4 xl:block">
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{
@@ -562,17 +378,18 @@ function HomeContent() {
               pointerEvents: isPanelOpen ? "none" : "auto",
             }}
             transition={{ delay: 0.26 }}
-            className="pointer-events-auto"
+            className="pointer-events-auto hidden xl:block"
           >
-            <div className="flex items-stretch rounded-2xl glass p-2 shadow-2xl">
-              <div className="flex items-center border-r border-border/60 pr-2">
+            <div className="rounded-2xl glass p-2 shadow-2xl">
+              <div
+                className="grid items-stretch gap-2"
+                style={{ gridTemplateColumns: "1.08fr 1.08fr 7.84fr" }}
+              >
                 <DistrictSelector
                   districts={districtOptions}
                   selected={effectiveSelectedDistricts}
                   onChange={setSelectedDistricts}
                 />
-              </div>
-              <div className="flex items-center border-r border-border/60 px-2">
                 <DateRangeSelector
                   dateFrom={dateFrom}
                   dateTo={dateTo}
@@ -583,30 +400,26 @@ function HomeContent() {
                     setDateTo(defaultDateRange.dateTo)
                   }}
                 />
+                <div>
+                  <EnhancedCategoryBar
+                    selectedCategory={selectedCategory}
+                    onCategoryChange={(category) =>
+                      setSelectedCategory(category as PulseCategory | null)
+                    }
+                    categoryCounts={categoryCounts}
+                    embedded
+                  />
+                  </div>
               </div>
-              <EnhancedCategoryBar
-                selectedCategory={selectedCategory}
-                onCategoryChange={setSelectedCategory}
-                categoryCounts={categoryCounts}
-                className="flex-1 pl-2"
-                embedded
-              />
             </div>
           </motion.div>
         </div>
 
-        <EnhancedCategoryBar
-          selectedCategory={selectedCategory}
-          onCategoryChange={setSelectedCategory}
-          categoryCounts={categoryCounts}
-          className="xl:hidden"
-        />
-
         <EnhancedSidebar
           isOpen={isPanelOpen}
           onClose={() => setIsPanelOpen(false)}
-          title="Harita Filtreleri"
-          subtitle="Kategori, ilçe ve zaman filtreleri ile haber görünümünü daralt."
+          title="Canlı Kontrol Paneli"
+          subtitle="Özet kartlar üstte, scrape işlemleri hemen altında."
         >
           {dataErrorMessage ? (
             <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -614,73 +427,46 @@ function HomeContent() {
             </div>
           ) : null}
 
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <StatsCard
-              title="Görünüm"
-              value={filteredMapItems.length}
-              icon={<Newspaper className="h-4 w-4" />}
-              color="bg-primary"
-              delay={0}
-            />
-            <StatsCard
-              title="Geocode"
-              value={filteredGeocodeCount}
-              icon={<MapPinned className="h-4 w-4" />}
-              color="bg-emerald-500"
-              delay={0.05}
-            />
-            <StatsCard
-              title="Kaynak"
-              value={filteredSourceCount || stats.active_sources}
-              icon={<Globe2 className="h-4 w-4" />}
-              color="bg-sky-500"
-              delay={0.1}
-            />
-            <StatsCard
-              title="Son 6 Saat"
-              value={filteredLiveCount}
-              icon={<TrendingUp className="h-4 w-4" />}
-              color="bg-violet-500"
-              delay={0.15}
-            />
-          </div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <StatsCard
+                title="Görünüm"
+                value={visibleMapItems.length}
+                icon={<Newspaper className="h-4 w-4" />}
+                color="bg-primary"
+                delay={0}
+              />
+              <StatsCard
+                title="Konumlu"
+                value={filteredGeocodeCount}
+                icon={<MapPinned className="h-4 w-4" />}
+                color="bg-emerald-500"
+                delay={0.05}
+              />
+              <StatsCard
+                title="Kaynak"
+                value={filteredSourceCount || stats.active_sources}
+                icon={<Globe2 className="h-4 w-4" />}
+                color="bg-sky-500"
+                delay={0.1}
+              />
+              <StatsCard
+                title="Son 6 Saat"
+                value={liveCount}
+                icon={<TrendingUp className="h-4 w-4" />}
+                color="bg-violet-500"
+                delay={0.15}
+              />
+            </div>
 
-          <div className="mt-4 space-y-3">
-            <DateRangeSelector
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              onDateFromChange={setDateFrom}
-              onDateToChange={setDateTo}
-              onResetToDefault={() => {
-                setDateFrom(defaultDateRange.dateFrom)
-                setDateTo(defaultDateRange.dateTo)
-              }}
-            />
-            <CategoryFilter
-              selected={selectedCategories}
-              onChange={setSelectedCategories}
-              options={CATEGORY_OPTIONS}
-            />
-            <DistrictSelector
-              districts={districtOptions}
-              selected={effectiveSelectedDistricts}
-              onChange={setSelectedDistricts}
-            />
-          </div>
+            <div
+              className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+              data-testid="visible-news-count"
+            >
+              {visibleMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
+            </div>
 
-          <div className="mt-4">
-            <TimelineSlider onTimeChange={setTimelineTime} />
-          </div>
-
-          <div className="mt-4 xl:hidden">
-            <InfoCard item={visibleSelectedNews} className="border-border/60 bg-card/90" />
-          </div>
-
-          <div
-            className="mt-4 rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
-            data-testid="visible-news-count"
-          >
-            {filteredMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
+            <ScrapeLogPanel variant="embedded" />
           </div>
         </EnhancedSidebar>
 
@@ -690,9 +476,9 @@ function HomeContent() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             transition={{ duration: 0.22 }}
-            className="pointer-events-none absolute inset-x-4 top-28 z-20 hidden justify-center xl:inset-x-auto xl:right-6 xl:top-28 xl:flex"
+            className="pointer-events-none absolute inset-x-4 top-28 z-20 flex justify-center xl:inset-x-auto xl:right-6 xl:top-28"
           >
-            <div className="pointer-events-auto relative w-full max-w-lg">
+            <div className="pointer-events-auto relative w-full max-w-[58rem]">
               <button
                 type="button"
                 onClick={() => setSelectedNews(null)}

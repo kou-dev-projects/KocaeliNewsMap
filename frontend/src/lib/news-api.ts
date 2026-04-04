@@ -29,8 +29,14 @@ export type NewsDashboardResponse = {
 export type NewsDetail = NewsMapItem & {
   content_text: string;
   image_url?: string | null;
+  location_text_extracted?: string | null;
   source_base_url?: string | null;
   source_domains: string[];
+  source_sites: Array<{
+    domain: string;
+    url: string;
+    is_primary: boolean;
+  }>;
 };
 
 export const EMPTY_STATS: NewsStats = {

@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import DeckGLOverlay from "@/components/map/DeckGLOverlay";
-import MapLayerToggle from "@/components/map/MapLayerToggle";
+import MapDomMarkerLayer from "@/components/map/MapDomMarkerLayer";
 import MapTooltip, { type MapTooltipState } from "@/components/map/MapTooltip";
-import { FpsTracker, type FpsMetrics } from "@/components/map/mapFpsTracker";
 import {
   adaptNewsItemsToDeckPoints,
-  buildBenchmarkPoints,
   type DeckNewsPoint,
   type MapLayerMode,
 } from "@/components/map/mapLayerUtils";
@@ -31,7 +29,7 @@ export type NewsMapItem = {
   longitude: number;
 };
 
-type MapThemeMode = "light" | "dark";
+export type MapThemeMode = "light" | "dark";
 type MapStyleDefinition = string | Record<string, unknown>;
 
 type MapViewProps = {
@@ -46,12 +44,10 @@ const KOCAELI_CENTER: [number, number] = [29.9213, 40.7654];
 const INITIAL_ZOOM = 12;
 const BUILDING_SOURCE_ID = "openfreemap";
 const BUILDING_LAYER_ID = "kocaeli-3d-buildings";
-const BENCHMARK_DURATION_MS = 2800;
 
 const DEFAULT_STYLE_URL =
   process.env.NEXT_PUBLIC_MAP_STYLE_URL ??
   "https://tiles.openfreemap.org/styles/liberty";
-const SHOW_MAP_QA_CONTROLS = process.env.NEXT_PUBLIC_ENABLE_MAP_QA === "true";
 
 const FALLBACK_MAP_STYLE: Record<string, unknown> = {
   version: 8,
@@ -205,6 +201,36 @@ const ACTIVE_DARK_MAP_PALETTE: keyof typeof DARK_MAP_PALETTES = "coolSlate";
 
 function includesAny(value: string, keywords: string[]) {
   return keywords.some((keyword) => value.includes(keyword));
+}
+
+function areTooltipsEqual(left: MapTooltipState, right: MapTooltipState) {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right || left.type !== right.type) {
+    return false;
+  }
+
+  if (left.x !== right.x || left.y !== right.y) {
+    return false;
+  }
+
+  if (left.type === "hex" && right.type === "hex") {
+    return left.count === right.count;
+  }
+
+  if (left.type === "marker" && right.type === "marker") {
+    return (
+      left.title === right.title &&
+      left.dateLabel === right.dateLabel &&
+      left.sourceLabel === right.sourceLabel &&
+      left.url === right.url &&
+      left.category === right.category
+    );
+  }
+
+  return false;
 }
 
 function setPaintSafely(
@@ -409,31 +435,6 @@ function applyMapThemePaint(map: MapLibreMap, mode: MapThemeMode) {
 
 }
 
-function waitForAnimationFrames(frameCount = 2) {
-  return new Promise<void>((resolve) => {
-    let remaining = frameCount;
-
-    const step = () => {
-      remaining -= 1;
-
-      if (remaining <= 0) {
-        resolve();
-        return;
-      }
-
-      window.requestAnimationFrame(step);
-    };
-
-    window.requestAnimationFrame(step);
-  });
-}
-
-function waitForMapEvent(map: MapLibreMap, eventName: string) {
-  return new Promise<void>((resolve) => {
-    map.once(eventName, () => resolve());
-  });
-}
-
 function isRemoteStyleUrl(value: string) {
   return value.startsWith("https://") || value.startsWith("http://");
 }
@@ -457,24 +458,20 @@ export default function MapView({
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const markerTooltipBridgeRef = useRef<{
+    hold: () => void;
+    release: () => void;
+  }>({
+    hold: () => {},
+    release: () => {},
+  });
   const [map, setMap] = useState<MapLibreMap | null>(null);
-  const [layerMode, setLayerMode] = useState<MapLayerMode>("markers");
+  const layerMode: MapLayerMode = "markers";
   const [tooltip, setTooltip] = useState<MapTooltipState>(null);
-  const [benchmarkActive, setBenchmarkActive] = useState(false);
-  const [benchmarkRunning, setBenchmarkRunning] = useState(false);
-  const [benchmarkMetrics, setBenchmarkMetrics] = useState<FpsMetrics>();
   const deckPoints = useMemo<DeckNewsPoint[]>(
     () => adaptNewsItemsToDeckPoints(items),
     [items],
   );
-  const benchmarkPointCount = useMemo(
-    () => buildBenchmarkPoints(deckPoints).length,
-    [deckPoints],
-  );
-  const benchmarkTrackerRef = useRef<{
-    tracker: FpsTracker;
-    previousTimestamp?: number;
-  } | null>(null);
   const resolvedStyleRef = useRef<MapStyleDefinition | null>(null);
   const appliedStyleRef = useRef<MapStyleDefinition | null>(null);
   const activeThemeModeRef = useRef<MapThemeMode>(themeMode);
@@ -548,7 +545,7 @@ export default function MapView({
 
     mapRef.current = nextMap;
     appliedStyleRef.current = resolvedStyle;
-    nextMap.addControl(new maplibregl.NavigationControl(), "top-right");
+    nextMap.addControl(new maplibregl.NavigationControl(), "bottom-right");
 
     const ensureBaseLayers = () => {
       if (disposed || !nextMap.isStyleLoaded()) {
@@ -700,85 +697,41 @@ export default function MapView({
     activeMap.setStyle(resolvedStyle as never);
   }, [resolvedStyle]);
 
-  const handleBenchmarkRender = () => {
-    const activeBenchmark = benchmarkTrackerRef.current;
-    if (!activeBenchmark) {
-      return;
-    }
-
-    const now = performance.now();
-    if (activeBenchmark.previousTimestamp === undefined) {
-      activeBenchmark.previousTimestamp = now;
-      return;
-    }
-
-    activeBenchmark.tracker.record(now - activeBenchmark.previousTimestamp);
-    activeBenchmark.previousTimestamp = now;
-  };
-
-  const handleRunBenchmark = async () => {
-    const activeMap = mapRef.current;
-    if (!activeMap || benchmarkRunning || benchmarkPointCount === 0) {
-      return;
-    }
-
-    setBenchmarkRunning(true);
-    setBenchmarkActive(true);
-    setBenchmarkMetrics(undefined);
-    benchmarkTrackerRef.current = {
-      tracker: new FpsTracker(),
-    };
-
-    await waitForAnimationFrames(3);
-
-    const initialBearing = activeMap.getBearing();
-    const initialPitch = activeMap.getPitch();
-    activeMap.easeTo({
-      bearing: initialBearing + 22,
-      pitch: Math.min(58, initialPitch + 8),
-      duration: BENCHMARK_DURATION_MS,
-      essential: true,
-    });
-
-    await waitForMapEvent(activeMap, "moveend");
-
-    const metrics = benchmarkTrackerRef.current?.tracker.getMetrics();
-    benchmarkTrackerRef.current = null;
-    setBenchmarkActive(false);
-    setBenchmarkMetrics(metrics);
-    setBenchmarkRunning(false);
-
-    activeMap.easeTo({
-      bearing: initialBearing,
-      pitch: initialPitch,
-      duration: 450,
-      essential: true,
-    });
-  };
+  const handleTooltipHoverHandlersRegistration = useCallback(
+    (handlers: { hold: () => void; release: () => void }) => {
+      markerTooltipBridgeRef.current = handlers;
+    },
+    [],
+  );
+  const handleTooltipChange = useCallback((nextTooltip: MapTooltipState) => {
+    setTooltip((currentTooltip) =>
+      areTooltipsEqual(currentTooltip, nextTooltip) ? currentTooltip : nextTooltip,
+    );
+  }, []);
 
   return (
-    <div className={`relative ${className}`} data-testid="news-map-shell">
+    <div className={`pulse-map-shell relative ${className}`} data-testid="news-map-shell">
       <div ref={containerRef} className="h-full w-full" data-testid="news-map" />
-
-      <MapLayerToggle
-        layerMode={layerMode}
-        onLayerModeChange={setLayerMode}
-        onRunBenchmark={handleRunBenchmark}
-        benchmarkRunning={benchmarkRunning}
-        benchmarkMetrics={benchmarkMetrics}
-        pointCount={deckPoints.length}
-        benchmarkPointCount={benchmarkPointCount}
-        showBenchmark={SHOW_MAP_QA_CONTROLS}
+      <MapTooltip
+        tooltip={tooltip}
+        onMarkerTooltipEnter={() => markerTooltipBridgeRef.current.hold()}
+        onMarkerTooltipLeave={() => markerTooltipBridgeRef.current.release()}
       />
-      <MapTooltip tooltip={tooltip} />
+      <MapDomMarkerLayer
+        map={map}
+        points={deckPoints}
+        layerMode={layerMode}
+        onMarkerSelect={onMarkerSelect}
+        onTooltipChange={handleTooltipChange}
+        registerTooltipHoverHandlers={handleTooltipHoverHandlersRegistration}
+      />
       <DeckGLOverlay
         map={map}
         points={deckPoints}
         layerMode={layerMode}
-        benchmarkActive={benchmarkActive}
+        benchmarkActive={false}
         onMarkerSelect={onMarkerSelect}
-        onTooltipChange={setTooltip}
-        onBenchmarkRender={handleBenchmarkRender}
+        onTooltipChange={handleTooltipChange}
       />
     </div>
   );

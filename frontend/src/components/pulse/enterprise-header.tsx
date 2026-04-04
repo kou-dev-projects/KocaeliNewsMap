@@ -5,12 +5,12 @@ import {
   Activity,
   Database,
   Filter,
-  Globe,
   Menu,
   Moon,
+  MoonStar,
   Search,
   Sun,
-  Wifi,
+  SunMedium,
   X,
   Zap,
 } from "lucide-react";
@@ -24,6 +24,8 @@ interface EnterpriseHeaderProps {
   isMenuOpen?: boolean;
   totalNews: number;
   liveCount: number;
+  mapThemeMode?: "light" | "dark";
+  onMapThemeModeChange?: (mode: "light" | "dark") => void;
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -46,6 +48,8 @@ export function EnterpriseHeader({
   isMenuOpen,
   totalNews,
   liveCount,
+  mapThemeMode = "light",
+  onMapThemeModeChange,
 }: EnterpriseHeaderProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const mounted = useSyncExternalStore(
@@ -54,19 +58,8 @@ export function EnterpriseHeader({
     () => false,
   );
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
   const desktopSearchRef = useRef<HTMLInputElement | null>(null);
   const mobileSearchRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1_000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -81,7 +74,8 @@ export function EnterpriseHeader({
       }
 
       event.preventDefault();
-      const targetInput = window.innerWidth >= 1024 ? desktopSearchRef.current : mobileSearchRef.current;
+      const targetInput =
+        window.innerWidth >= 1024 ? desktopSearchRef.current : mobileSearchRef.current;
       if (window.innerWidth < 1024) {
         setIsSearchOpen(true);
       }
@@ -107,59 +101,6 @@ export function EnterpriseHeader({
 
   return (
     <header className="absolute inset-x-0 top-0 z-30">
-      <motion.div
-        initial={{ opacity: 0, y: -16 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="border-b border-border bg-card/82 px-4 py-1.5 text-xs backdrop-blur-sm"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <motion.div
-                className="h-2 w-2 rounded-full bg-emerald-500"
-                animate={{ scale: [1, 1.2, 1], opacity: [1, 0.6, 1] }}
-                transition={{ duration: 1, repeat: Infinity }}
-              />
-              <span className="font-mono text-muted-foreground">SİSTEM AKTİF</span>
-            </div>
-
-            <div className="hidden items-center gap-2 text-muted-foreground md:flex">
-              <Database className="h-3 w-3" />
-              <span className="font-mono">{totalNews.toLocaleString("tr-TR")} KAYIT</span>
-            </div>
-
-            <div className="hidden items-center gap-2 text-muted-foreground md:flex">
-              <Wifi className="h-3 w-3 text-emerald-500" />
-              <span className="font-mono">CANLI: {liveCount.toLocaleString("tr-TR")}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="hidden items-center gap-2 text-muted-foreground sm:flex">
-              <Globe className="h-3 w-3" />
-              <span className="font-mono">TR-41 KOCAELİ</span>
-            </div>
-
-            <div
-              className="flex items-center gap-1 font-mono text-foreground"
-              suppressHydrationWarning
-            >
-              <span suppressHydrationWarning>
-                {currentTime.toLocaleDateString("tr-TR", {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                })}
-              </span>
-              <span className="text-muted-foreground">|</span>
-              <span className="font-semibold text-primary" suppressHydrationWarning>
-                {currentTime.toLocaleTimeString("tr-TR")}
-              </span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
       <div className="mx-4 mt-3 overflow-hidden rounded-2xl glass">
         <div className="flex items-center justify-between gap-4 px-5 py-4">
           <motion.div
@@ -203,7 +144,7 @@ export function EnterpriseHeader({
                 </span>
               </div>
               <p className="mt-0.5 text-xs tracking-wide text-muted-foreground">
-                Kocaeli Yerel Haber İzleme Sistemi
+                Kocaeli Yerel Haber Izleme Sistemi
               </p>
             </div>
           </motion.div>
@@ -222,7 +163,7 @@ export function EnterpriseHeader({
                 placeholder="Haber, konum veya kaynak ara..."
                 value={searchQuery}
                 onChange={(event) => onSearchChange?.(event.target.value)}
-                className="w-full rounded-xl border border-border bg-secondary/50 py-3 pl-11 pr-14 text-sm transition-all placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="w-full rounded-xl border border-border/70 bg-card/90 py-3 pl-11 pr-14 text-sm text-foreground shadow-sm transition-all placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 dark:bg-card/95"
               />
               <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1">
                 <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
@@ -237,7 +178,7 @@ export function EnterpriseHeader({
                 <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
                   {liveCount.toLocaleString("tr-TR")}
                 </span>
-                <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Canlı</span>
+                <span className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Canli</span>
               </div>
 
               <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2">
@@ -259,8 +200,8 @@ export function EnterpriseHeader({
             <button
               type="button"
               onClick={() => setIsSearchOpen((current) => !current)}
-              className="rounded-xl border border-border/50 bg-secondary/50 p-2.5 transition-colors hover:bg-secondary lg:hidden"
-              aria-label={isSearchOpen ? "Aramayı kapat" : "Aramayı aç"}
+              className="rounded-xl border border-border/60 bg-card/90 p-2.5 shadow-sm transition-colors hover:bg-secondary/90 dark:bg-card/95 lg:hidden"
+              aria-label={isSearchOpen ? "Aramayi kapat" : "Aramayi ac"}
             >
               {isSearchOpen ? (
                 <X className="h-5 w-5 text-foreground" />
@@ -269,13 +210,46 @@ export function EnterpriseHeader({
               )}
             </button>
 
+            <div className="hidden items-center rounded-xl border border-border/60 bg-card/90 p-1 shadow-sm backdrop-blur xl:flex dark:bg-card/95">
+              <button
+                type="button"
+                onClick={() => onMapThemeModeChange?.("light")}
+                className={[
+                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition",
+                  mapThemeMode === "light"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-secondary/90 hover:text-foreground",
+                ].join(" ")}
+                aria-pressed={mapThemeMode === "light"}
+                aria-label="Haritayi acik temaya al"
+              >
+                <SunMedium className="h-3.5 w-3.5" />
+                Harita
+              </button>
+              <button
+                type="button"
+                onClick={() => onMapThemeModeChange?.("dark")}
+                className={[
+                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition",
+                  mapThemeMode === "dark"
+                    ? "bg-slate-900 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
+                    : "text-muted-foreground hover:bg-secondary/90 hover:text-foreground",
+                ].join(" ")}
+                aria-pressed={mapThemeMode === "dark"}
+                aria-label="Haritayi koyu temaya al"
+              >
+                <MoonStar className="h-3.5 w-3.5" />
+                Harita
+              </button>
+            </div>
+
             <motion.button
               type="button"
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.96 }}
               onClick={() => setTheme(currentTheme === "dark" ? "light" : "dark")}
-              className="rounded-xl border border-border/50 bg-secondary/50 p-2.5 transition-colors hover:bg-secondary"
-              aria-label={currentTheme === "dark" ? "Açık temaya geç" : "Koyu temaya geç"}
+              className="rounded-xl border border-border/60 bg-card/90 p-2.5 shadow-sm transition-colors hover:bg-secondary/90 dark:bg-card/95"
+              aria-label={currentTheme === "dark" ? "Acik temaya gec" : "Koyu temaya gec"}
             >
               {currentTheme === "dark" ? (
                 <Moon className="h-5 w-5 text-foreground" />
@@ -287,7 +261,7 @@ export function EnterpriseHeader({
             <button
               type="button"
               onClick={onMenuToggle}
-              aria-label={isMenuOpen ? "Kontrol panelini kapat" : "Kontrol panelini aç"}
+              aria-label={isMenuOpen ? "Kontrol panelini kapat" : "Kontrol panelini ac"}
               data-testid="control-panel-toggle"
               className="rounded-xl bg-primary p-2.5 transition-colors hover:bg-primary/90"
             >
@@ -322,7 +296,7 @@ export function EnterpriseHeader({
                     placeholder="Haber veya konum ara..."
                     value={searchQuery}
                     onChange={(event) => onSearchChange?.(event.target.value)}
-                    className="w-full rounded-xl bg-transparent py-3.5 pl-11 pr-4 text-sm placeholder:text-muted-foreground focus:outline-none"
+                    className="w-full rounded-xl bg-card/92 py-3.5 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none dark:bg-card/96"
                   />
                 </div>
               </div>

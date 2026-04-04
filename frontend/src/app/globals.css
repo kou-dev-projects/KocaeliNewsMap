@@ -26,9 +26,9 @@
   --ring: oklch(0.55 0.22 250);
 
   /* News Category Colors - Vibrant & Distinct */
-  --category-breaking: oklch(0.58 0.28 25);
+  --category-breaking: oklch(0.62 0.16 245);
   --category-traffic: oklch(0.70 0.18 70);
-  --category-crime: oklch(0.55 0.25 25);
+  --category-crime: oklch(0.58 0.22 305);
   --category-weather: oklch(0.55 0.18 230);
   --category-event: oklch(0.55 0.22 170);
   --category-economy: oklch(0.55 0.20 300);
@@ -71,28 +71,28 @@
   /* Enterprise Command Center - Dark Theme */
   --background: oklch(0.06 0.015 250);
   --foreground: oklch(0.89 0.006 240);
-  --card: oklch(0.09 0.018 250);
+  --card: oklch(0.11 0.02 250);
   --card-foreground: oklch(0.89 0.006 240);
-  --popover: oklch(0.085 0.018 250);
+  --popover: oklch(0.105 0.02 250);
   --popover-foreground: oklch(0.89 0.006 240);
   --primary: oklch(0.58 0.19 250);
   --primary-foreground: oklch(0.08 0.02 250);
-  --secondary: oklch(0.12 0.018 250);
+  --secondary: oklch(0.15 0.02 250);
   --secondary-foreground: oklch(0.84 0.008 240);
-  --muted: oklch(0.11 0.018 250);
-  --muted-foreground: oklch(0.5 0.01 240);
+  --muted: oklch(0.13 0.018 250);
+  --muted-foreground: oklch(0.66 0.012 240);
   --accent: oklch(0.52 0.16 170);
   --accent-foreground: oklch(0.08 0.02 250);
   --destructive: oklch(0.55 0.22 25);
   --destructive-foreground: oklch(0.94 0.005 240);
-  --border: oklch(0.17 0.018 250);
-  --input: oklch(0.12 0.018 250);
+  --border: oklch(0.23 0.02 250);
+  --input: oklch(0.16 0.02 250);
   --ring: oklch(0.58 0.19 250);
 
   /* News Category Colors - Dark Mode */
-  --category-breaking: oklch(0.58 0.22 25);
+  --category-breaking: oklch(0.66 0.14 245);
   --category-traffic: oklch(0.66 0.14 70);
-  --category-crime: oklch(0.56 0.2 25);
+  --category-crime: oklch(0.64 0.18 305);
   --category-weather: oklch(0.56 0.14 230);
   --category-event: oklch(0.56 0.16 170);
   --category-economy: oklch(0.56 0.15 300);
@@ -105,12 +105,12 @@
   --chart-4: oklch(0.58 0.22 25);
   --chart-5: oklch(0.56 0.15 300);
 
-  --glass-bg: oklch(0.10 0.018 250 / 0.62);
-  --glass-border: oklch(0.20 0.018 250 / 0.34);
-  --glass-shadow: oklch(0.00 0 0 / 0.5);
-  --glass-strong-bg: oklch(0.10 0.018 250 / 0.74);
-  --glass-strong-border: oklch(0.20 0.018 250 / 0.44);
-  --glass-strong-shadow: oklch(0.00 0 0 / 0.58);
+  --glass-bg: oklch(0.115 0.02 250 / 0.84);
+  --glass-border: oklch(0.28 0.02 250 / 0.56);
+  --glass-shadow: oklch(0.00 0 0 / 0.62);
+  --glass-strong-bg: oklch(0.12 0.02 250 / 0.92);
+  --glass-strong-border: oklch(0.30 0.02 250 / 0.68);
+  --glass-strong-shadow: oklch(0.00 0 0 / 0.7);
 
   --glow-primary: oklch(0.58 0.19 250 / 0.35);
   --glow-accent: oklch(0.52 0.16 170 / 0.35);
@@ -606,6 +606,140 @@
     0 0 5px var(--destructive),
     0 0 20px var(--glow-danger),
     0 0 40px var(--glow-danger);
+}
+
+.pulse-map-marker-button {
+  position: relative;
+  z-index: 10;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: z-index 120ms ease;
+}
+
+.pulse-map-marker-button:focus-visible {
+  outline: none;
+}
+
+.pulse-map-marker {
+  --pulse-marker-lift: 0px;
+  --pulse-marker-scale: 1;
+  position: relative;
+  width: var(--pulse-marker-size, 48px);
+  aspect-ratio: 64 / 84;
+  transform-origin: 50% 100%;
+  transform: translateY(var(--pulse-marker-lift)) scale(var(--pulse-marker-scale));
+  filter: drop-shadow(0 18px 28px rgba(15, 23, 42, 0.24));
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), filter 220ms ease;
+  will-change: transform, filter;
+}
+
+.pulse-map-marker__halo {
+  position: absolute;
+  left: 50%;
+  top: var(--pulse-marker-halo-top, 8%);
+  width: var(--pulse-marker-halo-width, 92%);
+  height: var(--pulse-marker-halo-height, 70%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgb(var(--pulse-marker-glow) / 0.34) 0%, rgb(var(--pulse-marker-glow) / 0.16) 48%, transparent 74%);
+  transform: translateX(-50%) scale(1.08);
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.pulse-map-marker__svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.pulse-map-marker__icon {
+  position: absolute;
+  left: var(--pulse-marker-center-x, 50%);
+  top: var(--pulse-marker-center-y, 33.333%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pulse-marker-icon-size, 18px);
+  height: var(--pulse-marker-icon-size, 18px);
+  color: white;
+  filter: drop-shadow(0 2px 4px rgb(15 23 42 / 0.2));
+  transform: translate(-50%, -50%);
+}
+
+.pulse-map-marker__icon-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  flex: none;
+}
+
+.pulse-map-marker-button:hover .pulse-map-marker,
+.pulse-map-marker-button:focus-visible .pulse-map-marker {
+  --pulse-marker-lift: -8px;
+  --pulse-marker-scale: 1.12;
+  filter: drop-shadow(0 24px 36px rgba(15, 23, 42, 0.32));
+}
+
+.pulse-map-marker-button[data-spread="true"] .pulse-map-marker {
+  --pulse-marker-lift: -5px;
+  --pulse-marker-scale: 1.05;
+  filter: drop-shadow(0 22px 34px rgba(15, 23, 42, 0.3));
+}
+
+.pulse-map-marker-button[data-active="true"] .pulse-map-marker {
+  --pulse-marker-lift: -12px;
+  --pulse-marker-scale: 1.22;
+  filter: drop-shadow(0 30px 44px rgba(15, 23, 42, 0.38));
+}
+
+.pulse-map-shell .maplibregl-ctrl-bottom-right {
+  z-index: 16;
+}
+
+.pulse-map-shell .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+  margin: 0 1rem 1rem 0;
+}
+
+.pulse-map-shell .maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid var(--glass-strong-border);
+  border-radius: 18px;
+  background: var(--glass-strong-bg);
+  box-shadow:
+    0 12px 32px -10px var(--glass-strong-shadow),
+    0 0 0 1px var(--glass-strong-border) inset;
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+.pulse-map-shell .maplibregl-ctrl-group button {
+  width: 42px;
+  height: 42px;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.pulse-map-shell .maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--glass-border);
+}
+
+.pulse-map-shell .maplibregl-ctrl-group button:hover {
+  background: color-mix(in oklab, var(--secondary) 78%, transparent);
+}
+
+.pulse-map-shell .maplibregl-ctrl-group button span {
+  filter: none;
+}
+
+@media (max-width: 1023px) {
+  .pulse-map-shell .maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+    margin-right: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
 }
 
 /* Scrollbar - Enterprise */

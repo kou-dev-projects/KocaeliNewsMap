@@ -50,6 +50,21 @@ const MAP_RESPONSE = {
   ],
 };
 
+const DETAIL_RESPONSE = {
+  ...MAP_RESPONSE.items[0],
+  content_text:
+    "Kocaeli genelinde bu hafta vizyona giren yeni filmler kultur sanat takvimini hareketlendirdi. Izmit merkezli programda salonlar hafta sonuna kadar dolu seyirci bekliyor.",
+  image_url: "https://example.com/poster.jpg",
+  location_text_extracted: "Izmit merkez",
+  source_base_url: "https://bizimyaka.com.tr",
+  source_domains: ["bizimyaka.com.tr", "ozgurkocaeli.com.tr", "kocaeligazetesi.com.tr"],
+  source_sites: [
+    { domain: "bizimyaka.com.tr", url: "https://bizimyaka.com.tr", is_primary: true },
+    { domain: "ozgurkocaeli.com.tr", url: "https://ozgurkocaeli.com.tr", is_primary: false },
+    { domain: "kocaeligazetesi.com.tr", url: "https://kocaeligazetesi.com.tr", is_primary: false },
+  ],
+};
+
 const STATS_RESPONSE = {
   total: 2,
   geocoded_total: 2,
@@ -174,6 +189,10 @@ await withQaServer(async (baseUrl) => {
     seenRequests.push(route.request().url());
     await route.fulfill(jsonResponse(MAP_RESPONSE));
   });
+  await context.route(/\/api\/v1\/news\/(?!map(?:\?|$)|stats(?:\?|$)|dashboard(?:\?|$))[^/?]+(?:\?.*)?$/i, async (route) => {
+    seenRequests.push(route.request().url());
+    await route.fulfill(jsonResponse(DETAIL_RESPONSE));
+  });
   await context.route("**/api/scrape/bootstrap", async (route) => {
     seenRequests.push(route.request().url());
     await route.fulfill(
@@ -223,11 +242,11 @@ await withQaServer(async (baseUrl) => {
       { timeout: WAIT_TIMEOUT_MS },
     );
     await page.getByTestId("control-panel-toggle").click();
-    await page.getByTestId("news-info-card").waitFor({ timeout: WAIT_TIMEOUT_MS });
     await waitForTextFragment(page, "visible-news-count", "2 / 2 haber gosteriliyor");
     await page.waitForTimeout(1200);
 
     await clickCenteredMarker(page);
+    await page.getByTestId("news-info-card").waitFor({ timeout: WAIT_TIMEOUT_MS });
     const infoStatus = (await page.getByTestId("news-info-status").textContent()) || "";
 
     await page.getByTestId("category-chip-event").click();

@@ -7,7 +7,6 @@ export type DeckNewsPoint = {
   position: [number, number];
   radius: number;
   color: [number, number, number, number];
-  markerUrl: string;
   title: string;
   publishedLabel: string;
   category: string;
@@ -36,48 +35,6 @@ const MIN_MARKER_RADIUS = 8;
 const MAX_MARKER_RADIUS = 18;
 const KOCAELI_BENCHMARK_CENTER: [number, number] = [29.9213, 40.7654];
 
-function buildMarkerDataUrl(fillColor: string, paths: string[]) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="64" viewBox="0 0 48 64" fill="none">
-      <path d="M24 2c-11.6 0-21 9.4-21 21 0 16.1 18.2 35.2 20 37.1a1.4 1.4 0 0 0 2 0C26.8 58.2 45 39.1 45 23 45 11.4 35.6 2 24 2Z" fill="${fillColor}"/>
-      <circle cx="24" cy="23" r="13.5" fill="rgba(255,255,255,0.16)"/>
-      <g stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
-        ${paths.join("")}
-      </g>
-    </svg>
-  `;
-
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-const CATEGORY_MARKER_URLS: Record<string, string> = {
-  trafik_kazasi: buildMarkerDataUrl("#f97316", [
-    '<path d="M15 26h18l-1.8-5.2a2.8 2.8 0 0 0-2.7-1.8h-9a2.8 2.8 0 0 0-2.7 1.8L15 26Z"/>',
-    '<circle cx="19" cy="30" r="2"/>',
-    '<circle cx="29" cy="30" r="2"/>',
-  ]),
-  yangin: buildMarkerDataUrl("#f97316", [
-    '<path d="M24 13c2.2 3 4.6 5.7 4.6 9.1A4.6 4.6 0 0 1 24 26.7a4.6 4.6 0 0 1-4.6-4.6c0-2.1 1-4 2.6-6"/>',
-    '<path d="M24 26.7c2.1 1.3 3.5 3.2 3.5 5.3A3.5 3.5 0 0 1 24 35.5 3.5 3.5 0 0 1 20.5 32c0-1.6.9-3.2 2.5-4.5"/>',
-  ]),
-  elektrik_kesintisi: buildMarkerDataUrl("#4b5563", [
-    '<path d="M26 12 17 25h6l-1 10 9-14h-6l1-9Z"/>',
-  ]),
-  hirsizlik: buildMarkerDataUrl("#5b4bb2", [
-    '<path d="M18 21c0-3.3 2.7-6 6-6s6 2.7 6 6"/>',
-    '<path d="M20 23h8v9h-8z"/>',
-    '<circle cx="24" cy="27.5" r="1"/>',
-  ]),
-  kulturel_etkinlik: buildMarkerDataUrl("#0f8b75", [
-    '<path d="M20 31V16l10-2v13"/>',
-    '<circle cx="17" cy="31" r="2.6"/>',
-    '<circle cx="30" cy="28" r="2.6"/>',
-  ]),
-  unknown: buildMarkerDataUrl("#475569", [
-    '<circle cx="24" cy="24" r="4"/>',
-  ]),
-};
-
 function normalizeConfidence(confidence?: number | null) {
   if (typeof confidence !== "number" || !Number.isFinite(confidence)) {
     return 0.5;
@@ -96,14 +53,6 @@ export function getCategoryColor(category?: string | null) {
   }
 
   return CATEGORY_COLORS[category] ?? DEFAULT_COLOR;
-}
-
-export function getCategoryMarkerUrl(category?: string | null) {
-  if (!category) {
-    return CATEGORY_MARKER_URLS.unknown;
-  }
-
-  return CATEGORY_MARKER_URLS[category] ?? CATEGORY_MARKER_URLS.unknown;
 }
 
 export function formatPublishedAt(value?: string | null) {
@@ -135,7 +84,6 @@ export function adaptNewsItemsToDeckPoints(items: NewsMapItem[]): DeckNewsPoint[
       position: [item.longitude, item.latitude],
       radius,
       color: getCategoryColor(item.category),
-      markerUrl: getCategoryMarkerUrl(item.category),
       title: item.title,
       publishedLabel: formatPublishedAt(item.published_at_raw),
       category: item.category ?? "unknown",
@@ -181,7 +129,6 @@ export function buildBenchmarkPoints(
         position: [sourceItem.longitude, sourceItem.latitude],
         radius: 14,
         color: getCategoryColor(category),
-        markerUrl: getCategoryMarkerUrl(category),
         title: sourceItem.title,
         publishedLabel: formatPublishedAt(sourceItem.published_at_raw),
         category,

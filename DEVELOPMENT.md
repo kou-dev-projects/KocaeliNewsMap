@@ -85,7 +85,7 @@ resolving Torch on every everyday Compose build.
 Default tag:
 
 ```env
-ML_BASE_IMAGE=kocaelinewsmap-ml-base:py313-torch210-cpu-v1
+ML_BASE_IMAGE=kocaelinewsmap-ml-base:py313-torch210-cpu-v3
 ```
 
 Build or refresh the heavy ML base image only when one of these changes:
@@ -109,6 +109,18 @@ docker compose up -d ml backend worker scheduler
 
 When you intentionally change heavyweight ML dependencies, bump `ML_BASE_IMAGE` to a new
 tag before rebuilding so old local images stay reusable and explicit.
+
+Default local flow keeps model preload out of the image build. Build the dependency base first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\backend\scripts\build_ml_base.ps1
+```
+
+Then warm real models into the persistent `ml_hf_cache` volume only when you need them:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\backend\scripts\warm_ml_models.ps1
+```
 
 ### Scrape Control Plane
 

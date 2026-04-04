@@ -15,5 +15,6 @@ htmlcov/
 *.md
 .mypy_cache
 .ruff_cache
-_codex_restore_pyc/
 logs/
+!_codex_restore_pyc/
+!_codex_restore_pyc/*.pyc

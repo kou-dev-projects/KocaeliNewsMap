@@ -37,8 +37,64 @@ def test_hirsizlik_keyword(clf):
     assert result.category == NewsCategory.HIRSIZLIK
 
 
+def test_hirsizlik_keyword_matches_dolandiricilik(clf):
+    result = clf.classify(
+        ClassificationInput(
+            title="Verdiği paranın 2 katını alacağı vaadiyle 3 milyon TL dolandırıldı"
+        )
+    )
+    assert result is not None
+    assert result.category == NewsCategory.HIRSIZLIK
+
+
+def test_hirsizlik_keyword_matches_suc_unsurlari(clf):
+    result = clf.classify(
+        ClassificationInput(title="Üst aramasıyla başladı, evinden suç unsurları çıktı")
+    )
+    assert result is not None
+    assert result.category == NewsCategory.HIRSIZLIK
+
+
+def test_electrocution_story_is_not_classified_as_fire_or_outage(clf):
+    result = clf.classify(
+        ClassificationInput(
+            title="Elektrik akımına kapılan yaşlı adam hayatını kaybetti",
+            content=(
+                "Olay, köprü onarımı sırasında meydana geldi. Direğin kablosunu "
+                "kesmek isteyen kişi elektrik akımına kapıldı ve tüm müdahalelere "
+                "rağmen kurtarılamadı."
+            ),
+        )
+    )
+    assert result is None
+
+
 def test_kulturel_keyword(clf):
     result = clf.classify(ClassificationInput(title="İzmit'te yaz festivali başladı"))
+    assert result is not None
+    assert result.category == NewsCategory.KULTUREL_ETKINLIK
+
+
+def test_kulturel_keyword_matches_library_week(clf):
+    result = clf.classify(
+        ClassificationInput(title="Kütüphane Haftası kapsamında söyleşi düzenlendi")
+    )
+    assert result is not None
+    assert result.category == NewsCategory.KULTUREL_ETKINLIK
+
+
+def test_kulturel_keyword_matches_student_meeting(clf):
+    result = clf.classify(
+        ClassificationInput(title="Polis öğrenci buluşması unutulmaz anlar yaşattı")
+    )
+    assert result is not None
+    assert result.category == NewsCategory.KULTUREL_ETKINLIK
+
+
+def test_kulturel_keyword_matches_awareness_day(clf):
+    result = clf.classify(
+        ClassificationInput(title="Kandıra'da Otizm Farkındalık Günü'ne anlamlı etkinlik")
+    )
     assert result is not None
     assert result.category == NewsCategory.KULTUREL_ETKINLIK
 
@@ -113,7 +169,7 @@ def test_cultural_title_outweighs_crime_words_in_movie_roundup(clf):
         ClassificationInput(
             title="Sinema salonlarında 6 yeni film",
             content=(
-                'Bu hafta sinema salonlarında 6 yeni film vizyona giriyor. '
+                "Bu hafta sinema salonlarında 6 yeni film vizyona giriyor. "
                 '"Soğuk Soygun" filmi ile iki beceriksiz hırsızın hikayesi anlatılıyor.'
             ),
         )

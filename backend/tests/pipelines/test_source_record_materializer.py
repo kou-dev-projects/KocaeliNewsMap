@@ -91,6 +91,31 @@ class FixedNER:
         )
 
 
+class WrongOrderNER:
+    def extract_locations(self, input_data):
+        return NERResult(
+            raw_entities=[],
+            location_candidates=[
+                LocationCandidate(
+                    original_text="İzmit Özel Eğitim Uygulama Okulu",
+                    normalized_text="izmit ozel egitim uygulama okulu",
+                    score=0.95,
+                    is_kocaeli_district=False,
+                    district="İzmit",
+                ),
+                LocationCandidate(
+                    original_text="Kartepe",
+                    normalized_text="kartepe",
+                    score=0.99,
+                    is_kocaeli_district=True,
+                    district="Kartepe",
+                ),
+            ],
+            validated_districts=["Kartepe", "İzmit"],
+            provider="fixed_ner",
+        )
+
+
 class FixedGeocoder:
     def geocode(self, input_data):
         return GeocodingResult(
@@ -249,6 +274,39 @@ def test_materializer_marks_district_level_geocodes_as_approximate():
         "coordinates": [29.9408, 40.7654],
     }
     assert record["pipeline_status"] == "geocoded"
+
+
+def test_materializer_prefers_sorted_location_candidate_district_over_validated_order():
+    materializer = SourceRecordMaterializer(
+        classifier_service=FixedClassifier(),
+        ner_service=WrongOrderNER(),
+        geocoding_service=FixedGeocoder(),
+    )
+
+    record = materializer.materialize(
+        raw_document={
+            "_id": "raw_2b",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/event",
+            "title_raw": "Polis ogrenci bulusmasi unutulmaz anlar yasatti",
+            "content_raw": "Izmit Ozel Egitim Uygulama Okulu'nda etkinlik yapildi.",
+            "text_raw": "Izmit Ozel Egitim Uygulama Okulu'nda etkinlik yapildi.",
+            "published_at_raw": "2026-03-23T10:30:00+03:00",
+            "scraped_at": "2026-03-23T10:45:00+03:00",
+            "language": "tr",
+            "domain": "ozgurkocaeli.com.tr",
+            "resolved_url": "https://example.com/event",
+        },
+        source_document={
+            "_id": "source_1",
+            "display_name": "Ozgur Kocaeli",
+            "base_url": "https://www.ozgurkocaeli.com.tr",
+        },
+    )
+
+    assert record["district_predicted"] == "izmit"
+    assert record["district_confidence"] == 0.95
+    assert record["location_text_extracted"] == "İzmit Özel Eğitim Uygulama Okulu"
 
 
 def test_materializer_keeps_approximate_status_without_fake_coordinates():
@@ -418,3 +476,35 @@ def test_materializer_skips_generic_location_tokens_and_falls_back_to_district()
     assert record["district_predicted"] == "kartepe"
     assert record["location_text_extracted"] == "Kartepe"
     assert record["geocode_status"] == "approximate"
+
+
+def test_materializer_cleans_ui_artifacts_from_body_and_summary():
+    materializer = SourceRecordMaterializer(
+        classifier_service=MovieRoundupClassifier(),
+        ner_service=NoLocationNER(),
+        geocoding_service=FailingGeocoder(),
+    )
+
+    record = materializer.materialize(
+        raw_document={
+            "_id": "raw_7",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/gallery-noise",
+            "title_raw": "Spor lisesi insaati suruyor",
+            "content_raw": "Haber albümü için resme tıklayın - + Çayırova'da spor lisesi inşaatı hızla sürüyor.",
+            "text_raw": "Haber albümü için resme tıklayın - + Çayırova'da spor lisesi inşaatı hızla sürüyor.",
+            "published_at_raw": "2026-03-23T10:30:00+03:00",
+            "scraped_at": "2026-03-23T10:45:00+03:00",
+            "language": "tr",
+            "domain": "bizimyaka.com.tr",
+            "resolved_url": "https://example.com/gallery-noise",
+        },
+        source_document={
+            "_id": "source_1",
+            "display_name": "Bizim Yaka",
+            "base_url": "https://bizimyaka.com.tr",
+        },
+    )
+
+    assert record["body"].startswith("Çayırova'da spor lisesi inşaatı")
+    assert record["summary"].startswith("Çayırova'da spor lisesi inşaatı")

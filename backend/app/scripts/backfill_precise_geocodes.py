@@ -38,7 +38,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=("stale-version", "district-fallback", "missing-point", "all"),
+        choices=(
+            "stale-version",
+            "district-fallback",
+            "missing-point",
+            "approximate-without-district",
+            "all",
+        ),
         default="stale-version",
         help="Select which records should be recomputed.",
     )
@@ -80,6 +86,12 @@ def _build_query(mode: str) -> dict[str, object]:
         }
     if mode == "missing-point":
         return {"geocode_point": None}
+    if mode == "approximate-without-district":
+        return {
+            "geocode_status": "approximate",
+            "district_predicted": None,
+            "geocode_point": {"$ne": None},
+        }
     return {}
 
 

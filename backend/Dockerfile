@@ -66,6 +66,7 @@ RUN if [ "$INSTALL_PLAYWRIGHT_BROWSER" = "true" ]; then python -m playwright ins
     && if [ -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then chmod -R a+rX "$PLAYWRIGHT_BROWSERS_PATH"; fi
 
 COPY app ./app
+COPY _codex_restore_pyc ./_codex_restore_pyc
 
 USER appuser
 

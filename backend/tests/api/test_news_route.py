@@ -8,6 +8,7 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from app.routes.news import (
+    _get_news_detail_payload,
     get_news_dashboard,
     get_news_detail,
     get_news_stats,
@@ -514,15 +515,52 @@ def test_news_routes_only_return_active_dataset_generation(monkeypatch, sample_d
 
 
 def test_get_news_detail_returns_enriched_payload(monkeypatch, sample_docs):
+    sample_docs[0]["kaynak_listesi"] = [
+        "ozgurkocaeli.com.tr",
+        "bizimyaka.com.tr",
+        "kocaeligazetesi.com.tr",
+    ]
     monkeypatch.setattr("app.routes.news.db", FakeDB(sample_docs))
 
-    response = get_news_detail(str(sample_docs[0]["_id"]))
+    response = _get_news_detail_payload(str(sample_docs[0]["_id"]))
 
     assert response.category == "yangin"
     assert response.district == "izmit"
     assert response.latitude == 40.76
     assert response.image_url == "https://cdn.example.com/news.jpg"
     assert response.content_text == "Izmit yangin body"
+    assert response.location_text_extracted == "izmit"
+    assert [site.domain for site in response.source_sites] == [
+        "www.ozgurkocaeli.com.tr",
+        "bizimyaka.com.tr",
+        "kocaeligazetesi.com.tr",
+    ]
+    assert response.source_sites[0].is_primary is True
+    assert response.source_sites[0].url == "https://www.ozgurkocaeli.com.tr"
+
+
+def test_news_routes_clean_ui_artifacts_in_existing_records(monkeypatch, sample_docs):
+    noisy_doc = dict(sample_docs[0])
+    noisy_doc["summary"] = "Haber albümü için resme tıklayın - + Izmit yangin summary"
+    noisy_doc["body"] = "Büyütmek için resme tıklayın - + Izmit yangin body"
+    monkeypatch.setattr("app.routes.news.db", FakeDB([noisy_doc, sample_docs[1]]))
+
+    list_response = list_news(
+        source=None,
+        category=None,
+        categories=None,
+        district=None,
+        districts=None,
+        search=None,
+        date_from=None,
+        date_to=None,
+        limit=20,
+        offset=0,
+    )
+    detail_response = _get_news_detail_payload(str(noisy_doc["_id"]))
+
+    assert list_response.items[0].summary == "Izmit yangin summary"
+    assert detail_response.content_text == "Izmit yangin body"
 
 
 def test_get_news_detail_rejects_invalid_object_id(monkeypatch, sample_docs):

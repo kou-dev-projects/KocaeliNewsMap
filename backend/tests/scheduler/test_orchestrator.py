@@ -225,6 +225,7 @@ def test_crawl_active_sources_processes_supported_sources(monkeypatch):
     assert summary["active_sources"] == 2
     assert summary["processed_sources"] == 1
     assert summary["skipped_sources"] == 1
+    assert summary["skipped_session_reasons"] == ["unsupported_source"]
     assert summary["sessions"][0]["status"] == "success"
     assert summary["sessions"][0]["parsed_count"] == 1
     # Verify lease was acquired and released

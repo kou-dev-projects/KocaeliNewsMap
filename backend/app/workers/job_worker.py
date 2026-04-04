@@ -43,6 +43,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _SHUTDOWN = False
+_REFRESH_ALLOWED_SKIP_REASONS = frozenset(
+    {
+        "skipped_by_config",
+        "unsupported_source",
+    }
+)
 _RETRYABLE_ERROR_TYPES = tuple(
     error_type
     for error_type in (
@@ -108,13 +114,31 @@ def _collect_refresh_success(summary: dict[str, Any]) -> str | None:
     active_sources = int(summary.get("active_sources") or 0)
     processed_sources = int(summary.get("processed_sources") or 0)
     skipped_sources = int(summary.get("skipped_sources") or 0)
+    skipped_session_reasons = summary.get("skipped_session_reasons")
     sessions = summary.get("sessions")
 
     if active_sources <= 0:
         return "no_active_sources"
     if skipped_sources > 0:
-        return "refresh_skipped_sources_present"
-    if processed_sources != active_sources:
+        if not isinstance(skipped_session_reasons, list):
+            return "refresh_skipped_sources_present"
+
+        normalized_skipped_reasons = [
+            str(reason or "").strip()
+            for reason in skipped_session_reasons
+        ]
+        if len(normalized_skipped_reasons) != skipped_sources:
+            return "refresh_skipped_sources_present"
+        if any(
+            reason not in _REFRESH_ALLOWED_SKIP_REASONS
+            for reason in normalized_skipped_reasons
+        ):
+            return "refresh_skipped_sources_present"
+
+    eligible_sources = active_sources - skipped_sources
+    if eligible_sources <= 0:
+        return "no_refresh_eligible_sources"
+    if processed_sources != eligible_sources:
         return "refresh_source_count_mismatch"
     if not isinstance(sessions, list) or len(sessions) != processed_sources:
         return "refresh_session_count_mismatch"

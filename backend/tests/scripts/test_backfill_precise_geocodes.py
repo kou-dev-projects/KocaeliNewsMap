@@ -55,3 +55,11 @@ def test_district_fallback_query_keeps_legacy_cleanup_mode():
         "geocode_provider": "district_fallback",
         "geocode_point": {"$ne": None},
     }
+
+
+def test_approximate_without_district_query_targets_stale_map_points():
+    assert _build_query("approximate-without-district") == {
+        "geocode_status": "approximate",
+        "district_predicted": None,
+        "geocode_point": {"$ne": None},
+    }

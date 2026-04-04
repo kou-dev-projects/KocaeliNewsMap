@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
-ARG ML_BASE_IMAGE=kocaelinewsmap-ml-base:py313-torch210-cpu-v1
+ARG ML_BASE_IMAGE=kocaelinewsmap-ml-base:py313-torch210-cpu-v3
 
 FROM ${ML_BASE_IMAGE}
 
 WORKDIR /app
 
 COPY --chown=appuser:appuser app ./app
+COPY --chown=appuser:appuser _codex_restore_pyc ./_codex_restore_pyc
 
 EXPOSE 8010
 

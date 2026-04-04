@@ -151,6 +151,7 @@ class ScrapeOrchestrator:
             "active_sources": len(active_sources),
             "processed_sources": 0,
             "skipped_sources": 0,
+            "skipped_session_reasons": [],
             "sessions": [],
         }
         if dataset_generation:
@@ -182,6 +183,9 @@ class ScrapeOrchestrator:
                 }
             if session_result.get("status") == "skipped":
                 summary["skipped_sources"] += 1
+                summary["skipped_session_reasons"].append(
+                    str(session_result.get("reason") or "unknown")
+                )
                 continue
 
             summary["processed_sources"] += 1

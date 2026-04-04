@@ -3,7 +3,7 @@ from app.services.classifier.schemas import NewsCategory
 
 CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
     NewsCategory.TRAFIK_KAZASI: (
-        # Güçlü kaza sinyalleri
+        # Guclu kaza sinyalleri
         "trafik kazası",
         "zincirleme kaza",
         "maddi hasarlı kaza",
@@ -16,7 +16,7 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "takla",
         "devrildi",
         "devrilme",
-        # Yol / güzergâh bağlamı
+        # Yol / guzergah baglami
         "yol kapandı",
         "trafik durdu",
         "kapanan yol",
@@ -28,9 +28,8 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "tem yolu",
         "tem bağlantı yolu",
     ),
-
     NewsCategory.YANGIN: (
-        # Yangın türleri
+        # Yangin turleri
         "yangın",
         "alev",
         "tutuştu",
@@ -42,23 +41,24 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "fabrika yangını",
         "daire yangını",
         "iş yeri yangını",
-        # Müdahale
+        # Mudahale
         "itfaiye",
         "söndürme",
-        "müdahale",
+        "yangına müdahale",
+        "alevlere müdahale",
+        "itfaiye müdahalesi",
         "hortum",
         "yangın tüpü",
         "köpüklü",
-        # Sonuçlar
+        # Sonuclar
         "duman",
         "kül",
         "enkaz",
         "tahliye edildi",
         "mahsur kaldı",
     ),
-
     NewsCategory.HIRSIZLIK: (
-        # Suç türleri
+        # Suç turleri
         "hırsızlık",
         "hırsız",
         "çalındı",
@@ -67,24 +67,30 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "gasp",
         "kapkaç",
         "dolandırıcılık",
-        "dolandırıcı",
-        # Nesne / olay kalıpları
+        "nitelikli dolandırıcılık",
+        "dolandırıldı",
+        # Nesne / olay kaliplari
         "araç çalındı",
         "motosiklet çalındı",
         "para çalındı",
         "ev soyuldu",
         "iş yeri soyuldu",
         "banka soygunu",
+        # Asayis agirlikli ek kaliplar
+        "suç unsuru",
+        "suç unsurları",
+        "uyuşturucu madde",
+        "ruhsatsız tabanca",
+        "silahlı saldırı",
     ),
-
     NewsCategory.ELEKTRIK_KESINTISI: (
-        # Güçlü kesinti kalıpları
+        # Guclu kesinti kaliplari
         "elektrik kesintisi",
         "elektrik kesildi",
         "elektrik arızası",
         "enerji kesintisi",
         "planlı kesinti",
-        # Kurum / altyapı
+        # Kurum / altyapi
         "kkedaş",
         "ayedaş",
         "toroslar edaş",
@@ -93,7 +99,6 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "dağıtım şirketi",
         "trafo",
         "trafo merkezi",
-        "elektrik direği",
         "hat arızası",
         # Durum
         "karanlıkta kaldı",
@@ -101,9 +106,8 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "jeneratör",
         "enerji yok",
     ),
-
     NewsCategory.KULTUREL_ETKINLIK: (
-        # Kültür / sanat etkinlikleri
+        # Kultur / sanat etkinlikleri
         "konser",
         "festival",
         "sergi",
@@ -116,7 +120,10 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "anma töreni",
         "mezuniyet",
         "diploma töreni",
-        # Kültür kurumları
+        "ödül töreni",
+        "söyleşi",
+        "atölye",
+        # Kultur kurumlari
         "müze",
         "kültür merkezi",
         "sanat galerisi",
@@ -124,7 +131,13 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "sempozyum",
         "kongre",
         "konferans",
-        # Etkinlik niteliği taşıyan spor organizasyonları
+        "kütüphane haftası",
+        "farkındalık günü",
+        "öğrenci buluşması",
+        "anlamlı etkinlik",
+        "fuar",
+        "kitap fuarı",
+        # Etkinlik niteligi tasiyan spor organizasyonlari
         "turnuva",
         "şampiyona",
         "yarışma",

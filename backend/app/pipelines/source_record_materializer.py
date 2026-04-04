@@ -18,6 +18,7 @@ from app.services.geocoding.service import (
 from app.services.logical_location import build_logical_location_candidates
 from app.services.ner.factory import build_ner_service
 from app.services.ner.schemas import NERInput, NERResult
+from app.utils.content_cleaning import clean_news_text
 from app.utils.content_hash import compute_content_hash
 
 from .location_versions import (
@@ -76,7 +77,9 @@ class SourceRecordMaterializer:
     ) -> dict[str, Any]:
         current_time = now or datetime.now(timezone.utc)
         title = raw_document.get("title_raw", "")
-        body = raw_document.get("content_raw") or raw_document.get("text_raw") or ""
+        body = clean_news_text(
+            raw_document.get("content_raw") or raw_document.get("text_raw") or ""
+        ) or ""
         summary = self._build_summary(body)
 
         classification = self._classify(
@@ -206,9 +209,21 @@ class SourceRecordMaterializer:
         ner_result: Any,
     ) -> tuple[Optional[str], Optional[float], Optional[str]]:
         district = None
-        if ner_result.validated_districts:
-            district_enum = normalize_kocaeli_district(ner_result.validated_districts[0])
+        district_confidence = None
+        for candidate in ner_result.location_candidates:
+            candidate_district = normalize_kocaeli_district(candidate.district)
+            if candidate_district is None:
+                continue
+            district = candidate_district.value
+            district_confidence = candidate.score
+            break
+
+        if district is None and ner_result.validated_districts:
+            district_enum = normalize_kocaeli_district(
+                ner_result.validated_districts[0]
+            )
             district = district_enum.value if district_enum else None
+
         location_text = None
         for candidate in ner_result.location_candidates:
             candidate_text = (candidate.original_text or "").strip()
@@ -225,8 +240,7 @@ class SourceRecordMaterializer:
                 location_text = candidate_text
                 break
 
-        district_confidence = None
-        if district:
+        if district and district_confidence is None:
             for candidate in ner_result.location_candidates:
                 candidate_district = normalize_kocaeli_district(candidate.district)
                 if candidate_district and candidate_district.value == district:
@@ -450,7 +464,7 @@ class SourceRecordMaterializer:
         }
 
     def _build_summary(self, body: str) -> Optional[str]:
-        text = (body or "").strip()
+        text = clean_news_text(body or "")
         if not text:
             return None
         summary = text[:280].strip()

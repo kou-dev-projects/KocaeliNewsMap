@@ -1,7 +1,11 @@
 import time
 
 from app.workers.job_manager import JobInfo
-from app.workers.job_worker import _execute_job_with_heartbeat, _is_retryable_error
+from app.workers.job_worker import (
+    _collect_refresh_success,
+    _execute_job_with_heartbeat,
+    _is_retryable_error,
+)
 
 
 class FakeJobManager:
@@ -60,3 +64,32 @@ def test_execute_job_with_heartbeat_touches_running_job(monkeypatch):
 def test_is_retryable_error_only_for_transient_failures():
     assert _is_retryable_error(TimeoutError("temporary")) is True
     assert _is_retryable_error(ValueError("permanent")) is False
+
+
+def test_collect_refresh_success_allows_intentional_skipped_sources():
+    summary = {
+        "active_sources": 3,
+        "processed_sources": 2,
+        "skipped_sources": 1,
+        "skipped_session_reasons": ["skipped_by_config"],
+        "sessions": [
+            {"status": "success", "domain": "ozgurkocaeli.com.tr"},
+            {"status": "success", "domain": "cagdaskocaeli.com.tr"},
+        ],
+    }
+
+    assert _collect_refresh_success(summary) is None
+
+
+def test_collect_refresh_success_rejects_unexpected_skipped_sources():
+    summary = {
+        "active_sources": 2,
+        "processed_sources": 1,
+        "skipped_sources": 1,
+        "skipped_session_reasons": ["lease_not_acquired"],
+        "sessions": [
+            {"status": "success", "domain": "ozgurkocaeli.com.tr"},
+        ],
+    }
+
+    assert _collect_refresh_success(summary) == "refresh_skipped_sources_present"

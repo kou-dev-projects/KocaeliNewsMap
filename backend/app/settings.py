@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     gliner_model_name: str = "urchade/gliner_multi-v2.1"
     bertturk_model_name: str = "savasy/bert-base-turkish-ner-cased"
     ml_service_url: str | None = None
-    ml_service_timeout_seconds: float = 30.0
+    ml_service_timeout_seconds: float = 180.0
 
     mcp_lease_ttl: int = 300
     mcp_idempotency_ttl: int = 86400

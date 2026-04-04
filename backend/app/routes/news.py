@@ -6,10 +6,12 @@ from urllib.parse import urlparse
 
 from bson import ObjectId
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app.db.database import db
 from app.domain.enums import normalize_kocaeli_district, normalize_news_category
 from app.services.dataset_generation import resolve_visible_generation_query
+from app.utils.content_cleaning import clean_news_text
 from app.schemas import (
     NewsDashboardResponse,
     NewsListItem,
@@ -342,6 +344,70 @@ def _source_domain(doc: dict[str, Any]) -> str:
     return ""
 
 
+def _source_site_url(domain: str, preferred_url: Any = None) -> str | None:
+    preferred = str(preferred_url or "").strip()
+    if preferred:
+        parsed = urlparse(preferred)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return preferred
+
+    domain = domain.strip()
+    if not domain:
+        return None
+
+    if domain.startswith(("http://", "https://")):
+        parsed = urlparse(domain)
+        if parsed.netloc:
+            return domain
+        return None
+
+    return f"https://{domain}"
+
+
+def _source_site_key(domain: str) -> str:
+    return domain.casefold().removeprefix("www.")
+
+
+def _source_sites(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    primary_domain = _source_domain(doc)
+    primary_url = _source_site_url(primary_domain, doc.get("source_url_snapshot"))
+    sites: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def append_site(domain: str, url: str | None, *, is_primary: bool) -> None:
+        clean_domain = str(domain or "").strip()
+        clean_url = str(url or "").strip()
+        if not clean_domain or not clean_url:
+            return
+        domain_key = _source_site_key(clean_domain)
+        if domain_key in seen:
+            return
+        seen.add(domain_key)
+        sites.append(
+            {
+                "domain": clean_domain,
+                "url": clean_url,
+                "is_primary": is_primary,
+            }
+        )
+
+    append_site(primary_domain, primary_url, is_primary=True)
+
+    for raw_domain in doc.get("kaynak_listesi") or []:
+        domain = str(raw_domain or "").strip()
+        if not domain:
+            continue
+        append_site(
+            domain,
+            _source_site_url(domain),
+            is_primary=_source_site_key(domain) == _source_site_key(primary_domain)
+            if primary_domain
+            else False,
+        )
+
+    return sites
+
+
 def _image_url(doc: dict[str, Any]) -> str | None:
     for key in (
         "image_url",
@@ -360,7 +426,7 @@ def map_doc_to_news_list_item(doc: dict[str, Any]) -> NewsListItem:
     return NewsListItem(
         id=str(doc["_id"]),
         title=doc.get("title") or "",
-        summary=doc.get("summary"),
+        summary=clean_news_text(doc.get("summary")),
         source_name=doc.get("source_name_snapshot") or "",
         source_domain=_source_domain(doc),
         source_base_url=doc.get("source_url_snapshot"),
@@ -387,7 +453,7 @@ def map_doc_to_news_map_item(doc: dict[str, Any]) -> NewsMapItem:
     return NewsMapItem(
         id=str(doc["_id"]),
         title=doc.get("title") or "",
-        summary=doc.get("summary"),
+        summary=clean_news_text(doc.get("summary")),
         source_name=doc.get("source_name_snapshot") or "",
         source_domain=_source_domain(doc),
         url=doc.get("canonical_url") or "",
@@ -403,7 +469,12 @@ def map_doc_to_news_map_item(doc: dict[str, Any]) -> NewsMapItem:
 
 def map_doc_to_news_response(doc: dict[str, Any]) -> NewsResponse:
     item = map_doc_to_news_list_item(doc)
-    return NewsResponse(**item.model_dump(), content_text=doc.get("body") or "")
+    return NewsResponse(
+        **item.model_dump(),
+        content_text=clean_news_text(doc.get("body")) or "",
+        location_text_extracted=clean_news_text(doc.get("location_text_extracted")),
+        source_sites=_source_sites(doc),
+    )
 
 
 @router.get("", response_model=NewsListResponse)
@@ -655,7 +726,11 @@ def get_news_stats(
 
 
 @router.get("/{news_id}", response_model=NewsResponse)
-def get_news_detail(news_id: str) -> NewsResponse:
+def get_news_detail(news_id: str) -> JSONResponse:
+    return JSONResponse(content=_get_news_detail_payload(news_id).model_dump(mode="json"))
+
+
+def _get_news_detail_payload(news_id: str) -> NewsResponse:
     if not ObjectId.is_valid(news_id):
         raise HTTPException(status_code=400, detail="Invalid news id")
 

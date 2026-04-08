@@ -5,26 +5,20 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
-  type FormEvent,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, LogOut, Play, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, RotateCcw } from "lucide-react";
 
 import { useScrapeEventStream } from "@/hooks/useScrapeEventStream";
+import { EMPTY_DASHBOARD_RESPONSE } from "@/lib/news-api";
 import { newsKeys } from "@/lib/news-query-keys";
 import { adaptScrapeEvent } from "@/lib/scrape/scrapeEventAdapter";
 import {
-  clearScrapeOpsCredentials,
-  getScrapeOpsAuthSnapshot,
-  setScrapeOpsCredentials,
-  subscribeScrapeOpsAuth,
-} from "@/lib/scrape-ops-client-auth";
-import {
+  bootstrapScrape,
   fetchLatestScrapeRun,
   fetchScrapeJobStatus,
-  refreshScrape,
   type LatestScrapeRunResponse,
+  type ScrapeBootstrapResponse,
   type ScrapeQueuedResponse,
 } from "@/lib/scrape-api";
 import type {
@@ -33,7 +27,6 @@ import type {
   ScrapeStreamConnectionState,
 } from "@/lib/scrape/types";
 
-const DEFAULT_USERNAME = "ops";
 const NEAR_BOTTOM_THRESHOLD_PX = 80;
 
 type ScrapeLogPanelProps = {
@@ -223,18 +216,17 @@ function buildLatestRunMessage(
   return buildLiveJobMessage(latestEvent, fallback);
 }
 
+function isQueuedScrapeResponse(
+  result: ScrapeBootstrapResponse,
+): result is ScrapeQueuedResponse {
+  return "job_id" in result;
+}
+
 export function ScrapeLogPanel({
   variant = "full",
 }: ScrapeLogPanelProps) {
   const queryClient = useQueryClient();
-  const authSnapshot = useSyncExternalStore(
-    subscribeScrapeOpsAuth,
-    getScrapeOpsAuthSnapshot,
-    () => null,
-  );
-  const authorizationHeader = authSnapshot?.authorizationHeader;
   const isEmbedded = variant === "embedded";
-  const [passwordInput, setPasswordInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [jobStatusMessage, setJobStatusMessage] = useState("Scrape paneli hazır.");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -251,17 +243,15 @@ export function ScrapeLogPanel({
     clearEvents,
     replaceEvents,
   } = useScrapeEventStream({
-    enabled: Boolean(authorizationHeader) && isLatestRunHydrated && activeJobId !== null,
-    authorizationHeader,
+    enabled: isLatestRunHydrated && activeJobId !== null,
     jobId: activeJobId ?? undefined,
   });
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const hasAutoStartedRef = useRef(false);
   const lastInvalidatedEventIdRef = useRef<string | null>(null);
   const controlsDisabled =
-    !authorizationHeader ||
     !isLatestRunHydrated ||
-    isSubmitting ||
-    activeJobId !== null;
+    isSubmitting;
   const latestEvent = useMemo(
     () => events.at(-1) ?? null,
     [events],
@@ -285,19 +275,13 @@ export function ScrapeLogPanel({
   }, [latestEvent, queryClient]);
 
   useEffect(() => {
-    if (!authorizationHeader) {
-      replaceEvents([]);
-      setIsLatestRunHydrated(false);
-      return;
-    }
-
     let cancelled = false;
     setIsLatestRunHydrated(false);
     setIsReloadingLatestRun(true);
 
     const loadLatestRun = async () => {
       try {
-        const latestRun = await fetchLatestScrapeRun(authorizationHeader);
+        const latestRun = await fetchLatestScrapeRun();
         if (cancelled) {
           return;
         }
@@ -354,7 +338,16 @@ export function ScrapeLogPanel({
     return () => {
       cancelled = true;
     };
-  }, [authorizationHeader, latestRunReloadCount, replaceEvents]);
+  }, [latestRunReloadCount, replaceEvents]);
+
+  useEffect(() => {
+    if (!isLatestRunHydrated || hasAutoStartedRef.current) {
+      return;
+    }
+
+    hasAutoStartedRef.current = true;
+    void triggerFreshScrape("Sayfa açılışında veritabanı temizleniyor ve scrape başlatılıyor...");
+  }, [isLatestRunHydrated]);
 
   useEffect(() => {
     if (!isLogOpen) {
@@ -391,7 +384,7 @@ export function ScrapeLogPanel({
   }, [events.length, isLogOpen]);
 
   useEffect(() => {
-    if (!activeJobId || !authorizationHeader) {
+    if (!activeJobId) {
       return;
     }
 
@@ -399,7 +392,7 @@ export function ScrapeLogPanel({
 
     const syncJobStatus = async () => {
       try {
-        const status = await fetchScrapeJobStatus(activeJobId, authorizationHeader);
+        const status = await fetchScrapeJobStatus(activeJobId);
         if (cancelled) {
           return;
         }
@@ -451,7 +444,7 @@ export function ScrapeLogPanel({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeJobId, authorizationHeader, queryClient]);
+  }, [activeJobId, queryClient]);
 
   const startQueuedJob = (result: ScrapeQueuedResponse, message: string) => {
     replaceEvents([]);
@@ -459,48 +452,29 @@ export function ScrapeLogPanel({
     setActionError(null);
     setActiveJobId(result.job_id);
     setJobStatusMessage(message);
+    queryClient.removeQueries({ queryKey: newsKeys.all });
+    queryClient.setQueryData(newsKeys.dashboard({}), EMPTY_DASHBOARD_RESPONSE);
   };
 
-  const handleAuthSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    try {
-      setScrapeOpsCredentials(DEFAULT_USERNAME, passwordInput);
-      setPasswordInput("");
-      setActionError(null);
-      setJobStatusMessage("Operasyon bağlantısı açıldı.");
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Parola kaydedilemedi.",
-      );
-    }
-  };
-
-  const handleAuthClear = () => {
-    clearScrapeOpsCredentials();
-    replaceEvents([]);
-    clearEvents();
-    setPasswordInput("");
-    setActionError(null);
-    setActiveJobId(null);
-    setIsSubmitting(false);
-    setIsLatestRunHydrated(false);
-    setJobStatusMessage("Operasyon bağlantısı kapatıldı.");
-  };
-
-  const handleRunScrape = async () => {
-    if (!authorizationHeader) {
-      setActionError("Önce parola girilip bağlanılmalı.");
-      return;
-    }
-
+  const triggerFreshScrape = async (message: string) => {
     setIsSubmitting(true);
     setActionError(null);
-    setJobStatusMessage("Scrape kuyruğa alınıyor...");
+    setJobStatusMessage(message);
 
     try {
-      const result = await refreshScrape(authorizationHeader);
-      startQueuedJob(result, "Refresh başlatıldı.");
+      const result = await bootstrapScrape({ reset: true });
+      if (!isQueuedScrapeResponse(result)) {
+        setIsSubmitting(false);
+        setActionError(null);
+        setActiveJobId(null);
+        setJobStatusMessage(
+          "Veritabanı temizlendi ancak yeni scrape kuyruğa alınmadı. Son durum yeniden yükleniyor.",
+        );
+        setLatestRunReloadCount((current) => current + 1);
+        return;
+      }
+
+      startQueuedJob(result, "Veritabanı temizlendi. Yeni scrape başlatıldı.");
     } catch (error) {
       setIsSubmitting(false);
       setActionError(
@@ -510,11 +484,11 @@ export function ScrapeLogPanel({
     }
   };
 
-  const handleReloadLatestRun = () => {
-    if (!authorizationHeader) {
-      return;
-    }
+  const handleRunScrape = async () => {
+    await triggerFreshScrape("Veritabanı temizleniyor ve scrape kuyruğa alınıyor...");
+  };
 
+  const handleReloadLatestRun = () => {
     setLatestRunReloadCount((current) => current + 1);
   };
 
@@ -541,45 +515,19 @@ export function ScrapeLogPanel({
       </div>
 
       <div className="mt-4 rounded-2xl border border-border/70 bg-background/70 p-3">
-        {authorizationHeader ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Bağlı kullanıcı: {DEFAULT_USERNAME}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Son aktivite: {lastActivityLabel}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleAuthClear}
-              className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-secondary/60 px-3 py-2 text-sm font-medium text-foreground transition hover:bg-secondary"
-            >
-              <LogOut className="h-4 w-4" />
-              Oturumu kapat
-            </button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Her tetiklemede haber verisi temizlenir ve tarama sıfırdan başlar.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Son aktivite: {lastActivityLabel}. Scrape logları korunur, haber kayıtları yenilenir.
+            </p>
           </div>
-        ) : (
-          <form className="flex flex-col gap-3 sm:flex-row" onSubmit={handleAuthSubmit}>
-            <div className="flex min-w-0 flex-1 items-center rounded-xl border border-border/70 bg-background px-3">
-              <span className="shrink-0 text-sm font-medium text-muted-foreground">ops</span>
-              <input
-                type="password"
-                value={passwordInput}
-                onChange={(event) => setPasswordInput(event.target.value)}
-                placeholder="Scrape şifresi"
-                className="min-w-0 flex-1 bg-transparent px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              />
-            </div>
-            <button
-              type="submit"
-              className="rounded-xl border border-primary/30 bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-            >
-              Bağlan
-            </button>
-          </form>
-        )}
+          <span className="rounded-full border border-border/70 bg-secondary/60 px-3 py-2 text-xs font-medium text-foreground">
+            Otomatik reset açık
+          </span>
+        </div>
       </div>
 
       <div className="mt-4 flex items-center gap-3">
@@ -599,8 +547,7 @@ export function ScrapeLogPanel({
 
       {activeJobId ? (
         <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-3 text-sm text-sky-800 dark:text-sky-200">
-          Aktif görünüm şu an mevcut dataset&apos;i gösteriyor. Yeni haberler cutover tamamlanınca
-          otomatik olarak tekrar çekilecek.
+          Haber kayıtları temizlendi. Yeni scrape tamamlandıkça liste ve harita yeniden dolacak.
         </div>
       ) : null}
 
@@ -639,7 +586,7 @@ export function ScrapeLogPanel({
           <button
             type="button"
             onClick={handleReloadLatestRun}
-            disabled={!authorizationHeader || isReloadingLatestRun}
+            disabled={isReloadingLatestRun}
             className="rounded-lg border border-border/70 bg-background px-2.5 py-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
             aria-label="Son scrape loglarini yenile"
           >
@@ -652,11 +599,7 @@ export function ScrapeLogPanel({
             <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
               {events.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border/70 bg-secondary/20 px-4 py-8 text-center">
-                  <p className="text-sm font-medium text-foreground">
-                    {authorizationHeader
-                      ? "Henüz canlı scrape olayı yok."
-                      : "Log akışı için önce bağlanın."}
-                  </p>
+                  <p className="text-sm font-medium text-foreground">Henüz canlı scrape olayı yok.</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Scrape başladıktan sonra kaynak bazlı olaylar burada akacak.
                   </p>

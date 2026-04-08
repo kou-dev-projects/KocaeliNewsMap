@@ -61,14 +61,19 @@ function buildScrapeRequestHeaders(authorizationHeader?: string) {
   return headers;
 }
 
+type ScrapeRequestOptions = {
+  authorizationHeader?: string;
+  reset?: boolean;
+};
+
 async function postScrapeTrigger<T>(
   path: string,
-  authorizationHeader?: string,
+  options?: ScrapeRequestOptions,
 ): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
     cache: "no-store",
-    headers: buildScrapeRequestHeaders(authorizationHeader),
+    headers: buildScrapeRequestHeaders(options?.authorizationHeader),
   });
 
   if (!response.ok) {
@@ -80,17 +85,17 @@ async function postScrapeTrigger<T>(
   return (await response.json()) as T;
 }
 
-export async function bootstrapScrape(authorizationHeader?: string) {
+export async function bootstrapScrape(options?: ScrapeRequestOptions) {
   return postScrapeTrigger<ScrapeBootstrapResponse>(
-    "/api/scrape/bootstrap",
-    authorizationHeader,
+    options?.reset ? `/api/scrape/bootstrap?reset=true` : "/api/scrape/bootstrap",
+    options,
   );
 }
 
-export async function refreshScrape(authorizationHeader?: string) {
+export async function refreshScrape(options?: ScrapeRequestOptions) {
   return postScrapeTrigger<ScrapeQueuedResponse>(
-    "/api/scrape/refresh",
-    authorizationHeader,
+    options?.reset ? `/api/scrape/refresh?reset=true` : "/api/scrape/refresh",
+    options,
   );
 }
 

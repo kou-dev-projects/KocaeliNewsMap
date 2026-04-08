@@ -12,13 +12,14 @@ from app.services.dataset_generation import (
     activate_generation,
     begin_refresh_generation,
     clear_pending_refresh_generation,
+    get_dataset_generation_state,
 )
 from app.services.scrape_events import ScrapeEvent, get_scrape_event_publisher
 from app.services.scrape_orchestrator import (
     cleanup_refresh_data,
     discard_refresh_generation,
 )
-from app.services.scrape_reset import reset_scraped_news_data
+from app.services.scrape_reset import reset_scraped_news_workspace
 from app.settings import settings
 from app.workers.job_manager import JobInfo, JobManager, JobQueueUnavailableError
 
@@ -124,8 +125,7 @@ def _reset_dataset_for_bootstrap(
     trigger_type: str,
     source: str | None,
 ) -> dict[str, Any]:
-    reset_result = reset_scraped_news_data(orchestrator.database)
-    clear_pending_refresh_generation(orchestrator.database)
+    reset_result = reset_scraped_news_workspace(orchestrator.database)
 
     details = {
         "deleted_counts": reset_result.deleted_counts,
@@ -292,6 +292,11 @@ def _abort_refresh_generation(
     }
 
 
+def _has_active_generation(orchestrator: ScrapeOrchestrator) -> bool:
+    state = get_dataset_generation_state(orchestrator.database)
+    return bool(state.active_generation)
+
+
 def _finalize_refresh_cleanup(
     orchestrator: ScrapeOrchestrator,
     summary: dict[str, Any],
@@ -300,29 +305,108 @@ def _finalize_refresh_cleanup(
 ) -> dict[str, Any]:
     skip_reason = _collect_refresh_success(summary)
     if skip_reason is not None:
-        discard_result = _abort_refresh_generation(orchestrator, refresh_generation)
-        _publish_job_event(
-            job_id=job_id,
-            trigger_type="refresh",
-            event="refresh_cleanup_skipped",
-            message=(
-                "Refresh candidate discarded to preserve the active dataset "
-                "after a partial run"
-            ),
-            status="skipped",
-            details={
+        if _has_active_generation(orchestrator):
+            discard_result = _abort_refresh_generation(orchestrator, refresh_generation)
+            _publish_job_event(
+                job_id=job_id,
+                trigger_type="refresh",
+                event="refresh_cleanup_skipped",
+                message=(
+                    "Refresh candidate discarded to preserve the active dataset "
+                    "after a partial run"
+                ),
+                status="skipped",
+                details={
+                    "reason": skip_reason,
+                    "generation": refresh_generation,
+                    "deleted_counts": discard_result["deleted_counts"],
+                    "total_deleted": discard_result["total_deleted"],
+                },
+            )
+            return {
+                "status": "discarded",
                 "reason": skip_reason,
                 "generation": refresh_generation,
                 "deleted_counts": discard_result["deleted_counts"],
                 "total_deleted": discard_result["total_deleted"],
+            }
+
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type="refresh",
+            event="refresh_partial_cutover_started",
+            message=(
+                "Refresh had partial source failures and no active dataset was "
+                "available. Promoting partial generation to avoid an empty feed"
+            ),
+            status="running",
+            details={
+                "reason": skip_reason,
+                "generation": refresh_generation,
+            },
+        )
+
+        try:
+            activate_generation(orchestrator.database, refresh_generation)
+            cleanup_result = cleanup_refresh_data(
+                orchestrator.database,
+                active_generation=refresh_generation,
+            )
+        except Exception as exc:
+            error_message = f"{type(exc).__name__}: {exc}"
+            logger.exception(
+                "worker.refresh_partial_cutover.failed",
+                extra={"error": error_message[:200]},
+            )
+            discard_result = _abort_refresh_generation(orchestrator, refresh_generation)
+            _publish_job_event(
+                job_id=job_id,
+                trigger_type="refresh",
+                event="refresh_cleanup_skipped",
+                message=(
+                    "Refresh candidate discarded because partial cutover fallback "
+                    "failed"
+                ),
+                status="skipped",
+                details={
+                    "reason": skip_reason,
+                    "generation": refresh_generation,
+                    "error": error_message,
+                    "deleted_counts": discard_result["deleted_counts"],
+                    "total_deleted": discard_result["total_deleted"],
+                },
+            )
+            return {
+                "status": "discarded",
+                "reason": skip_reason,
+                "generation": refresh_generation,
+                "error": error_message,
+                "deleted_counts": discard_result["deleted_counts"],
+                "total_deleted": discard_result["total_deleted"],
+            }
+
+        _publish_job_event(
+            job_id=job_id,
+            trigger_type="refresh",
+            event="refresh_partial_cutover_completed",
+            message=(
+                "Partial refresh generation activated because no active dataset "
+                "was available"
+            ),
+            status="completed",
+            details={
+                "reason": skip_reason,
+                "generation": cleanup_result.generation,
+                "deleted_counts": cleanup_result.deleted_counts,
+                "total_deleted": cleanup_result.total_deleted,
             },
         )
         return {
-            "status": "discarded",
+            "status": "completed_with_partial",
             "reason": skip_reason,
-            "generation": refresh_generation,
-            "deleted_counts": discard_result["deleted_counts"],
-            "total_deleted": discard_result["total_deleted"],
+            "generation": cleanup_result.generation,
+            "deleted_counts": cleanup_result.deleted_counts,
+            "total_deleted": cleanup_result.total_deleted,
         }
 
     try:

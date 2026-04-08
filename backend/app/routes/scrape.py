@@ -5,11 +5,10 @@ import json
 import logging
 import math
 import re
-import secrets
 import time
 
 import redis
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.db.database import db
@@ -25,6 +24,7 @@ from app.services.scrape_events import (
     get_latest_scrape_run,
     get_scrape_event_publisher,
 )
+from app.services.scrape_reset import reset_scraped_news_workspace
 from app.settings import settings
 from app.workers.job_manager import JobManager, JobQueueUnavailableError
 
@@ -87,18 +87,6 @@ def _get_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Networ
                     except ValueError:
                         logger.warning("scrape.invalid_trusted_cidr", extra={"cidr": cidr})
     return _trusted_networks
-
-
-def _verify_trigger_auth(x_api_key: str | None) -> None:
-    expected_key = (settings.scrape_trigger_api_key or "").strip()
-    if not expected_key:
-        logger.error("scrape.trigger_auth.misconfigured")
-        raise HTTPException(status_code=503, detail="scrape_trigger_auth_misconfigured")
-
-    provided_key = x_api_key.strip() if isinstance(x_api_key, str) else ""
-
-    if not provided_key or not secrets.compare_digest(provided_key, expected_key):
-        raise HTTPException(status_code=401, detail="unauthorized_scrape_trigger")
 
 
 def _normalize_source(source: str | None) -> str | None:
@@ -255,13 +243,8 @@ def _trigger_started_response(
 def trigger_scrape(
     request: Request,
     source: str | None = Query(default=None),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> JSONResponse:
-    if not isinstance(x_api_key, str):
-        x_api_key = None
-
     normalized_source = _normalize_source(source)
-    _verify_trigger_auth(x_api_key)
     _enforce_rate_limit(_resolve_client_id(request))
     _validate_source_exists(normalized_source)
 
@@ -288,13 +271,21 @@ def trigger_scrape(
 @router.post("/bootstrap")
 def bootstrap_scrape(
     request: Request,
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    reset: bool = Query(default=False),
 ) -> JSONResponse:
-    if not isinstance(x_api_key, str):
-        x_api_key = None
-
-    _verify_trigger_auth(x_api_key)
     _enforce_rate_limit(_resolve_client_id(request))
+
+    should_reset = reset if isinstance(reset, bool) else False
+
+    details: dict[str, dict[str, object]] | None = None
+    if should_reset:
+        reset_result = reset_scraped_news_workspace(db)
+        details = {
+            "reset": {
+                "deleted_counts": reset_result.deleted_counts,
+                "total_deleted": reset_result.total_deleted,
+            }
+        }
 
     manager = _get_job_manager()
     try:
@@ -319,6 +310,7 @@ def bootstrap_scrape(
             content={
                 "status": result.status,
                 "reason": result.reason,
+                **({"details": details} if details else {}),
             },
         )
 
@@ -326,18 +318,14 @@ def bootstrap_scrape(
         request,
         result=result,
         message="Bootstrap scrape job queued",
+        details=details,
     )
 
 
 @router.post("/refresh")
 def refresh_scrape(
     request: Request,
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> JSONResponse:
-    if not isinstance(x_api_key, str):
-        x_api_key = None
-
-    _verify_trigger_auth(x_api_key)
     _enforce_rate_limit(_resolve_client_id(request))
 
     manager = _get_job_manager()
@@ -358,13 +346,7 @@ def refresh_scrape(
 @router.get("/jobs/{job_id}")
 def get_job_status(
     job_id: str,
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict:
-    if not isinstance(x_api_key, str):
-        x_api_key = None
-
-    _verify_trigger_auth(x_api_key)
-
     manager = _get_job_manager()
     try:
         job = manager.get_job(job_id)
@@ -399,14 +381,7 @@ def get_job_status(
 
 
 @router.get("/latest")
-def get_latest_scrape(
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-) -> dict:
-    if not isinstance(x_api_key, str):
-        x_api_key = None
-
-    _verify_trigger_auth(x_api_key)
-
+def get_latest_scrape() -> dict:
     latest_run = get_latest_scrape_run()
     if latest_run is None:
         return {
@@ -427,13 +402,7 @@ def get_latest_scrape(
 async def scrape_events_stream(
     request: Request,
     job_id: str | None = Query(default=None, description="Filter events to a specific job ID"),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> StreamingResponse:
-
-    if not isinstance(x_api_key, str):
-        x_api_key = None
-    _verify_trigger_auth(x_api_key)
-
     last_event_id = _parse_last_event_id(request.headers.get("last-event-id", ""))
 
     job_id_filter: str | None = None

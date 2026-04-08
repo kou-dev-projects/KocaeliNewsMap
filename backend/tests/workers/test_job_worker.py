@@ -1,5 +1,6 @@
 import time
 
+from app.services.dataset_generation import DatasetGenerationState
 from app.workers.job_manager import JobInfo
 from app.workers.job_worker import (
     _collect_refresh_success,
@@ -38,7 +39,7 @@ class _FakeCollection:
 
 
 class _FakeStateCollection:
-    def update_one(self, _query, _update):
+    def update_one(self, _query, _update, upsert=False):
         return None
 
 
@@ -97,6 +98,42 @@ class RefreshOrchestrator:
                     "fetched_count": 2,
                     "parsed_count": 2,
                     "failed_count": 0,
+                }
+            ],
+        }
+
+    def drain_pending_writes(self, *, batch_size):
+        return {"dequeued": 0, "processed": 0, "requeued": 0, "dead_lettered": 0}
+
+
+class PartialRefreshOrchestrator:
+    def __init__(self):
+        self.database = {"dataset_state": _FakeStateCollection()}
+
+    def crawl_active_sources(self, *, trigger_type, dataset_generation=None, progress_callback=None):
+        assert trigger_type == "refresh"
+        assert dataset_generation == "generation_1"
+        if progress_callback is not None:
+            progress_callback(
+                {
+                    "event": "source_crawl_started",
+                    "source": "ozgurkocaeli.com.tr",
+                    "status": "running",
+                    "message": "Source crawl started",
+                }
+            )
+        return {
+            "active_sources": 1,
+            "processed_sources": 1,
+            "skipped_sources": 0,
+            "sessions": [
+                {
+                    "domain": "ozgurkocaeli.com.tr",
+                    "status": "partial",
+                    "listing_count": 2,
+                    "fetched_count": 2,
+                    "parsed_count": 1,
+                    "failed_count": 1,
                 }
             ],
         }
@@ -177,7 +214,7 @@ def test_run_scrape_job_refresh_preserves_active_dataset(monkeypatch):
         raise AssertionError("refresh should not reset the active dataset upfront")
 
     monkeypatch.setattr("app.workers.job_worker._publish", lambda event: published_events.append(event))
-    monkeypatch.setattr("app.workers.job_worker.reset_scraped_news_data", fail_if_reset)
+    monkeypatch.setattr("app.workers.job_worker.reset_scraped_news_workspace", fail_if_reset)
     monkeypatch.setattr("app.workers.job_worker.begin_refresh_generation", lambda _database: "generation_1")
     monkeypatch.setattr("app.workers.job_worker.activate_generation", lambda _database, _generation: None)
     monkeypatch.setattr("app.workers.job_worker.cleanup_refresh_data", lambda _database, active_generation: CleanupResult())
@@ -195,3 +232,78 @@ def test_run_scrape_job_refresh_preserves_active_dataset(monkeypatch):
     assert "refresh_preserving_active_dataset" in event_names
     assert "source_crawl_started" in event_names
     assert "refresh_cleanup_completed" in event_names
+
+
+def test_run_scrape_job_refresh_promotes_partial_when_no_active_dataset(monkeypatch):
+    published_events = []
+
+    class CleanupResult:
+        generation = "generation_1"
+        deleted_counts = {"raw_documents": 0, "source_records": 0}
+        total_deleted = 0
+
+    monkeypatch.setattr("app.workers.job_worker._publish", lambda event: published_events.append(event))
+    monkeypatch.setattr("app.workers.job_worker.begin_refresh_generation", lambda _database: "generation_1")
+    monkeypatch.setattr(
+        "app.workers.job_worker.get_dataset_generation_state",
+        lambda _database: DatasetGenerationState(
+            active_generation=None,
+            pending_refresh_generation="generation_1",
+        ),
+    )
+    monkeypatch.setattr("app.workers.job_worker.activate_generation", lambda _database, _generation: None)
+    monkeypatch.setattr("app.workers.job_worker.cleanup_refresh_data", lambda _database, active_generation: CleanupResult())
+
+    result = _run_scrape_job(
+        PartialRefreshOrchestrator(),
+        None,
+        "refresh",
+        "job_refresh_partial_promote",
+    )
+
+    assert result["refresh_cleanup"]["status"] == "completed_with_partial"
+    assert result["refresh_cleanup"]["reason"] == "refresh_not_fully_successful"
+    event_names = [event.event for event in published_events]
+    assert "refresh_partial_cutover_started" in event_names
+    assert "refresh_partial_cutover_completed" in event_names
+    assert "refresh_cleanup_skipped" not in event_names
+
+
+def test_run_scrape_job_refresh_discards_partial_when_active_dataset_exists(monkeypatch):
+    published_events = []
+
+    class DiscardResult:
+        generation = "generation_1"
+        deleted_counts = {"raw_documents": 10, "source_records": 10}
+        total_deleted = 20
+
+    monkeypatch.setattr("app.workers.job_worker._publish", lambda event: published_events.append(event))
+    monkeypatch.setattr("app.workers.job_worker.begin_refresh_generation", lambda _database: "generation_1")
+    monkeypatch.setattr(
+        "app.workers.job_worker.get_dataset_generation_state",
+        lambda _database: DatasetGenerationState(
+            active_generation="existing_generation",
+            pending_refresh_generation="generation_1",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.workers.job_worker.discard_refresh_generation",
+        lambda _database, pending_generation: DiscardResult(),
+    )
+    monkeypatch.setattr(
+        "app.workers.job_worker.clear_pending_refresh_generation",
+        lambda _database, expected_generation=None: None,
+    )
+
+    result = _run_scrape_job(
+        PartialRefreshOrchestrator(),
+        None,
+        "refresh",
+        "job_refresh_partial_discard",
+    )
+
+    assert result["refresh_cleanup"]["status"] == "discarded"
+    assert result["refresh_cleanup"]["reason"] == "refresh_not_fully_successful"
+    event_names = [event.event for event in published_events]
+    assert "refresh_cleanup_skipped" in event_names
+    assert "refresh_partial_cutover_completed" not in event_names

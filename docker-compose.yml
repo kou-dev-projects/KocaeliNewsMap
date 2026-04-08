@@ -164,10 +164,6 @@ services:
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:hello@example.com}
-      - SCRAPE_EVENTS_API_KEY=${SCRAPE_EVENTS_API_KEY:-}
-      - SCRAPE_TRIGGER_API_KEY=${SCRAPE_TRIGGER_API_KEY:-}
-      - SCRAPE_OPS_USERNAME=${SCRAPE_OPS_USERNAME:-}
-      - SCRAPE_OPS_PASSWORD=${SCRAPE_OPS_PASSWORD:-}
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
@@ -184,10 +180,8 @@ services:
     environment:
       EDGE_SERVER_NAME: "${EDGE_SERVER_NAME:-_}"
       FRONTEND_UPSTREAM: "${FRONTEND_UPSTREAM:-frontend:3000}"
-      SCRAPE_OPS_ALLOWED_CIDRS: "${SCRAPE_OPS_ALLOWED_CIDRS:-127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
     volumes:
       - ./deploy/nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ./deploy/nginx/docker-entrypoint.d/40-render-scrape-ops-allowlist.sh:/docker-entrypoint.d/40-render-scrape-ops-allowlist.sh:ro
     restart: unless-stopped
 
 volumes:

@@ -14,10 +14,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     return authError;
   }
 
+  const upstreamUrl = buildScrapeBackendUrl("/api/v1/scrape/bootstrap");
+  const reset = request.nextUrl.searchParams.get("reset");
+  if (reset === "true") {
+    upstreamUrl.searchParams.set("reset", "true");
+  }
+
   let upstream: Response;
 
   try {
-    upstream = await fetch(buildScrapeBackendUrl("/api/v1/scrape/bootstrap"), {
+    upstream = await fetch(upstreamUrl, {
       method: "POST",
       headers: createScrapeProxyHeaders(),
       cache: "no-store",

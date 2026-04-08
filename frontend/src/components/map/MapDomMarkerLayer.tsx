@@ -62,6 +62,17 @@ type MarkerRegistration = {
   cleanup: () => void;
 };
 
+type ProjectedPoint = {
+  x: number;
+  y: number;
+};
+
+type BouquetSlot = {
+  angle: number;
+  x: number;
+  y: number;
+};
+
 const DEFAULT_VISUAL: MarkerVisual = {
   icon: Star,
   shape: "starpin",
@@ -202,39 +213,223 @@ function getMarkerVisual(category?: string): MarkerVisual {
   return CATEGORY_VISUALS[category] ?? DEFAULT_VISUAL;
 }
 
-function buildFanOffsets(total: number): Array<[number, number]> {
-  if (total <= 1) {
-    return Array.from({ length: total }, () => [0, 0] as [number, number]);
+function normalizeAngle(angle: number) {
+  const fullTurn = Math.PI * 2;
+  return ((angle % fullTurn) + fullTurn) % fullTurn;
+}
+
+function interpolateClamped(
+  value: number,
+  inputMin: number,
+  inputMax: number,
+  outputMin: number,
+  outputMax: number,
+) {
+  if (inputMin === inputMax) {
+    return outputMax;
   }
 
-  if (total === 2) {
+  const ratio = Math.max(
+    0,
+    Math.min(1, (value - inputMin) / (inputMax - inputMin)),
+  );
+
+  return outputMin + (outputMax - outputMin) * ratio;
+}
+
+function getMarkerZoomScale(zoom: number) {
+  if (!Number.isFinite(zoom)) {
+    return 0.9;
+  }
+
+  return Number(interpolateClamped(zoom, 9, 14, 0.74, 1.02).toFixed(3));
+}
+
+function getOverlapThreshold(zoom: number) {
+  const zoomScale = getMarkerZoomScale(zoom);
+  return Math.round(44 + zoomScale * 24);
+}
+
+function buildRingSlots(
+  count: number,
+  radius: number,
+  centerLift: number,
+  rotationOffset = 0,
+): BouquetSlot[] {
+  if (count <= 0) {
+    return [];
+  }
+
+  if (count === 1) {
     return [
-      [-30, -6],
-      [30, -6],
+      {
+        angle: normalizeAngle(-Math.PI / 2 + rotationOffset),
+        x: 0,
+        y: Math.round(centerLift - radius),
+      },
     ];
   }
 
-  if (total === 3) {
-    return [
-      [-34, -10],
-      [0, -30],
-      [34, -10],
-    ];
-  }
+  const angleStep = (Math.PI * 2) / count;
+  const baseRotation =
+    count % 2 === 0 ? -Math.PI / 2 + angleStep / 2 : -Math.PI / 2;
+  const rotation = baseRotation + rotationOffset;
 
-  const radius = total <= 5 ? 46 : Math.min(78, 44 + (total - 5) * 4);
-  const startAngle = (-5 * Math.PI) / 6;
-  const endAngle = -Math.PI / 6;
-
-  return Array.from({ length: total }, (_, index) => {
-    const t = total === 1 ? 0.5 : index / (total - 1);
-    const angle = startAngle + (endAngle - startAngle) * t;
-
-    return [
-      Math.round(Math.cos(angle) * radius),
-      Math.round(Math.sin(angle) * radius - Math.max(0, total - 4) * 2),
-    ] as [number, number];
+  return Array.from({ length: count }, (_, index) => {
+    const angle = rotation + angleStep * index;
+    return {
+      angle: normalizeAngle(angle),
+      x: Math.round(Math.cos(angle) * radius),
+      y: Math.round(Math.sin(angle) * radius + centerLift),
+    };
   });
+}
+
+function buildBouquetSlots(total: number, zoomScale: number): BouquetSlot[] {
+  if (total <= 1) {
+    return Array.from({ length: total }, () => ({
+      angle: 0,
+      x: 0,
+      y: 0,
+    }));
+  }
+
+  const minSpacing = Math.max(42, Math.round(56 * zoomScale));
+  const centerLift = Math.round((total <= 4 ? -10 : -14) * zoomScale);
+  const maxSingleRingCount = 14;
+
+  if (total <= maxSingleRingCount) {
+    const radius = Math.max(
+      Math.round(36 * zoomScale),
+      Math.min(
+        Math.round(152 * zoomScale),
+        Math.round((minSpacing * total) / (Math.PI * 2)),
+      ),
+    );
+    return buildRingSlots(total, radius, centerLift).sort(
+      (left, right) => left.angle - right.angle,
+    );
+  }
+
+  const slots: BouquetSlot[] = [];
+  let remaining = total;
+  let ringIndex = 0;
+
+  while (remaining > 0) {
+    const radius = Math.round(
+      64 * zoomScale +
+        ringIndex * 34 * zoomScale +
+        Math.max(0, total - maxSingleRingCount) * Math.max(0.45, zoomScale * 0.7),
+    );
+    const circumference = Math.PI * 2 * radius;
+    const ringCapacity = Math.max(
+      6,
+      Math.floor(circumference / minSpacing),
+    );
+    const count = Math.min(remaining, ringCapacity);
+    const rotationOffset = ringIndex % 2 === 0 ? 0 : Math.PI / count;
+
+    slots.push(...buildRingSlots(count, radius, centerLift, rotationOffset));
+    remaining -= count;
+    ringIndex += 1;
+  }
+
+  return slots.sort((left, right) => left.angle - right.angle);
+}
+
+function getGroupCenter(
+  group: MarkerRegistration[],
+  projectedPoints: Map<MarkerRegistration, ProjectedPoint>,
+) {
+  const center = group.reduce(
+    (accumulator, registration) => {
+      const projectedPoint = projectedPoints.get(registration);
+      if (!projectedPoint) {
+        return accumulator;
+      }
+
+      accumulator.x += projectedPoint.x;
+      accumulator.y += projectedPoint.y;
+      return accumulator;
+    },
+    { x: 0, y: 0 },
+  );
+
+  return {
+    x: center.x / group.length,
+    y: center.y / group.length,
+  };
+}
+
+function buildBouquetOffsets(
+  group: MarkerRegistration[],
+  projectedPoints: Map<MarkerRegistration, ProjectedPoint>,
+  zoomScale: number,
+) {
+  if (group.length <= 1) {
+    return new Map(
+      group.map((registration) => [registration, [0, 0] as [number, number]]),
+    );
+  }
+
+  const sortedGroup = sortGroupForSpread(group);
+  const stableIndexes = new Map(
+    sortedGroup.map((registration, index) => [registration, index]),
+  );
+  const groupCenter = getGroupCenter(group, projectedPoints);
+  const orderedGroup = [...group].sort((left, right) => {
+    const leftPoint = projectedPoints.get(left);
+    const rightPoint = projectedPoints.get(right);
+
+    if (!leftPoint || !rightPoint) {
+      return (stableIndexes.get(left) ?? 0) - (stableIndexes.get(right) ?? 0);
+    }
+
+    const leftAngle = normalizeAngle(
+      Math.atan2(leftPoint.y - groupCenter.y, leftPoint.x - groupCenter.x),
+    );
+    const rightAngle = normalizeAngle(
+      Math.atan2(rightPoint.y - groupCenter.y, rightPoint.x - groupCenter.x),
+    );
+
+    if (Math.abs(leftAngle - rightAngle) > 0.08) {
+      return leftAngle - rightAngle;
+    }
+
+    const leftDistance = Math.hypot(
+      leftPoint.x - groupCenter.x,
+      leftPoint.y - groupCenter.y,
+    );
+    const rightDistance = Math.hypot(
+      rightPoint.x - groupCenter.x,
+      rightPoint.y - groupCenter.y,
+    );
+
+    if (Math.abs(leftDistance - rightDistance) > 1) {
+      return leftDistance - rightDistance;
+    }
+
+    return (stableIndexes.get(left) ?? 0) - (stableIndexes.get(right) ?? 0);
+  });
+  const slots = buildBouquetSlots(group.length, zoomScale);
+  const offsets = new Map<MarkerRegistration, [number, number]>();
+
+  orderedGroup.forEach((registration, index) => {
+    const slot = slots[index];
+    const projectedPoint = projectedPoints.get(registration);
+
+    if (!slot || !projectedPoint) {
+      offsets.set(registration, [0, 0]);
+      return;
+    }
+
+    offsets.set(registration, [
+      Math.round(groupCenter.x + slot.x - projectedPoint.x),
+      Math.round(groupCenter.y + slot.y - projectedPoint.y),
+    ]);
+  });
+
+  return offsets;
 }
 
 function sameGroupMembers(
@@ -408,6 +603,24 @@ export default function MapDomMarkerLayer({
     let collapseTimer: ReturnType<typeof setTimeout> | null = null;
     let collapseSuppressedUntil = 0;
 
+    const applyZoomScaleToRegistration = (
+      registration: MarkerRegistration,
+      zoomScale: number,
+    ) => {
+      registration.element.style.setProperty(
+        "--pulse-marker-zoom-scale",
+        `${zoomScale}`,
+      );
+    };
+
+    const syncAllMarkerZoomScales = () => {
+      const zoomScale = getMarkerZoomScale(map.getZoom());
+      registrations.forEach((registration) => {
+        applyZoomScaleToRegistration(registration, zoomScale);
+      });
+      return zoomScale;
+    };
+
     const clearCollapseTimer = () => {
       if (!collapseTimer) {
         return;
@@ -465,43 +678,94 @@ export default function MapDomMarkerLayer({
     };
 
     const findOverlapGroup = (registration: MarkerRegistration) => {
-      const activePixel = map.project(registration.point.position);
-      const threshold = 56;
-
-      return sortGroupForSpread(
-        registrations.filter((candidate) => {
-        const candidatePixel = map.project(candidate.point.position);
-        return (
-          Math.hypot(candidatePixel.x - activePixel.x, candidatePixel.y - activePixel.y) <=
-          threshold
-        );
+      const threshold = getOverlapThreshold(map.getZoom());
+      const projectedPoints = new Map<MarkerRegistration, ProjectedPoint>(
+        registrations.map((candidate) => {
+          const projectedPoint = map.project(candidate.point.position);
+          return [
+            candidate,
+            {
+              x: projectedPoint.x,
+              y: projectedPoint.y,
+            },
+          ];
         }),
       );
+      const queue = [registration];
+      const visited = new Set<MarkerRegistration>(queue);
+      const group: MarkerRegistration[] = [];
+
+      while (queue.length > 0) {
+        const current = queue.shift();
+        const currentPoint = current ? projectedPoints.get(current) : null;
+
+        if (!current || !currentPoint) {
+          continue;
+        }
+
+        group.push(current);
+
+        registrations.forEach((candidate) => {
+          if (visited.has(candidate)) {
+            return;
+          }
+
+          const candidatePoint = projectedPoints.get(candidate);
+          if (!candidatePoint) {
+            return;
+          }
+
+          if (
+            Math.hypot(
+              candidatePoint.x - currentPoint.x,
+              candidatePoint.y - currentPoint.y,
+            ) <= threshold
+          ) {
+            visited.add(candidate);
+            queue.push(candidate);
+          }
+        });
+      }
+
+      return {
+        group: sortGroupForSpread(group),
+        projectedPoints,
+      };
     };
 
     const activateRegistration = (registration: MarkerRegistration) => {
       clearCollapseTimer();
 
-      const group = findOverlapGroup(registration);
+      const { group, projectedPoints } = findOverlapGroup(registration);
       const isSameGroup = sameGroupMembers(activeGroup, group);
 
       if (activeGroup.length > 0 && !isSameGroup) {
         collapseGroup(activeGroup);
       }
 
-      const offsets = buildFanOffsets(group.length);
+      const zoomScale = syncAllMarkerZoomScales();
+      const offsets = buildBouquetOffsets(group, projectedPoints, zoomScale);
 
       group.forEach((groupRegistration, index) => {
-        setRegistrationVisualState(groupRegistration, offsets[index] ?? [0, 0], {
+        setRegistrationVisualState(
+          groupRegistration,
+          offsets.get(groupRegistration) ?? [0, 0],
+          {
           active: groupRegistration === registration,
           spread: group.length > 1,
-        });
+          },
+        );
+        if (group.length > 1 && groupRegistration !== registration) {
+          groupRegistration.element.style.zIndex = `${40 + group.length - index}`;
+        }
       });
 
       activeGroup = group;
       activeRegistration = registration;
       collapseSuppressedUntil =
-        group.length > 1 ? performance.now() + 180 : 0;
+        group.length > 1
+          ? performance.now() + Math.min(300, 140 + group.length * 18)
+          : 0;
       syncTooltipWithRegistration(registration);
     };
 
@@ -520,7 +784,7 @@ export default function MapDomMarkerLayer({
           activeRegistration = null;
           onTooltipChange(null);
         }
-      }, suppressionDelay + 420);
+      }, suppressionDelay + 360);
     };
 
     registerTooltipHoverHandlers?.({
@@ -548,6 +812,10 @@ export default function MapDomMarkerLayer({
       markerElement.setAttribute("aria-label", point.title);
       markerElement.dataset.active = "false";
       markerElement.dataset.spread = "false";
+      markerElement.style.setProperty(
+        "--pulse-marker-zoom-scale",
+        `${getMarkerZoomScale(map.getZoom())}`,
+      );
 
       const root = createRoot(markerElement);
       root.render(
@@ -613,11 +881,21 @@ export default function MapDomMarkerLayer({
       registrations.push(registration);
     }
 
+    const handleZoom = () => {
+      syncAllMarkerZoomScales();
+      if (activeRegistration) {
+        activateRegistration(activeRegistration);
+      }
+    };
+
+    map.on("zoom", handleZoom);
+
     return () => {
       clearCollapseTimer();
       onTooltipChange(null);
       map.off("move", handleMapMotion);
       map.off("zoom", handleMapMotion);
+      map.off("zoom", handleZoom);
       map.off("rotate", handleMapMotion);
       map.off("pitch", handleMapMotion);
       registrations.forEach((registration) => {

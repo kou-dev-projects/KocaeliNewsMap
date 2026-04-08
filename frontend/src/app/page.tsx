@@ -289,7 +289,7 @@ function HomeContent() {
 
   const globalTotalNews = stats.total || mapData.total
   const liveCount = useMemo(() => visibleMapItems.filter(isLikelyLive).length, [visibleMapItems])
-  const filteredGeocodeCount = visibleMapItems.length
+  const visibleMapCount = visibleMapItems.length
   const filteredSourceCount = useMemo(
     () =>
       new Set(
@@ -430,15 +430,15 @@ function HomeContent() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <StatsCard
-                title="Görünüm"
-                value={visibleMapItems.length}
+                title="Toplam"
+                value={globalTotalNews}
                 icon={<Newspaper className="h-4 w-4" />}
                 color="bg-primary"
                 delay={0}
               />
               <StatsCard
-                title="Konumlu"
-                value={filteredGeocodeCount}
+                title="Haritada"
+                value={visibleMapCount}
                 icon={<MapPinned className="h-4 w-4" />}
                 color="bg-emerald-500"
                 delay={0.05}
@@ -463,7 +463,7 @@ function HomeContent() {
               className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
               data-testid="visible-news-count"
             >
-              {visibleMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
+              Haritada {visibleMapCount} / toplam {globalTotalNews} haber
             </div>
 
             <ScrapeLogPanel variant="embedded" />

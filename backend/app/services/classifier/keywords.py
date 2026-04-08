@@ -50,12 +50,20 @@ CATEGORY_KEYWORDS: dict[NewsCategory, tuple[str, ...]] = {
         "hortum",
         "yangın tüpü",
         "köpüklü",
-        # Sonuclar
+        # Sonuclar — bağlam-bağımlı formlar (tekil "tahliye edildi" kaldırıldı)
+        "duman nedeniyle tahliye",
+        "yangın nedeniyle tahliye",
+        "alevler nedeniyle tahliye",
+        "binadan tahliye",
+        "bölge tahliye edildi",
+        "mahalleli tahliye",
+        "sakinler tahliye",
+        "yangında mahsur",
+        "alevler arasında mahsur",
+        "dumandan etkilendi",
         "duman",
         "kül",
         "enkaz",
-        "tahliye edildi",
-        "mahsur kaldı",
     ),
     NewsCategory.HIRSIZLIK: (
         # Suç turleri

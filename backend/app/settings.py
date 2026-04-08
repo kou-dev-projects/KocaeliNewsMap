@@ -80,9 +80,10 @@ class Settings(BaseSettings):
     scrape_event_stream_maxlen: int = 2000
     scrape_events_heartbeat_seconds: int = 15
 
-    classifier_semantic_enabled: bool = False
+    classifier_semantic_enabled: bool = True
     classifier_semantic_threshold: float = 0.3
-    classifier_keyword_only: bool = True
+    classifier_semantic_margin_threshold: float = 0.08
+    classifier_keyword_only: bool = False
 
     ner_provider: str = "mock"
     ner_min_score: float = 0.50

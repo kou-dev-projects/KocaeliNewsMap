@@ -20,6 +20,7 @@ from app.services.geocoding.service import (
 from app.services.logical_location import build_logical_location_candidates
 from app.services.ner.factory import build_ner_service
 from app.services.ner.districts import normalize_for_compare
+from app.services.ner.normalizer import normalize_location_text
 from app.services.ner.schemas import NERInput, NERResult
 from app.utils.content_cleaning import clean_news_text
 from app.utils.content_hash import compute_content_hash, compute_duplicate_hash
@@ -109,6 +110,7 @@ class SourceRecordMaterializer:
             classification=classification,
             ner_result=ner_result,
             fallback_district=district,
+            fallback_location_text=location_text,
             news_id=(
                 str(raw_document.get("_id"))
                 if raw_document.get("_id") is not None
@@ -254,7 +256,16 @@ class SourceRecordMaterializer:
 
         location_text = None
         for candidate in ner_result.location_candidates:
-            candidate_text = (candidate.original_text or "").strip()
+            raw_candidate_text = (
+                candidate.neighborhood
+                or candidate.original_text
+                or candidate.normalized_text
+                or ""
+            )
+            if candidate.is_kocaeli_district or normalize_kocaeli_district(raw_candidate_text):
+                candidate_text = raw_candidate_text.strip()
+            else:
+                candidate_text = normalize_location_text(raw_candidate_text)
             if not candidate_text:
                 continue
             if is_generic_location_text(
@@ -299,6 +310,7 @@ class SourceRecordMaterializer:
         classification: ClassificationResult,
         ner_result: NERResult,
         fallback_district: Optional[str],
+        fallback_location_text: Optional[str],
         news_id: Optional[str],
     ) -> dict[str, Any]:
         logical_candidates = build_logical_location_candidates(
@@ -409,10 +421,10 @@ class SourceRecordMaterializer:
                 },
                 "geocode_bbox": None,
                 "district_predicted": resolved_district,
-                "location_text_extracted": (
-                    logical_candidate.location_text
-                    if logical_candidate
-                    else geocoding_input.address
+                "location_text_extracted": self._resolved_location_text(
+                    geocoding_input=geocoding_input,
+                    logical_candidate=logical_candidate,
+                    fallback_location_text=fallback_location_text,
                 ),
                 "location_resolution_method": (
                     logical_candidate.strategy if logical_candidate else None
@@ -459,6 +471,24 @@ class SourceRecordMaterializer:
             "location_text_extracted": None,
             "location_resolution_method": None,
         }
+
+    @staticmethod
+    def _resolved_location_text(
+        *,
+        geocoding_input: Any,
+        logical_candidate: Any | None,
+        fallback_location_text: str | None,
+    ) -> str | None:
+        if logical_candidate is not None:
+            return logical_candidate.location_text
+
+        if is_district_level_geocoding_input(geocoding_input):
+            normalized_fallback = normalize_for_compare(fallback_location_text or "")
+            normalized_address = normalize_for_compare(geocoding_input.address or "")
+            if normalized_fallback and normalized_fallback != normalized_address:
+                return fallback_location_text
+
+        return geocoding_input.address
 
     def _geocode_status_from_result(
         self,

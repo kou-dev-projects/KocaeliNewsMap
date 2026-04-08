@@ -47,6 +47,34 @@ _SPORTS_KEYWORDS = (
     "stad",
 )
 
+_TRANSPORT_GUIDE_KEYWORDS = (
+    "ulasim rehberi",
+    "ulasim plani",
+    "mac gunu ulasim",
+    "stadyuma nasil gidilir",
+    "nasil gidilir",
+    "otobus seferleri",
+    "ek tramvay",
+    "tramvaylar",
+    "taraftar tasimak",
+    "taraftar tasimasi",
+    "ozel otobus seferleri",
+    "ring seferi",
+    "ulasimpark",
+)
+
+_SPORTS_VENUE_INTENT_KEYWORDS = (
+    "stadyuma",
+    "stadyum",
+    "stadi",
+    "arena",
+    "tribun",
+    "ulasim",
+    "sefer",
+    "tramvay",
+    "otobus",
+)
+
 _SCORE_PATTERN = re.compile(r"\b\d{1,2}\s*-\s*\d{1,2}\b")
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 _SPORTS_TOKENS = frozenset(
@@ -121,7 +149,10 @@ def build_logical_location_candidates(
         candidates.append(candidate)
 
     road_name = _extract_road_name(normalized_text)
-    if road_name and (neighborhood or district):
+    if road_name and (neighborhood or district) and _should_build_highway_candidate(
+        normalized_text=normalized_text,
+        classification=classification,
+    ):
         address_parts = [road_name]
         if neighborhood:
             address_parts.append(neighborhood)
@@ -207,10 +238,11 @@ def _select_sports_candidate(
 ) -> LogicalLocationCandidate | None:
     if not _is_sports_story(normalized_text):
         return None
-    if _has_stadium_candidate(ner_result):
-        return None
 
-    mentioned_stadium = _match_named_venue(normalized_text, _LOGICAL_CATALOG.stadiums)
+    mentioned_stadium = _match_named_venue(
+        normalized_text,
+        _LOGICAL_CATALOG.stadiums,
+    ) or _match_named_venue_candidates(ner_result, _LOGICAL_CATALOG.stadiums)
     if mentioned_stadium is not None:
         return LogicalLocationCandidate(
             address=mentioned_stadium.canonical_name,
@@ -220,7 +252,36 @@ def _select_sports_candidate(
             geocode_status="resolved",
         )
 
-    return None
+    if _has_stadium_candidate(ner_result):
+        return None
+
+    if not _is_sports_venue_story(normalized_text):
+        return None
+
+    team_home_venue = _match_named_venue(
+        normalized_text,
+        _LOGICAL_CATALOG.team_home_venues,
+    )
+    if team_home_venue is not None:
+        return LogicalLocationCandidate(
+            address=team_home_venue.canonical_name,
+            district_hint=team_home_venue.district,
+            location_text=team_home_venue.canonical_name,
+            strategy="logic_team_home_stadium",
+            geocode_status="approximate",
+        )
+
+    district_stadium = _select_district_stadium(district)
+    if district_stadium is None:
+        return None
+
+    return LogicalLocationCandidate(
+        address=district_stadium.canonical_name,
+        district_hint=district_stadium.district,
+        location_text=district_stadium.canonical_name,
+        strategy="logic_district_stadium",
+        geocode_status="approximate",
+    )
 
 
 def _is_sports_story(normalized_text: str) -> bool:
@@ -241,6 +302,35 @@ def _is_sports_story(normalized_text: str) -> bool:
 
     # Team names alone are too noisy for location fallback. Require clear match context.
     return has_sports_token
+
+
+def _is_transport_guide_story(normalized_text: str) -> bool:
+    return any(keyword in normalized_text for keyword in _TRANSPORT_GUIDE_KEYWORDS)
+
+
+def _is_sports_venue_story(normalized_text: str) -> bool:
+    has_team_alias = (
+        _match_named_venue(normalized_text, _LOGICAL_CATALOG.team_home_venues)
+        is not None
+    )
+    has_venue_intent = any(
+        keyword in normalized_text for keyword in _SPORTS_VENUE_INTENT_KEYWORDS
+    )
+    return has_team_alias and has_venue_intent
+
+
+def _should_build_highway_candidate(
+    *,
+    normalized_text: str,
+    classification: ClassificationResult,
+) -> bool:
+    if classification.category != NewsCategory.TRAFIK_KAZASI:
+        return False
+
+    if _is_transport_guide_story(normalized_text):
+        return False
+
+    return True
 
 
 def _has_stadium_candidate(ner_result: NERResult) -> bool:
@@ -265,6 +355,44 @@ def _match_named_venue(
 
         if any(alias in normalized_text for alias in item.normalized_aliases):
             return item
+    return None
+
+
+def _match_named_venue_candidates(
+    ner_result: NERResult,
+    lookup: tuple[LogicalCatalogEntry, ...]
+    | tuple[tuple[tuple[str, ...], LogicalCatalogEntry], ...],
+) -> LogicalCatalogEntry | None:
+    for candidate in ner_result.location_candidates:
+        candidate_text = normalize_for_compare(
+            " ".join(
+                part
+                for part in (
+                    candidate.original_text or "",
+                    candidate.normalized_text or "",
+                )
+                if part
+            )
+        )
+        if not candidate_text:
+            continue
+
+        venue = _match_named_venue(candidate_text, lookup)
+        if venue is not None:
+            return venue
+
+    return None
+
+
+def _select_district_stadium(district: str | None) -> LogicalCatalogEntry | None:
+    if district is None:
+        return None
+
+    normalized_district = normalize_for_compare(district)
+    for venue in _LOGICAL_CATALOG.stadiums:
+        if normalize_for_compare(venue.district or "") == normalized_district:
+            return venue
+
     return None
 
 

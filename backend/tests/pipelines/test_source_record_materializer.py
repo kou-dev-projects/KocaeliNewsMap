@@ -215,6 +215,28 @@ class CinemaGeocoder:
         )
 
 
+class DistrictOnlyGeocoder:
+    def geocode(self, input_data):
+        if input_data.address == "Izmit":
+            return GeocodingResult(
+                address=input_data.address,
+                lat=40.7654,
+                lng=29.9408,
+                display_name="Izmit, Kocaeli, Turkey",
+                confidence=0.89,
+                source="mock",
+                provider_version="test",
+                district="Izmit",
+            )
+
+        return GeocodingFailure(
+            address=input_data.address,
+            reason="Not found",
+            failure_type="not_found",
+            news_id=input_data.news_id,
+        )
+
+
 class MovieRoundupClassifier:
     def classify(self, input_data):
         return ClassificationResult(
@@ -445,6 +467,32 @@ class GenericOfficeNER:
         )
 
 
+class NeighborhoodOnlyNER:
+    def extract_locations(self, input_data):
+        return NERResult(
+            raw_entities=[],
+            location_candidates=[
+                LocationCandidate(
+                    original_text="Yenisehir Mahallesi'nde",
+                    normalized_text="Yenisehir Mahallesi",
+                    score=0.91,
+                    is_kocaeli_district=False,
+                    district="Izmit",
+                    neighborhood="Yenisehir Mahallesi",
+                ),
+                LocationCandidate(
+                    original_text="Izmit",
+                    normalized_text="izmit",
+                    score=0.82,
+                    is_kocaeli_district=True,
+                    district="Izmit",
+                ),
+            ],
+            validated_districts=["Izmit"],
+            provider="fixed_ner",
+        )
+
+
 def test_materializer_skips_generic_location_tokens_and_falls_back_to_district():
     materializer = SourceRecordMaterializer(
         classifier_service=MovieRoundupClassifier(),
@@ -476,6 +524,39 @@ def test_materializer_skips_generic_location_tokens_and_falls_back_to_district()
     assert record["district_predicted"] == "kartepe"
     assert record["location_text_extracted"] == "kartepe"
     assert record["geocode_status"] == "approximate"
+
+
+def test_materializer_preserves_precise_detected_text_when_only_district_point_resolves():
+    materializer = SourceRecordMaterializer(
+        classifier_service=MovieRoundupClassifier(),
+        ner_service=NeighborhoodOnlyNER(),
+        geocoding_service=DistrictOnlyGeocoder(),
+    )
+
+    record = materializer.materialize(
+        raw_document={
+            "_id": "raw_6c",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/yenisehir",
+            "title_raw": "Izmit'te mahalle baskanligina atama yapildi",
+            "content_raw": "Yenisehir Mahallesi'nde yeni gorevlendirme yapildi.",
+            "text_raw": "Yenisehir Mahallesi'nde yeni gorevlendirme yapildi.",
+            "published_at_raw": "2026-03-23T10:30:00+03:00",
+            "scraped_at": "2026-03-23T10:45:00+03:00",
+            "language": "tr",
+            "domain": "bizimyaka.com",
+            "resolved_url": "https://example.com/yenisehir",
+        },
+        source_document={
+            "_id": "source_1",
+            "display_name": "Bizim Yaka",
+            "base_url": "https://www.bizimyaka.com",
+        },
+    )
+
+    assert record["district_predicted"] == "izmit"
+    assert record["geocode_status"] == "approximate"
+    assert record["location_text_extracted"] == "Yenisehir Mahallesi"
 
 
 class BankOnlyNER:

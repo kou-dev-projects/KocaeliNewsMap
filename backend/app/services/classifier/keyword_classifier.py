@@ -47,10 +47,67 @@ class KeywordClassifier:
         )
     )
 
+    # Dynamic confidence thresholds — keyword eşleşme sayısına göre
+    # Semantic classifier'a her zaman alan açılır (confidence hiçbir zaman 1.0 olmaz)
+    _MIN_KEYWORD_CONFIDENCE: float = 0.45
+    _MAX_KEYWORD_CONFIDENCE: float = 0.92
+    _CONFIDENCE_STEP: float = 0.10
+    _TRAFIK_WEAK_KEYWORDS = frozenset(
+        {
+            "kaza",
+            "carpti",
+            "carpisma",
+            "carpisti",
+            "devrildi",
+            "devrilme",
+            "takla",
+        }
+    )
+    _TRAFIK_CONTEXT_HINTS = (
+        "trafik",
+        "otoyol",
+        "karayolu",
+        "yol",
+        "kavsak",
+        "kavsagi",
+        "arac",
+        "otomobil",
+        "kamyon",
+        "kamyonet",
+        "tir",
+        "minibus",
+        "otobus",
+        "motosiklet",
+        "motor",
+        "surucu",
+        "seyir halindeki",
+        "d100",
+        "tem",
+        "bariyer",
+        "refuj",
+    )
+    _YANGIN_WEAK_KEYWORDS = frozenset({"itfaiye"})
+    _YANGIN_CONTEXT_HINTS = (
+        "yangin",
+        "alev",
+        "duman",
+        "tutustu",
+        "yandi",
+        "sondur",
+        "mahsur",
+        "tahliye",
+        "yangina mudahale",
+        "alevlere mudahale",
+    )
+
     def classify(
         self, input_data: ClassificationInput
     ) -> Optional[ClassificationResult]:
         segments = self._build_segments(input_data)
+        combined_text = " ".join(text for text, _ in segments.values() if text)
+        combined_tokens: set[str] = set()
+        for _, tokens in segments.values():
+            combined_tokens.update(tokens)
         matches: dict[NewsCategory, list[str]] = {}
         scores: dict[NewsCategory, float] = {}
 
@@ -66,7 +123,16 @@ class KeywordClassifier:
                 if keyword_score <= 0:
                     continue
 
-                found.append(self._normalize_text(keyword.lower()))
+                normalized_keyword = self._normalize_text(keyword.lower())
+                if not self._keyword_allowed(
+                    category=category,
+                    keyword=normalized_keyword,
+                    full_text=combined_text,
+                    full_tokens=combined_tokens,
+                ):
+                    continue
+
+                found.append(normalized_keyword)
                 weighted_score += keyword_score
 
             if found:
@@ -81,9 +147,20 @@ class KeywordClassifier:
             key=lambda c: (scores[c], -CATEGORY_PRIORITY.get(c, 99)),
         )
 
+        # --- Dynamic confidence ---
+        # Tek keyword eşleşmesi → zayıf sinyal (0.45)
+        # Her ek unique keyword → +0.10, max 0.92
+        # Semantic classifier her zaman devreye girip düzeltme yapabilir.
+        match_count = len(matches[best_category])
+        confidence = min(
+            self._MAX_KEYWORD_CONFIDENCE,
+            self._MIN_KEYWORD_CONFIDENCE + (match_count - 1) * self._CONFIDENCE_STEP,
+        )
+        confidence = round(confidence, 4)
+
         result = ClassificationResult(
             category=best_category,
-            confidence=1.0,
+            confidence=confidence,
             method="keyword",
             news_id=input_data.news_id,
             matched_keywords=matches[best_category],
@@ -96,6 +173,8 @@ class KeywordClassifier:
             "classifier.keyword.match",
             extra={
                 "category": best_category.value,
+                "confidence": confidence,
+                "match_count": match_count,
                 "keywords": matches[best_category][:5],
                 "total_matches": len(matches),
             },
@@ -154,6 +233,52 @@ class KeywordClassifier:
     def _normalize_text(self, value: str) -> str:
         repaired = self._repair_mojibake(value)
         return self._WHITESPACE_PATTERN.sub(" ", repaired).strip().lower()
+
+    def _keyword_allowed(
+        self,
+        *,
+        category: NewsCategory,
+        keyword: str,
+        full_text: str,
+        full_tokens: set[str],
+    ) -> bool:
+        if category == NewsCategory.TRAFIK_KAZASI and keyword in self._TRAFIK_WEAK_KEYWORDS:
+            return self._has_context_hint(
+                full_text=full_text,
+                full_tokens=full_tokens,
+                hints=self._TRAFIK_CONTEXT_HINTS,
+            )
+
+        if category == NewsCategory.YANGIN and keyword in self._YANGIN_WEAK_KEYWORDS:
+            return self._has_context_hint(
+                full_text=full_text,
+                full_tokens=full_tokens,
+                hints=self._YANGIN_CONTEXT_HINTS,
+            )
+
+        return True
+
+    def _has_context_hint(
+        self,
+        *,
+        full_text: str,
+        full_tokens: set[str],
+        hints: tuple[str, ...],
+    ) -> bool:
+        for hint in hints:
+            normalized_hint = self._normalize_text(hint)
+            if " " in normalized_hint:
+                if normalized_hint in full_text:
+                    return True
+                continue
+
+            if any(
+                self._token_matches_keyword(token=token, keyword=normalized_hint)
+                for token in full_tokens
+            ):
+                return True
+
+        return False
 
     def _repair_mojibake(self, value: str) -> str:
         try:

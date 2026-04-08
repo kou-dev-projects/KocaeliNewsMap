@@ -19,70 +19,6 @@ KOCAELI_DISTRICTS = {
     "derince": "Derince",
 }
 
-KOCAELI_PLACE_ALIASES = {
-    # Körfez
-    "yarimca": "Körfez",
-    "tutunciftlik": "Körfez",
-    "kirazliyali": "Körfez",
-
-    # Gölcük
-    "degirmendere": "Gölcük",
-    "ulasli": "Gölcük",
-    "hisareyn": "Gölcük",
-    "halidere": "Gölcük",
-
-    # İzmit
-    "yahya kaptan": "İzmit",
-    "bekirdere": "İzmit",
-    "alikahya": "İzmit",
-    "kurucesme": "İzmit",
-
-    # Kartepe
-    "masukiye": "Kartepe",
-    "uzuntarla": "Kartepe",
-    "arslanbey": "Kartepe",
-    "suadiye": "Kartepe",
-    "sarimese": "Kartepe",
-
-    # Başiskele
-    "kullar": "Başiskele",
-    "yuvacik": "Başiskele",
-    "bahcecik": "Başiskele",
-
-    # Dilovası
-    "tavsancil": "Dilovası",
-    "diliskelesi": "Dilovası",
-
-    # Kandıra
-    "kerpe": "Kandıra",
-    "kefken": "Kandıra",
-    "cebeci": "Kandıra",
-    "bagirganli": "Kandıra",
-
-}
-
-_ALIAS_SUFFIXES = frozenset(
-    {
-        "de",
-        "da",
-        "te",
-        "ta",
-        "den",
-        "dan",
-        "ten",
-        "tan",
-        "deki",
-        "daki",
-        "teki",
-        "taki",
-        "mahallesi",
-        "mahallesinde",
-        "mahallesindeki",
-        "sahilinde",
-        "yolunda",
-    }
-)
-
 _DISTRICT_SUFFIXES = frozenset(
     {
         "de",
@@ -181,29 +117,7 @@ def _matches_name_with_suffix(
     return suffix in allowed_suffixes
 
 
-def recover_alias_district_name(text: str) -> str | None:
-    normalized = normalize_for_compare(text)
-
-    exact = KOCAELI_PLACE_ALIASES.get(normalized)
-    if exact:
-        return exact
-
-    for alias, district in sorted(
-        KOCAELI_PLACE_ALIASES.items(),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    ):
-        if _matches_name_with_suffix(normalized, alias, _ALIAS_SUFFIXES):
-            return district
-
-    return None
-
-
 def recover_district_name(text: str) -> str | None:
-    alias = recover_alias_district_name(text)
-    if alias:
-        return alias
-
     normalized = normalize_for_compare(text)
 
     exact = KOCAELI_DISTRICTS.get(normalized)

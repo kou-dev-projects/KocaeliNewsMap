@@ -115,7 +115,7 @@ def test_gazetteer_results_survive_provider_failure():
     )
 
 
-def test_multiword_alias_is_detected_when_provider_fails():
+def test_multiword_neighborhood_is_detected_when_provider_fails():
     service = NERService(provider=ExplodingProvider(), min_score=0.5)
 
     result = service.extract_locations(
@@ -218,6 +218,72 @@ def test_precise_location_candidates_rank_before_noisy_heuristics():
     assert "Ihsaniye Baraji" in top_candidates
     assert "Karamursel Icmesuyu Aritma Tesisi" in top_candidates
     assert top_candidates[0] != "Karamursel"
+
+
+def test_heuristic_candidates_do_not_start_with_location_suffix_token():
+    service = NERService(provider=ExplodingProvider(), min_score=0.5)
+
+    result = service.extract_locations(
+        NERInput(
+            title="İzmit'te can pazarı! Korkulukları parçalayıp kamyonetle dereye uçtu",
+            content=(
+                "İzmit ilçesi Yahya Kaptan Mahallesi Bestekar Amir Ateş Caddesi'nde "
+                "meydana gelen kazada sürücü ağır yaralandı."
+            ),
+        )
+    )
+
+    normalized_candidates = [
+        normalize_for_compare(candidate.original_text)
+        for candidate in result.location_candidates
+    ]
+
+    assert "yahya kaptan mahallesi" in normalized_candidates
+    top_candidates = normalized_candidates[:3]
+    assert not any(text.startswith("mahallesi ") for text in top_candidates)
+
+
+def test_heuristic_detects_and_prioritizes_street_level_location():
+    service = NERService(provider=ExplodingProvider(), min_score=0.5)
+
+    result = service.extract_locations(
+        NERInput(
+            title="İzmit'te can pazarı!",
+            content=(
+                "İzmit ilçesi Yahya Kaptan Mahallesi Bestekar Amir Ateş Caddesi'nde "
+                "meydana gelen kazada sürücü ağır yaralandı."
+            ),
+        )
+    )
+
+    normalized_candidates = [
+        normalize_for_compare(candidate.original_text)
+        for candidate in result.location_candidates
+    ]
+
+    assert any("bestekar amir ates caddesi" in text for text in normalized_candidates)
+    assert "bestekar amir ates caddesi" in normalized_candidates[0]
+
+
+def test_heuristic_detects_lowercase_street_level_location():
+    service = NERService(provider=ExplodingProvider(), min_score=0.5)
+
+    result = service.extract_locations(
+        NERInput(
+            title="izmit'te trafik kazasi",
+            content=(
+                "izmit yahya kaptan mahallesi bestekar amir ates caddesinde "
+                "meydana gelen kazada iki arac carpisti"
+            ),
+        )
+    )
+
+    normalized_candidates = [
+        normalize_for_compare(candidate.original_text)
+        for candidate in result.location_candidates
+    ]
+
+    assert any("bestekar amir ates caddes" in text for text in normalized_candidates)
 
 
 def test_factory_falls_back_to_mock_when_optional_bertturk_missing(monkeypatch):

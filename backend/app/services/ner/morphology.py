@@ -13,7 +13,7 @@ _CASE_SUFFIXES = (
     # Dative
     "ne", "na", "ye", "ya",
     # Accusative
-    "ni", "nı", "nu", "nü", "yi", "yı", "yu", "yü", "i", "ı", "u", "ü",
+    "ni", "nı", "nu", "nü", "yi", "yı", "yu", "yü",
     # Genitive
     "nin", "nın", "nun", "nün", "in", "ın", "un", "ün",
     # Instrumental

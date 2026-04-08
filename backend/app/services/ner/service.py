@@ -7,7 +7,6 @@ from typing import Optional
 from .districts import (
     KOCAELI_DISTRICTS,
     normalize_for_compare,
-    recover_alias_district_name,
     recover_district_name,
 )
 from .gazetteer import GazetteerMatcher
@@ -50,6 +49,33 @@ _PRECISE_LOCATION_KEYWORDS = (
     "otoyolu",
 )
 
+_SINGLE_TOKEN_PRECISE_KEYWORDS = tuple(
+    keyword for keyword in _PRECISE_LOCATION_KEYWORDS if " " not in keyword
+)
+
+_MULTI_TOKEN_PRECISE_KEYWORDS = tuple(
+    keyword for keyword in _PRECISE_LOCATION_KEYWORDS if " " in keyword
+)
+
+_STREET_LOCATION_KEYWORDS = (
+    "sokak",
+    "sok.",
+    "cadde",
+    "caddesi",
+    "cad.",
+    "bulvari",
+    "bulvar",
+    "blv.",
+    "blv",
+)
+
+_NEIGHBORHOOD_LOCATION_KEYWORDS = (
+    "mahallesi",
+    "mahalle",
+    "mah.",
+    "mah",
+)
+
 _HEURISTIC_NOISE_TOKENS = {
     "acilis",
     "acildi",
@@ -65,6 +91,19 @@ _HEURISTIC_NOISE_TOKENS = {
     "su",
     "ve",
     "yapildi",
+}
+
+_HEURISTIC_LEADING_SUFFIX_TOKENS = {
+    "mahallesi",
+    "mahalle",
+    "mah",
+    "cadde",
+    "caddesi",
+    "sokak",
+    "bulvar",
+    "blv",
+    "meydani",
+    "kavsagi",
 }
 
 _DISTRICT_PRECEDENCE: dict[str, set[str]] = {
@@ -119,6 +158,7 @@ class NERService:
         validated_districts = self._finalize_validated_districts(
             validated_districts=validated_districts,
             title_district_hints=title_district_hints,
+            location_candidates=location_candidates,
         )
 
         logger.info(
@@ -157,9 +197,20 @@ class NERService:
                     continue
 
                 seen.add(match.canonical_name)
+                original_text = match.original_text
+                normalized_original = normalize_for_compare(original_text)
+                if (
+                    match.feature_type == "neighborhood"
+                    and any(
+                        normalized_original.startswith(f"{token} ")
+                        for token in _HEURISTIC_LEADING_SUFFIX_TOKENS
+                    )
+                ):
+                    original_text = match.canonical_name
+
                 candidates.append(
                     LocationCandidate(
-                        original_text=match.original_text,
+                        original_text=original_text,
                         normalized_text=match.canonical_name,
                         score=match.confidence,
                         is_kocaeli_district=match.feature_type == "district",
@@ -186,7 +237,7 @@ class NERService:
         candidates: list[LocationCandidate] = []
         seen: set[str] = set()
 
-        for span_size in range(5, 1, -1):
+        for span_size in range(7, 1, -1):
             if len(tokens) < span_size:
                 continue
 
@@ -261,18 +312,32 @@ class NERService:
     ) -> tuple[list[LocationCandidate], list[str]]:
         all_candidates: list[LocationCandidate] = []
         validated: list[str] = []
-        seen_candidate_keys: set[tuple[str, str | None, str | None]] = set()
+        candidate_index_by_key: dict[
+            tuple[str, str | None, str | None],
+            int,
+        ] = {}
 
-        for candidate in seed_candidates:
+        def merge_candidate(
+            candidate: LocationCandidate,
+        ) -> None:
             key = (
                 candidate.original_text.casefold(),
                 candidate.district,
                 candidate.neighborhood,
             )
-            if key in seen_candidate_keys:
-                continue
-            seen_candidate_keys.add(key)
-            all_candidates.append(candidate)
+
+            existing_index = candidate_index_by_key.get(key)
+            if existing_index is None:
+                candidate_index_by_key[key] = len(all_candidates)
+                all_candidates.append(candidate)
+                return
+
+            existing = all_candidates[existing_index]
+            if candidate.score > existing.score:
+                all_candidates[existing_index] = candidate
+
+        for candidate in seed_candidates:
+            merge_candidate(candidate)
             if candidate.district and candidate.district not in validated:
                 validated.append(candidate.district)
 
@@ -312,14 +377,7 @@ class NERService:
                     neighborhood=self._extract_neighborhood(entity.text),
                 )
 
-            key = (
-                candidate.original_text.casefold(),
-                candidate.district,
-                candidate.neighborhood,
-            )
-            if key not in seen_candidate_keys:
-                seen_candidate_keys.add(key)
-                all_candidates.append(candidate)
+            merge_candidate(candidate)
 
         return self._apply_district_precedence(all_candidates, validated)
 
@@ -378,7 +436,19 @@ class NERService:
         *,
         validated_districts: list[str],
         title_district_hints: list[str],
+        location_candidates: list,
     ) -> list[str]:
+        """Doğrulanmış ilçeleri öncelik sırasına göre düzenle.
+
+        Öncelik mantığı (body-vs-title district conflict):
+        - 0 veya 2+ title hint → body sıralaması olduğu gibi korunur.
+        - 1 title hint, body'de başka ilçe yok → title kazanır (tek bilgi).
+        - 1 title hint, body'de başka ilçe var:
+          * Body ilçesinin location_candidates'ında .neighborhood alanı dolu
+            (neighborhood-level eşleşme) → body ilçesi birincil, title yedek.
+          * Body ilçesinin tüm kandidatları bare district seviyesinde
+            → title hint korunur (body'deki bare ilçe sadece bağlam).
+        """
         if not validated_districts:
             return []
 
@@ -402,20 +472,47 @@ class NERService:
                 ordered_title.append(normalized)
 
         if len(ordered_title) == 1:
-            primary = ordered_title[0]
-            return [normalized_to_original[primary]]
+            primary_title = ordered_title[0]
+            other_validated = [d for d in ordered_validated if d != primary_title]
+
+            if not other_validated:
+                return [normalized_to_original[primary_title]]
+
+            # Neighborhood-level kanıt taşıyan ilçeleri tespit et
+            neighborhood_district_norms: set[str] = set()
+            for candidate in location_candidates:
+                if candidate.neighborhood and candidate.district:
+                    neighborhood_district_norms.add(
+                        normalize_for_compare(candidate.district)
+                    )
+
+            body_with_neighborhood = [
+                d for d in other_validated if d in neighborhood_district_norms
+            ]
+
+            if body_with_neighborhood:
+                # Body'de neighborhood kanıtı var → body ilçesi birincil
+                result_order = (
+                    body_with_neighborhood
+                    + [d for d in other_validated if d not in body_with_neighborhood]
+                    + [primary_title]
+                )
+                return [normalized_to_original[d] for d in result_order]
+
+            # Body'de sadece bare district var → title hint'i TEK sonuç olarak dön
+            # (bare district body'de sadece bağlamdır, olayın konumu değil)
+            return [normalized_to_original[primary_title]]
 
         if not ordered_title:
-            return [normalized_to_original[district] for district in ordered_validated]
+            return [normalized_to_original[d] for d in ordered_validated]
 
+        # 2+ title hint: title'dakileri önce al, geri kalanı sonra
         prioritized = ordered_title + [
-            district
-            for district in ordered_validated
-            if district not in ordered_title
+            d for d in ordered_validated if d not in ordered_title
         ]
-        return [normalized_to_original[district] for district in prioritized]
-
+        return [normalized_to_original[d] for d in prioritized]
     def _is_location_entity(self, entity: RawEntity) -> bool:
+
         label = entity.label.upper()
         if label in {
             "ORG",
@@ -456,10 +553,6 @@ class NERService:
 
     @staticmethod
     def _recover_embedded_district(text: str) -> str | None:
-        alias_match = recover_alias_district_name(text)
-        if alias_match:
-            return alias_match
-
         normalized = normalize_for_compare(text)
         for canonical in KOCAELI_DISTRICTS.values():
             if normalized.startswith(normalize_for_compare(canonical) + " "):
@@ -470,29 +563,46 @@ class NERService:
     def _sort_candidates(
         candidates: list[LocationCandidate],
     ) -> list[LocationCandidate]:
-        def sort_key(candidate: LocationCandidate) -> tuple[int, int, int, int, float, int, str]:
+        def sort_key(
+            candidate: LocationCandidate,
+        ) -> tuple[int, int, int, int, int, float, int, str]:
             normalized = normalize_for_compare(candidate.original_text)
             tokens = [part for part in normalized.split() if part]
             token_count = len(tokens)
+            starts_with_suffix_token = (
+                bool(tokens) and tokens[0] in _HEURISTIC_LEADING_SUFFIX_TOKENS
+            )
             has_precise_keyword = any(
                 keyword in normalized for keyword in _PRECISE_LOCATION_KEYWORDS
+            )
+            has_street_keyword = any(
+                keyword in normalized for keyword in _STREET_LOCATION_KEYWORDS
+            )
+            has_neighborhood_keyword = any(
+                keyword in normalized
+                for keyword in _NEIGHBORHOOD_LOCATION_KEYWORDS
             )
             has_noise = any(token in _HEURISTIC_NOISE_TOKENS for token in tokens)
             long_span_penalty = 1 if token_count > 4 else 0
 
-            if has_precise_keyword or candidate.neighborhood:
+            if has_street_keyword:
                 specificity_rank = 0
-            elif not candidate.is_kocaeli_district:
+            elif has_neighborhood_keyword or candidate.neighborhood:
                 specificity_rank = 1
-            else:
+            elif has_precise_keyword:
                 specificity_rank = 2
+            elif not candidate.is_kocaeli_district:
+                specificity_rank = 3
+            else:
+                specificity_rank = 4
 
             return (
                 specificity_rank,
-                -token_count,
+                1 if starts_with_suffix_token else 0,
                 1 if has_noise else 0,
                 long_span_penalty,
                 -candidate.score,
+                -token_count,
                 token_count,
                 candidate.original_text.casefold(),
             )
@@ -512,13 +622,10 @@ class NERService:
         if not normalized_tokens:
             return False
 
-        if any(token in _HEURISTIC_NOISE_TOKENS for token in normalized_tokens):
+        if normalized_tokens[0] in _HEURISTIC_LEADING_SUFFIX_TOKENS:
             return False
 
-        if any(
-            token and token[0].isalpha() and token[0].islower()
-            for token in tokens
-        ):
+        if any(token in _HEURISTIC_NOISE_TOKENS for token in normalized_tokens):
             return False
 
         last_token = normalized_tokens[-1]
@@ -529,6 +636,9 @@ class NERService:
         )
 
         return (
-            last_token in _PRECISE_LOCATION_KEYWORDS
-            or last_two_tokens in _PRECISE_LOCATION_KEYWORDS
+            any(keyword in last_token for keyword in _SINGLE_TOKEN_PRECISE_KEYWORDS)
+            or any(
+                keyword in last_two_tokens
+                for keyword in _MULTI_TOKEN_PRECISE_KEYWORDS
+            )
         )

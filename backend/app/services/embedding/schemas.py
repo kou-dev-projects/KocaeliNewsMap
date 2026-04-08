@@ -10,7 +10,6 @@ class EmbeddingInput:
     source: str                   # kaynak domain — zorunlu, log'da görünür
     summary: Optional[str] = None
     content: Optional[str] = None
-    image_url: Optional[str] = None   # str — HttpUrl değil (Kocaeli URL'leri sorunlu)
 
     def build_text_payload(self) -> str:
         
@@ -26,7 +25,6 @@ class EmbeddingInput:
             "title_len": len(self.title),
             "has_summary": bool(self.summary),
             "has_content": bool(self.content),
-            "has_image": bool(self.image_url),
             "source": self.source,
         }
 
@@ -39,17 +37,9 @@ class TextEmbedding:
 
 
 @dataclass(frozen=True)
-class ImageEmbedding:
-    vector: list[float]
-    dimension: int
-    provider: str
-
-
-@dataclass(frozen=True)
 class DuplicateScore:
     
     text_similarity: float
-    image_similarity: Optional[float]     # görsel yoksa None
     final_score: float
     is_duplicate: bool
     matched_news_id: Optional[str] = None

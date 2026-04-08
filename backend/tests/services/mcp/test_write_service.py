@@ -3,7 +3,10 @@ from app.services.mcp.config import MCPConfig
 from app.services.mcp.dead_letter import DeadLetterStore
 from app.services.mcp.queue import WriteQueue
 from app.services.mcp.schemas import NewsWriteRequest, WriteStatus
-from app.services.mcp.write_service import NewsWriteService
+from app.services.mcp.write_service import (
+    NewsWriteService,
+    merge_duplicate_source_record_docs,
+)
 
 
 class DummyIdempotency:
@@ -408,58 +411,6 @@ def test_fail_closed_dead_letters_when_queue_full():
     assert dead.size == 1
 
 
-def test_relative_image_url_is_normalized_for_raw_document():
-    idem = DummyIdempotency()
-    mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
-    svc = NewsWriteService(
-        idempotency=idem,
-        queue=WriteQueue(10, 3),
-        dead_letter=DeadLetterStore(),
-        config=_cfg(),
-        mongo_client=mongo,
-        materializer=DummyMaterializer(),
-    )
-
-    request = NewsWriteRequest(
-        title="Test haber",
-        url="https://example.com/haber/1",
-        source="example.com",
-        content="icerik",
-        image_url="/images/test.jpg",
-    )
-
-    svc.write(request)
-
-    assert mongo.raw_documents.last_update["$set"]["image_urls_raw"] == [
-        "https://example.com/images/test.jpg"
-    ]
-
-
-def test_invalid_image_url_is_dropped_from_raw_document():
-    idem = DummyIdempotency()
-    mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
-    svc = NewsWriteService(
-        idempotency=idem,
-        queue=WriteQueue(10, 3),
-        dead_letter=DeadLetterStore(),
-        config=_cfg(),
-        mongo_client=mongo,
-        materializer=DummyMaterializer(),
-    )
-
-    request = NewsWriteRequest(
-        title="Test haber",
-        url="https://example.com/haber/1",
-        source="example.com",
-        content="icerik",
-        image_url="javascript:alert(1)",
-    )
-
-    svc.write(request)
-
-    assert mongo.raw_documents.last_update["$set"]["image_urls_raw"] == []
-
-
 def test_dataset_generation_is_written_to_raw_and_source_records():
     idem = DummyIdempotency()
     mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
@@ -485,6 +436,64 @@ def test_dataset_generation_is_written_to_raw_and_source_records():
     assert mongo.raw_documents.last_filter["dataset_generation"] == "generation-42"
     assert mongo.raw_documents.last_update["$set"]["dataset_generation"] == "generation-42"
     assert mongo.source_records.last_update["$set"]["dataset_generation"] == "generation-42"
+
+
+def test_merge_duplicate_prefers_higher_priority_category_when_confidence_ties():
+    canonical_doc = {
+        "kaynak_listesi": ["bizimyaka.com"],
+        "updated_at": "old",
+        "category_predicted": "yangin",
+        "category_confidence": 0.45,
+    }
+    incoming_doc = {
+        "kaynak_listesi": ["cagdaskocaeli.com.tr"],
+        "updated_at": "new",
+        "category_predicted": "trafik_kazasi",
+        "category_confidence": 0.45,
+        "category_model_version": "resolver_priority",
+    }
+
+    update = merge_duplicate_source_record_docs(canonical_doc, incoming_doc)
+
+    assert update["category_predicted"] == "trafik_kazasi"
+    assert update["category_confidence"] == 0.45
+    assert update["category_model_version"] == "resolver_priority"
+
+
+def test_merge_duplicate_prefers_more_specific_location_on_same_geocode_rank():
+    canonical_doc = {
+        "kaynak_listesi": ["bizimyaka.com"],
+        "updated_at": "old",
+        "geocode_status": "approximate",
+        "geocode_provider": "district_fallback",
+        "location_text_extracted": "izmit",
+    }
+    incoming_doc = {
+        "kaynak_listesi": ["cagdaskocaeli.com.tr"],
+        "updated_at": "new",
+        "geocode_status": "approximate",
+        "geocode_provider": "nominatim",
+        "geocode_provider_version": "v1",
+        "geocode_point": {
+            "type": "Point",
+            "coordinates": [29.94074, 40.76539],
+        },
+        "geocode_bbox": None,
+        "location_resolution_method": "ner_precise_candidate",
+        "district_predicted": "izmit",
+        "district_confidence": 0.99,
+        "location_text_extracted": "Yahya Kaptan Mahallesi Bestekar Amir Ates Caddesi",
+    }
+
+    update = merge_duplicate_source_record_docs(canonical_doc, incoming_doc)
+
+    assert update["location_text_extracted"] == "Yahya Kaptan Mahallesi Bestekar Amir Ates Caddesi"
+    assert update["geocode_provider"] == "nominatim"
+    assert update["geocode_provider_version"] == "v1"
+    assert update["geocode_point"] == {
+        "type": "Point",
+        "coordinates": [29.94074, 40.76539],
+    }
 
 
 class FakeUpdateResult:

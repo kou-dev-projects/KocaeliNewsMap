@@ -18,12 +18,9 @@ def news():
 def svc():
     cfg = EmbeddingConfig(
         text_provider="mock",
-        image_provider="mock",
         text_dimension=1024,
-        image_dimension=768,
         duplicate_threshold=0.90,
-        text_score_weight=0.85,
-        image_score_weight=0.15,
+        text_score_weight=1.00,
         cost_log_path="/tmp/accuracy_test_cost.jsonl",
     )
     return build_embedding_service(cfg)
@@ -36,35 +33,33 @@ def test_fixture_has_minimum_count(news):
 def test_duplicate_accuracy(news, svc):
    
     # 1) Tüm embedding'leri üret
-    embeddings: dict[str, tuple] = {}
+    embeddings: dict[str, object] = {}
     for item in news:
         inp = EmbeddingInput(
             title=item["title"],
             source=item["source"],
             content=item.get("content"),
-            image_url=item.get("image_url"),
         )
-        text_emb, image_emb = svc.embed(inp)
-        embeddings[item["id"]] = (text_emb, image_emb)
+        text_emb = svc.embed(inp)
+        embeddings[item["id"]] = text_emb
 
     # 2) Her haber için karar ver
     total = correct = false_positive = false_negative = 0
 
     for item in news:
-        text_emb, image_emb = embeddings[item["id"]]
+        text_emb = embeddings[item["id"]]
         is_actual_dup = item["label"].startswith("duplicate_of_")
 
         candidates = [
             {
                 "id": other["id"],
-                "text_vector": embeddings[other["id"]][0].vector,
-                "image_vector": embeddings[other["id"]][1].vector if embeddings[other["id"]][1] else None,
+                "text_vector": embeddings[other["id"]].vector,
                 "kaynak_listesi": [other["source"]],
             }
             for other in news if other["id"] != item["id"]
         ]
 
-        result = svc.decide_duplicate(text_emb, image_emb, candidates, item["source"])
+        result = svc.decide_duplicate(text_emb, candidates, item["source"])
 
         total += 1
         if result.is_duplicate == is_actual_dup:

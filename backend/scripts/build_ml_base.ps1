@@ -6,8 +6,7 @@ param(
     [switch]$SkipModelPreload,
     [string]$PreloadNerProvider = "bertturk",
     [string]$PreloadNerModel = "savasy/bert-base-turkish-ner-cased",
-    [string]$PreloadTextProvider = "mock",
-    [string]$PreloadImageProvider = "mock"
+    [string]$PreloadTextProvider = "mock"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,8 +24,7 @@ $dockerArgs = @(
     "--build-arg", ("PRELOAD_ML_MODELS=" + ($(if ($shouldPreload) { "true" } else { "false" }))),
     "--build-arg", ("PRELOAD_NER_PROVIDER=" + $PreloadNerProvider),
     "--build-arg", ("PRELOAD_NER_MODEL=" + $PreloadNerModel),
-    "--build-arg", ("PRELOAD_TEXT_PROVIDER=" + $PreloadTextProvider),
-    "--build-arg", ("PRELOAD_IMAGE_PROVIDER=" + $PreloadImageProvider)
+    "--build-arg", ("PRELOAD_TEXT_PROVIDER=" + $PreloadTextProvider)
 )
 
 if ($Pull) {

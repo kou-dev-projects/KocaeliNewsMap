@@ -7,7 +7,6 @@ from app.scrapers.base.static_helpers import clean_text
 from app.scrapers.yeni_kocaeli.selectors import (
     CONTENT_SELECTORS,
     DATE_SELECTORS,
-    IMAGE_SELECTORS,
     TITLE_SELECTORS,
 )
 
@@ -37,14 +36,12 @@ class YeniKocaeliDetailScraper:
         summary = self._extract_summary(soup, title)
         content = self._extract_content(soup, title, summary)
         published_at_raw = self._extract_published_at(soup)
-        image_url = self._extract_image(soup)
 
         return {
             "title": title,
             "summary": summary,
             "content_text": content,
             "published_at_raw": published_at_raw,
-            "image_url": image_url,
         }
 
     def _extract_title(self, soup: BeautifulSoup) -> str:
@@ -148,22 +145,5 @@ class YeniKocaeliDetailScraper:
                     idx = text.find(marker)
                     snippet = text[idx:idx + 60]
                     return clean_text(snippet)
-
-        return ""
-
-    def _extract_image(self, soup: BeautifulSoup) -> str:
-        for selector in IMAGE_SELECTORS:
-            node = soup.select_one(selector)
-            if not node:
-                continue
-
-            if node.name == "meta":
-                content = node.get("content")
-                if content and "share.jpg" not in content:
-                    return content.strip()
-
-            src = node.get("src")
-            if src:
-                return src.strip()
 
         return ""

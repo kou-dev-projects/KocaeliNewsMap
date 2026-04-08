@@ -54,7 +54,6 @@ const DETAIL_RESPONSE = {
   ...MAP_RESPONSE.items[0],
   content_text:
     "Kocaeli genelinde bu hafta vizyona giren yeni filmler kultur sanat takvimini hareketlendirdi. Izmit merkezli programda salonlar hafta sonuna kadar dolu seyirci bekliyor.",
-  image_url: "https://example.com/poster.jpg",
   location_text_extracted: "Izmit merkez",
   source_base_url: "https://bizimyaka.com.tr",
   source_domains: ["bizimyaka.com.tr", "ozgurkocaeli.com.tr", "kocaeligazetesi.com.tr"],

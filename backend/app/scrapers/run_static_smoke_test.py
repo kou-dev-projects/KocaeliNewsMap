@@ -72,7 +72,6 @@ def run_source(
         print(f"Özet: {shorten(selected_record.get('summary', ''))}")
 
     print(f"İçerik: {shorten(selected_record.get('content_text', ''))}")
-    print(f"Görsel: {selected_record.get('image_url', '')}")
 
 def main() -> None:
     run_source(

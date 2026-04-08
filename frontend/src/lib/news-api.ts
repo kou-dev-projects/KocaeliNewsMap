@@ -44,7 +44,6 @@ export type NewsDashboardResponse = {
 
 export type NewsDetail = NewsMapItem & {
   content_text: string;
-  image_url?: string | null;
   location_text_extracted?: string | null;
   source_base_url?: string | null;
   source_domains: string[];

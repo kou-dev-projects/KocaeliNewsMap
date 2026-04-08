@@ -278,7 +278,6 @@ def _doc(
         "created_at": published_at + timedelta(minutes=5),
         "source_name_snapshot": "Ozgur Kocaeli",
         "source_url_snapshot": "https://www.ozgurkocaeli.com.tr",
-        "image_url": "https://cdn.example.com/news.jpg",
         "category_predicted": category,
         "category_confidence": 0.92,
         "district_predicted": district,
@@ -334,7 +333,6 @@ def test_list_news_returns_enriched_items(monkeypatch, sample_docs):
     assert response.items[0].district == "izmit"
     assert response.items[0].latitude == 40.76
     assert response.items[0].longitude == 29.94
-    assert response.items[0].image_url == "https://cdn.example.com/news.jpg"
     assert response.items[0].source_domains == ["ozgurkocaeli.com.tr"]
 
 
@@ -575,7 +573,6 @@ def test_get_news_detail_returns_enriched_payload(monkeypatch, sample_docs):
     assert response.category == "yangin"
     assert response.district == "izmit"
     assert response.latitude == 40.76
-    assert response.image_url == "https://cdn.example.com/news.jpg"
     assert response.content_text == "Izmit yangin body"
     assert response.location_text_extracted == "izmit"
     assert [site.domain for site in response.source_sites] == [

@@ -68,7 +68,6 @@ def parse_detail(html: str, url: str) -> dict:
     title_el = soup.select_one(selectors.DETAIL_TITLE)
     content_el = soup.select_one(selectors.DETAIL_CONTENT)
     date_meta = soup.select_one(selectors.DETAIL_DATE_META)
-    og_image = soup.select_one(selectors.DETAIL_OG_IMAGE)
     content = content_el.get_text(" ", strip=True) if content_el else None
 
     result = {
@@ -76,7 +75,6 @@ def parse_detail(html: str, url: str) -> dict:
         "title": title_el.get_text(strip=True) if title_el else None,
         "content": clean_content(content),
         "published_at_raw": date_meta.get("content") if date_meta else None,
-        "image_url": og_image.get("content") if og_image else None,
     }
 
     if not result["title"] or not result["content"]:

@@ -6,7 +6,6 @@ ARG PRELOAD_ML_MODELS=true
 ARG PRELOAD_NER_PROVIDER=bertturk
 ARG PRELOAD_NER_MODEL=savasy/bert-base-turkish-ner-cased
 ARG PRELOAD_TEXT_PROVIDER=mock
-ARG PRELOAD_IMAGE_PROVIDER=mock
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_CACHE_DIR=/root/.cache/pip \
@@ -44,6 +43,5 @@ RUN if [ "$PRELOAD_ML_MODELS" = "true" ]; then \
         python -m app.scripts.preload_ml_models \
             --ner-provider "$PRELOAD_NER_PROVIDER" \
             --ner-model "$PRELOAD_NER_MODEL" \
-            --text-provider "$PRELOAD_TEXT_PROVIDER" \
-            --image-provider "$PRELOAD_IMAGE_PROVIDER"; \
+        --text-provider "$PRELOAD_TEXT_PROVIDER"; \
     fi

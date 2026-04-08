@@ -33,7 +33,6 @@ async def main():
                 print(detail["url"])
                 print(detail["title"])
                 print(detail["published_at_raw"])
-                print(detail["image_url"])
                 print(detail["content"][:300])
 
     finally:

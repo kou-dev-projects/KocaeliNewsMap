@@ -47,10 +47,6 @@ _NEWS_LIST_PROJECTION = {
     "geocode_point": 1,
     "kaynak_listesi": 1,
     "created_at": 1,
-    "image_url": 1,
-    "image_url_snapshot": 1,
-    "hero_image_url": 1,
-    "cover_image_url": 1,
 }
 
 _NEWS_MAP_PROJECTION = {
@@ -410,19 +406,6 @@ def _source_sites(doc: dict[str, Any]) -> list[dict[str, Any]]:
     return sites
 
 
-def _image_url(doc: dict[str, Any]) -> str | None:
-    for key in (
-        "image_url",
-        "image_url_snapshot",
-        "hero_image_url",
-        "cover_image_url",
-    ):
-        value = doc.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None
-
-
 def map_doc_to_news_list_item(doc: dict[str, Any]) -> NewsListItem:
     latitude, longitude = _extract_coordinates(doc)
     return NewsListItem(
@@ -433,7 +416,6 @@ def map_doc_to_news_list_item(doc: dict[str, Any]) -> NewsListItem:
         source_domain=_source_domain(doc),
         source_base_url=doc.get("source_url_snapshot"),
         url=doc.get("canonical_url") or "",
-        image_url=_image_url(doc),
         published_at_raw=_isoformat_or_none(doc.get("published_at")),
         category=doc.get("category_predicted"),
         category_confidence=doc.get("category_confidence"),

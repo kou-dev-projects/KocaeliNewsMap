@@ -109,7 +109,6 @@ class FakeDetailScraper:
             "title": "Test baslik",
             "content_text": "Test icerik",
             "published_at_raw": datetime.now(timezone.utc).isoformat(),
-            "image_url": "https://example.com/image.jpg",
         }
 
 
@@ -121,7 +120,6 @@ class FakeParser:
             "title": detail_data["title"],
             "content_text": detail_data["content_text"],
             "published_at_raw": detail_data["published_at_raw"],
-            "image_url": detail_data["image_url"],
             "scraped_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -151,7 +149,6 @@ class FakeDynamicDetailScraper:
             "content": "Dynamic icerik",
             "summary": "",
             "published_at_raw": "",
-            "image_url": "",
         }
 
     def close(self):
@@ -525,7 +522,6 @@ def test_crawl_source_skips_records_older_than_lookback(monkeypatch):
                 "title": "Eski haber",
                 "content_text": "Eski icerik",
                 "published_at_raw": (datetime.now(timezone.utc) - timedelta(days=4)).isoformat(),
-                "image_url": "https://example.com/image.jpg",
             }
 
     monkeypatch.setattr(

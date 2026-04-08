@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlparse
 
 from bson import ObjectId
 from bson.errors import InvalidId
 
+from app.domain.enums import NewsCategory, normalize_news_category
 from app.pipelines import SourceRecordMaterializer
 from app.services.dataset_generation import resolve_write_generation
+from app.services.ner.districts import normalize_for_compare
 from app.scrapers.base.date_utils import parse_published_at_raw
 from app.utils.content_hash import compute_content_hash, compute_duplicate_hash
 
@@ -26,6 +27,28 @@ _GEOCODE_STATUS_RANK = {
     "failed": 1,
     "not_needed": 0,
 }
+
+_CATEGORY_PRIORITY = {
+    NewsCategory.TRAFIK_KAZASI.value: 1,
+    NewsCategory.YANGIN.value: 2,
+    NewsCategory.HIRSIZLIK.value: 3,
+    NewsCategory.ELEKTRIK_KESINTISI.value: 4,
+    NewsCategory.KULTUREL_ETKINLIK.value: 5,
+    NewsCategory.UNKNOWN.value: 99,
+}
+
+_LOCATION_PRECISION_HINTS = (
+    "mahallesi",
+    "mahalle",
+    "sokak",
+    "cadde",
+    "caddesi",
+    "bulvar",
+    "blv",
+    "meydani",
+    "kavsagi",
+    "otoyolu",
+)
 
 
 def _merge_unique_sources(*source_groups: list[str] | None) -> list[str]:
@@ -50,6 +73,85 @@ def _geocode_rank(status: str | None) -> int:
     return _GEOCODE_STATUS_RANK.get(str(status or "").strip(), -1)
 
 
+def _category_priority(category_value: str | None) -> int:
+    normalized = normalize_news_category(category_value)
+    if normalized is None:
+        return 99
+    return _CATEGORY_PRIORITY.get(normalized.value, 99)
+
+
+def _is_unknown_category(category_value: str | None) -> bool:
+    normalized = normalize_news_category(category_value)
+    if normalized is None:
+        return True
+    return normalized is NewsCategory.UNKNOWN
+
+
+def _location_specificity(value: str | None) -> int:
+    if not isinstance(value, str):
+        return -1
+
+    text = value.strip()
+    if not text:
+        return -1
+
+    normalized = normalize_for_compare(text)
+    if not normalized:
+        return -1
+
+    token_count = len(normalized.split())
+    score = min(token_count, 8)
+
+    if any(hint in normalized for hint in _LOCATION_PRECISION_HINTS):
+        score += 10
+    if "," in text:
+        score += 1
+
+    return score
+
+
+def _has_valid_geocode_point(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+
+    coordinates = value.get("coordinates")
+    if value.get("type") != "Point":
+        return False
+    if not isinstance(coordinates, (list, tuple)) or len(coordinates) != 2:
+        return False
+    return all(isinstance(item, (int, float)) for item in coordinates)
+
+
+def _should_promote_geocode(canonical_doc: dict, incoming_doc: dict) -> bool:
+    incoming_rank = _geocode_rank(incoming_doc.get("geocode_status"))
+    canonical_rank = _geocode_rank(canonical_doc.get("geocode_status"))
+
+    if incoming_rank > canonical_rank:
+        return True
+    if incoming_rank < canonical_rank:
+        return False
+    if incoming_rank < 0:
+        return False
+
+    if _has_valid_geocode_point(incoming_doc.get("geocode_point")) and not _has_valid_geocode_point(
+        canonical_doc.get("geocode_point")
+    ):
+        return True
+
+    incoming_provider = str(incoming_doc.get("geocode_provider") or "").strip().casefold()
+    canonical_provider = str(canonical_doc.get("geocode_provider") or "").strip().casefold()
+    if (
+        canonical_provider == "district_fallback"
+        and incoming_provider
+        and incoming_provider != "district_fallback"
+    ):
+        return True
+
+    return _location_specificity(incoming_doc.get("location_text_extracted")) > _location_specificity(
+        canonical_doc.get("location_text_extracted")
+    )
+
+
 def merge_duplicate_source_record_docs(
     canonical_doc: dict,
     incoming_doc: dict,
@@ -66,24 +168,37 @@ def merge_duplicate_source_record_docs(
     incoming_category = incoming_doc.get("category_predicted")
     canonical_confidence = float(canonical_doc.get("category_confidence") or 0.0)
     incoming_confidence = float(incoming_doc.get("category_confidence") or 0.0)
-    if canonical_category in {None, "", "unknown"} and incoming_category not in {None, "", "unknown"}:
-        update["category_predicted"] = incoming_category
-        update["category_confidence"] = incoming_doc.get("category_confidence")
-        update["category_model_version"] = incoming_doc.get("category_model_version")
-    elif (
-        incoming_category not in {None, "", "unknown"}
-        and incoming_category != canonical_category
-        and incoming_confidence > canonical_confidence
-    ):
-        update["category_predicted"] = incoming_category
-        update["category_confidence"] = incoming_doc.get("category_confidence")
-        update["category_model_version"] = incoming_doc.get("category_model_version")
+
+    canonical_unknown = _is_unknown_category(canonical_category)
+    incoming_unknown = _is_unknown_category(incoming_category)
+
+    if not incoming_unknown:
+        should_replace_category = False
+
+        if canonical_unknown:
+            should_replace_category = True
+        elif incoming_category != canonical_category:
+            confidence_delta = incoming_confidence - canonical_confidence
+            if confidence_delta > 1e-9:
+                should_replace_category = True
+            elif (
+                abs(confidence_delta) <= 1e-9
+                and _category_priority(incoming_category) < _category_priority(canonical_category)
+            ):
+                should_replace_category = True
+
+        if should_replace_category:
+            update["category_predicted"] = incoming_category
+            update["category_confidence"] = incoming_doc.get("category_confidence")
+            update["category_model_version"] = incoming_doc.get("category_model_version")
 
     if not canonical_doc.get("district_predicted") and incoming_doc.get("district_predicted"):
         update["district_predicted"] = incoming_doc.get("district_predicted")
         update["district_confidence"] = incoming_doc.get("district_confidence")
 
-    if not canonical_doc.get("location_text_extracted") and incoming_doc.get("location_text_extracted"):
+    if _location_specificity(incoming_doc.get("location_text_extracted")) > _location_specificity(
+        canonical_doc.get("location_text_extracted")
+    ):
         update["location_text_extracted"] = incoming_doc.get("location_text_extracted")
 
     if not canonical_doc.get("summary") and incoming_doc.get("summary"):
@@ -96,7 +211,7 @@ def merge_duplicate_source_record_docs(
     if len(str(incoming_doc.get("summary") or "")) > len(str(canonical_doc.get("summary") or "")):
         update["summary"] = incoming_doc.get("summary")
 
-    if _geocode_rank(incoming_doc.get("geocode_status")) > _geocode_rank(canonical_doc.get("geocode_status")):
+    if _should_promote_geocode(canonical_doc, incoming_doc):
         for field in (
             "geocode_status",
             "geocode_provider",
@@ -110,15 +225,6 @@ def merge_duplicate_source_record_docs(
         ):
             if field in incoming_doc:
                 update[field] = incoming_doc.get(field)
-
-    for field in (
-        "image_url",
-        "image_url_snapshot",
-        "hero_image_url",
-        "cover_image_url",
-    ):
-        if not canonical_doc.get(field) and incoming_doc.get(field):
-            update[field] = incoming_doc.get(field)
 
     return update
 
@@ -444,11 +550,6 @@ class NewsWriteService:
         scraped_at = parse_published_at_raw(request.scraped_at) or now
         text_raw = request.content or request.summary or request.title
         content_hash = self._content_hash(request.title, text_raw)
-        image_urls_raw = self._build_image_urls_raw(
-            image_url=request.image_url,
-            source_base_url=source_doc.get("base_url", ""),
-            resolved_url=request.resolved_url or request.url,
-        )
 
         raw_document = {
             "source_id": source_doc["_id"],
@@ -460,7 +561,6 @@ class NewsWriteService:
             "text_raw": text_raw,
             "content_raw": request.content or "",
             "published_at_raw": published_at,
-            "image_urls_raw": image_urls_raw,
             "language": "tr",
             "content_hash": content_hash,
             "fetch_status": "success",
@@ -479,33 +579,6 @@ class NewsWriteService:
 
     def _duplicate_hash(self, *, title: str, body: str, summary: str) -> str:
         return compute_duplicate_hash(title=title, body=body, summary=summary)
-
-    def _build_image_urls_raw(
-        self,
-        *,
-        image_url: str | None,
-        source_base_url: str,
-        resolved_url: str,
-    ) -> list[str]:
-        if not image_url:
-            return []
-
-        normalized = image_url.strip()
-        if not normalized:
-            return []
-
-        base_url = resolved_url or source_base_url
-        normalized = urljoin(base_url, normalized)
-
-        parsed = urlparse(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            logger.info(
-                "mcp.write.invalid_image_url_skipped",
-                extra={"image_url": image_url},
-            )
-            return []
-
-        return [normalized]
 
     def _handle_failure(
         self, request: NewsWriteRequest, idem_key: str, error: str

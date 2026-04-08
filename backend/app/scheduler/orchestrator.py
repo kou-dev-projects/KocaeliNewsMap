@@ -326,7 +326,6 @@ class ScrapeOrchestrator:
             source=record["source_domain"],
             content=record.get("content_text", ""),
             summary=record.get("summary", ""),
-            image_url=record.get("image_url", ""),
             published_at=record.get("published_at_raw", ""),
             crawl_session_id=crawl_session_id,
             dataset_generation=dataset_generation,
@@ -650,7 +649,6 @@ class ScrapeOrchestrator:
                             "summary": detail_data.get("summary", ""),
                             "content_text": detail_data.get("content", ""),
                             "published_at_raw": detail_data.get("published_at_raw", ""),
-                            "image_url": detail_data.get("image_url", ""),
                             "scraped_at": datetime.now(timezone.utc).isoformat(),
                         }
 

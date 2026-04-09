@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, Play, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, RotateCcw, Square, Trash2 } from "lucide-react";
 
 import { useScrapeEventStream } from "@/hooks/useScrapeEventStream";
 import { EMPTY_DASHBOARD_RESPONSE } from "@/lib/news-api";
@@ -17,6 +17,8 @@ import {
   bootstrapScrape,
   fetchLatestScrapeRun,
   fetchScrapeJobStatus,
+  resetScrapeWorkspace,
+  stopScrape,
   type LatestScrapeRunResponse,
   type ScrapeBootstrapResponse,
   type ScrapeQueuedResponse,
@@ -31,6 +33,7 @@ const NEAR_BOTTOM_THRESHOLD_PX = 80;
 
 type ScrapeLogPanelProps = {
   variant?: "full" | "embedded";
+  reloadSignal?: number;
 };
 
 const connectionMeta: Record<
@@ -84,9 +87,9 @@ function LogRow({ entry }: { entry: ScrapeLogEntry }) {
 
         {entry.metadata.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-2">
-            {entry.metadata.map((item) => (
+            {entry.metadata.map((item, index) => (
               <span
-                key={`${entry.id}-${item}`}
+                key={`${entry.id}-meta-${index}-${item}`}
                 className="rounded-full border border-current/15 bg-background/70 px-2 py-1 text-[11px] font-medium"
               >
                 {item}
@@ -97,9 +100,9 @@ function LogRow({ entry }: { entry: ScrapeLogEntry }) {
 
         {entry.details.length > 0 ? (
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {entry.details.map((detail) => (
+            {entry.details.map((detail, index) => (
               <div
-                key={`${entry.id}-${detail.label}`}
+                key={`${entry.id}-detail-${index}-${detail.label}`}
                 className="rounded-xl border border-current/10 bg-background/60 px-2.5 py-2"
               >
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-current/70">
@@ -157,7 +160,13 @@ function buildLiveJobMessage(
   }
 
   const sourceLabel = latestEvent.source ?? "kaynak";
+  const progress = latestEvent.details.find((item) => item.label === "İlerleme")?.value;
+  const outcome = latestEvent.details.find((item) => item.label === "Sonuç")?.value;
+  const fetchedCount = latestEvent.details.find((item) => item.label === "Detay çekilen")?.value;
   const listingCount = latestEvent.details.find((item) => item.label === "Bulunan URL")?.value;
+  const insertedCount = latestEvent.details.find((item) => item.label === "Yeni kayıt")?.value;
+  const duplicateCount = latestEvent.details.find((item) => item.label === "Birleşen tekrar")?.value;
+  const failedCount = latestEvent.details.find((item) => item.label === "Hatalı kayıt")?.value;
   const parsedCount = latestEvent.details.find((item) => item.label === "Yazılan")?.value;
 
   switch (latestEvent.event) {
@@ -171,9 +180,25 @@ function buildLiveJobMessage(
       return listingCount
         ? `${sourceLabel}: ${listingCount} URL bulundu, detaylar işleniyor.`
         : `${sourceLabel}: liste toplandı, detaylar işleniyor.`;
+    case "source_progress_checkpoint":
+      if (progress || outcome) {
+        const summaryBits = [
+          progress ? `${progress} işlendi` : null,
+          insertedCount ? `${insertedCount} yeni` : null,
+          duplicateCount ? `${duplicateCount} tekrar` : null,
+          failedCount ? `${failedCount} hatalı` : null,
+        ].filter(Boolean);
+
+        if (summaryBits.length > 0) {
+          return `${sourceLabel}: ${summaryBits.join(", ")}.`;
+        }
+
+        return outcome ? `${sourceLabel}: ${outcome}.` : `${sourceLabel}: URL'ler işleniyor.`;
+      }
+      return `${sourceLabel}: URL'ler işleniyor.`;
     case "source_crawl_completed":
       return parsedCount
-        ? `${sourceLabel} tamamlandı. ${parsedCount} kayıt işlendi.`
+        ? `${sourceLabel} tamamlandı. ${parsedCount} kayıt işlendi, ${insertedCount ?? "0"} yeni haber yazıldı.`
         : `${sourceLabel} tamamlandı.`;
     case "source_crawl_failed":
       return `${sourceLabel} hata verdi. Detaylar logda.`;
@@ -187,6 +212,17 @@ function buildLiveJobMessage(
       return "Refresh kısmi kaldı. Aktif görünüm korunuyor.";
     case "refresh_cleanup_failed":
       return "Cutover hata verdi. Aktif görünüm korunuyor.";
+    case "job_cancelling":
+      return "Scrape durdurma isteği alındı. Worker güvenli noktada işi kapatacak.";
+    case "job_cancelled":
+      return "Scrape durduruldu.";
+    case "workspace_reset_manual":
+      return "Veritabanı temizlendi. Yeni scrape için hazır.";
+    case "job_heartbeat":
+      if (fetchedCount) {
+        return `Scrape sürüyor. Şu ana kadar ${fetchedCount} detay URL çekildi.`;
+      }
+      return "Scrape sürüyor. Worker hâlâ aktif.";
     default:
       return fallback;
   }
@@ -209,6 +245,8 @@ function buildLatestRunMessage(
       ? "Son scrape kuyrukta bekliyor."
       : latestRun.status === "running"
         ? "Son scrape calisiyor. Adimlar canli logda akiyor."
+        : latestRun.status === "cancelled"
+          ? "Son scrape durduruldu."
         : latestRun.status === "failed"
           ? "Son scrape hata ile bitti."
           : "Son scrape tamamlandi.";
@@ -222,8 +260,13 @@ function isQueuedScrapeResponse(
   return "job_id" in result;
 }
 
+function isExistingActiveJobResponse(result: ScrapeQueuedResponse): boolean {
+  return result.reason === "job_already_running";
+}
+
 export function ScrapeLogPanel({
   variant = "full",
+  reloadSignal = 0,
 }: ScrapeLogPanelProps) {
   const queryClient = useQueryClient();
   const isEmbedded = variant === "embedded";
@@ -231,6 +274,9 @@ export function ScrapeLogPanel({
   const [jobStatusMessage, setJobStatusMessage] = useState("Scrape paneli hazır.");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [isCancelPending, setIsCancelPending] = useState(false);
   const [isLogOpen, setIsLogOpen] = useState(true);
   const [isLatestRunHydrated, setIsLatestRunHydrated] = useState(false);
   const [latestRunReloadCount, setLatestRunReloadCount] = useState(0);
@@ -247,19 +293,39 @@ export function ScrapeLogPanel({
     jobId: activeJobId ?? undefined,
   });
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const hasAutoStartedRef = useRef(false);
   const lastInvalidatedEventIdRef = useRef<string | null>(null);
+  const latestRunUpdatedAtRef = useRef<number | null>(null);
+  const latestRunPollCounterRef = useRef(0);
   const controlsDisabled =
     !isLatestRunHydrated ||
-    isSubmitting;
+    isSubmitting ||
+    isStopping ||
+    isResetting;
+  const hasActiveJob = activeJobId !== null;
+  const runButtonDisabled = controlsDisabled || hasActiveJob;
+  const stopButtonDisabled =
+    !hasActiveJob || !isLatestRunHydrated || isStopping || isCancelPending;
+  const resetButtonDisabled = controlsDisabled || hasActiveJob;
   const latestEvent = useMemo(
     () => events.at(-1) ?? null,
     [events],
   );
-  const liveJobMessage = useMemo(
-    () => buildLiveJobMessage(latestEvent, jobStatusMessage),
-    [jobStatusMessage, latestEvent],
+  const latestNarrativeEvent = useMemo(
+    () =>
+      [...events]
+        .reverse()
+        .find((entry) => entry.event !== "job_heartbeat") ?? latestEvent,
+    [events, latestEvent],
   );
+  const liveJobMessage = useMemo(
+    () => buildLiveJobMessage(latestNarrativeEvent, jobStatusMessage),
+    [jobStatusMessage, latestNarrativeEvent],
+  );
+
+  const clearVisibleNewsData = () => {
+    queryClient.removeQueries({ queryKey: newsKeys.all });
+    queryClient.setQueryData(newsKeys.dashboard({}), EMPTY_DASHBOARD_RESPONSE);
+  };
 
   useEffect(() => {
     if (!latestEvent || latestEvent.event !== "refresh_cleanup_completed") {
@@ -294,13 +360,18 @@ export function ScrapeLogPanel({
         );
 
         replaceEvents(nextHydratedEvents);
+        latestRunUpdatedAtRef.current = latestRun.updated_at ?? null;
+        latestRunPollCounterRef.current = 0;
 
         if (isActiveScrapeStatus(latestRun.status) && latestRun.job_id) {
           setActiveJobId(latestRun.job_id);
           setIsSubmitting(true);
+          setIsCancelPending(false);
         } else {
           setActiveJobId(null);
           setIsSubmitting(false);
+          setIsStopping(false);
+          setIsCancelPending(false);
         }
 
         setActionError(
@@ -309,7 +380,14 @@ export function ScrapeLogPanel({
             : null,
         );
         setJobStatusMessage(
-          buildLatestRunMessage(latestRun, nextHydratedEvents.at(-1) ?? null),
+          buildLatestRunMessage(
+            latestRun,
+            [...nextHydratedEvents]
+              .reverse()
+              .find((entry) => entry.event !== "job_heartbeat") ??
+              nextHydratedEvents.at(-1) ??
+              null,
+          ),
         );
       } catch (error) {
         if (cancelled) {
@@ -319,6 +397,8 @@ export function ScrapeLogPanel({
         replaceEvents([]);
         setActiveJobId(null);
         setIsSubmitting(false);
+        setIsStopping(false);
+        setIsCancelPending(false);
         setActionError(
           error instanceof Error
             ? error.message
@@ -338,16 +418,7 @@ export function ScrapeLogPanel({
     return () => {
       cancelled = true;
     };
-  }, [latestRunReloadCount, replaceEvents]);
-
-  useEffect(() => {
-    if (!isLatestRunHydrated || hasAutoStartedRef.current) {
-      return;
-    }
-
-    hasAutoStartedRef.current = true;
-    void triggerFreshScrape("Sayfa açılışında veritabanı temizleniyor ve scrape başlatılıyor...");
-  }, [isLatestRunHydrated]);
+  }, [latestRunReloadCount, reloadSignal, replaceEvents]);
 
   useEffect(() => {
     if (!isLogOpen) {
@@ -389,6 +460,37 @@ export function ScrapeLogPanel({
     }
 
     let cancelled = false;
+    const refreshLatestRunSnapshot = async () => {
+      latestRunPollCounterRef.current += 1;
+      if (latestRunPollCounterRef.current < 4) {
+        return;
+      }
+
+      latestRunPollCounterRef.current = 0;
+
+      try {
+        const latestRun = await fetchLatestScrapeRun();
+        if (cancelled || latestRun.job_id !== activeJobId) {
+          return;
+        }
+
+        const nextUpdatedAt = latestRun.updated_at ?? null;
+        if (nextUpdatedAt === latestRunUpdatedAtRef.current) {
+          return;
+        }
+
+        latestRunUpdatedAtRef.current = nextUpdatedAt;
+        const nextHydratedEvents = latestRun.events.map((event, index) =>
+          adaptScrapeEvent(
+            event,
+            `persisted-${latestRun.job_id ?? "latest"}-${index}`,
+          ),
+        );
+        replaceEvents(nextHydratedEvents);
+      } catch {
+        // SSE is the primary transport; polling fallback should fail quietly.
+      }
+    };
 
     const syncJobStatus = async () => {
       try {
@@ -398,22 +500,42 @@ export function ScrapeLogPanel({
         }
 
         if (status.status === "pending") {
-          setJobStatusMessage("İş kuyruğa alındı. Worker bekleniyor.");
+          await refreshLatestRunSnapshot();
+          setIsCancelPending(Boolean(status.cancel_requested));
+          setJobStatusMessage(
+            status.cancel_requested
+              ? "Scrape durdurma isteği alındı. Worker mevcut adımı bekliyor."
+              : "İş kuyruğa alındı. Worker bekleniyor.",
+          );
           return;
         }
 
         if (status.status === "running") {
-          setJobStatusMessage("Scrape çalışıyor. Adımlar canlı logda akıyor.");
+          await refreshLatestRunSnapshot();
+          setIsCancelPending(Boolean(status.cancel_requested));
+          setJobStatusMessage(
+            status.cancel_requested
+              ? "Scrape durduruluyor. Worker güvenli noktada işi kapatacak."
+              : "Scrape çalışıyor. Adımlar canlı logda akıyor.",
+          );
           return;
         }
 
         setIsSubmitting(false);
+        setIsStopping(false);
+        setIsCancelPending(false);
         setActiveJobId(null);
 
         if (status.status === "completed") {
           setActionError(null);
           setJobStatusMessage(summarizeRefreshResult(status.result));
           void queryClient.invalidateQueries({ queryKey: newsKeys.all });
+          return;
+        }
+
+        if (status.status === "cancelled") {
+          setActionError(null);
+          setJobStatusMessage("Scrape durduruldu.");
           return;
         }
 
@@ -425,6 +547,8 @@ export function ScrapeLogPanel({
         }
 
         setIsSubmitting(false);
+        setIsStopping(false);
+        setIsCancelPending(false);
         setActiveJobId(null);
         setActionError(
           error instanceof Error
@@ -449,11 +573,13 @@ export function ScrapeLogPanel({
   const startQueuedJob = (result: ScrapeQueuedResponse, message: string) => {
     replaceEvents([]);
     clearEvents();
+    latestRunUpdatedAtRef.current = null;
+    latestRunPollCounterRef.current = 0;
     setActionError(null);
     setActiveJobId(result.job_id);
+    setIsCancelPending(false);
     setJobStatusMessage(message);
-    queryClient.removeQueries({ queryKey: newsKeys.all });
-    queryClient.setQueryData(newsKeys.dashboard({}), EMPTY_DASHBOARD_RESPONSE);
+    clearVisibleNewsData();
   };
 
   const triggerFreshScrape = async (message: string) => {
@@ -474,6 +600,16 @@ export function ScrapeLogPanel({
         return;
       }
 
+      if (isExistingActiveJobResponse(result)) {
+        setIsSubmitting(false);
+        setActionError(null);
+        setActiveJobId(result.job_id);
+        setIsCancelPending(false);
+        setJobStatusMessage("Devam eden scrape sürüyor. Mevcut iş izleniyor.");
+        setLatestRunReloadCount((current) => current + 1);
+        return;
+      }
+
       startQueuedJob(result, "Veritabanı temizlendi. Yeni scrape başlatıldı.");
     } catch (error) {
       setIsSubmitting(false);
@@ -486,6 +622,53 @@ export function ScrapeLogPanel({
 
   const handleRunScrape = async () => {
     await triggerFreshScrape("Veritabanı temizleniyor ve scrape kuyruğa alınıyor...");
+  };
+
+  const handleStopScrape = async () => {
+    if (!activeJobId) {
+      return;
+    }
+
+    setIsStopping(true);
+    setActionError(null);
+    setJobStatusMessage("Scrape durdurma isteği gönderiliyor...");
+
+    try {
+      const result = await stopScrape({ jobId: activeJobId });
+      setActiveJobId(result.job_id);
+      setIsCancelPending(true);
+      setJobStatusMessage("Scrape durdurma isteği alındı. Worker güvenli noktada işi kapatacak.");
+      setLatestRunReloadCount((current) => current + 1);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Scrape durdurulamadı.",
+      );
+      setJobStatusMessage("Scrape durdurma isteği hata verdi.");
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
+  const handleResetWorkspace = async () => {
+    setIsResetting(true);
+    setActionError(null);
+    setJobStatusMessage("Veritabanı temizleniyor...");
+
+    try {
+      await resetScrapeWorkspace();
+      clearVisibleNewsData();
+      setActiveJobId(null);
+      setIsCancelPending(false);
+      setJobStatusMessage("Veritabanı temizlendi. Yeni scrape için hazır.");
+      setLatestRunReloadCount((current) => current + 1);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Veritabanı temizlenemedi.",
+      );
+      setJobStatusMessage("Veritabanı temizleme isteği hata verdi.");
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   const handleReloadLatestRun = () => {
@@ -530,24 +713,51 @@ export function ScrapeLogPanel({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleRunScrape}
-          disabled={controlsDisabled}
-          className="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Play className="h-4 w-4" />
-          Scrape Başlat
-        </button>
-        <div className="min-w-0 flex-1 rounded-xl border border-border/70 bg-secondary/35 px-3 py-3 text-sm text-foreground">
-          {liveJobMessage}
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="grid max-w-sm grid-cols-1 gap-3">
+            <button
+              type="button"
+              onClick={handleRunScrape}
+              disabled={runButtonDisabled}
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Play className="h-4 w-4" />
+            Scrape Başlat
+          </button>
+          <button
+            type="button"
+            onClick={handleStopScrape}
+            disabled={stopButtonDisabled}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-200"
+          >
+            <Square className="h-4 w-4" />
+            Scrape Durdur
+          </button>
+          <button
+            type="button"
+            onClick={handleResetWorkspace}
+            disabled={resetButtonDisabled}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-border/70 bg-background px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+              Veri Tabanı Temizle
+            </button>
+          </div>
+          <div className="w-full rounded-xl border border-border/70 bg-secondary/35 px-4 py-3 text-sm text-foreground">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Canlı Durum
+            </p>
+            <p className="mt-2 whitespace-normal break-words leading-6">
+              {liveJobMessage}
+            </p>
+          </div>
         </div>
-      </div>
 
       {activeJobId ? (
         <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 py-3 text-sm text-sky-800 dark:text-sky-200">
-          Haber kayıtları temizlendi. Yeni scrape tamamlandıkça liste ve harita yeniden dolacak.
+          {isCancelPending
+            ? "Durdurma isteği alındı. Worker mevcut kaynağı güvenli şekilde kapatıyor."
+            : "Haber kayıtları temizlendi. Yeni scrape tamamlandıkça liste ve harita yeniden dolacak."}
         </div>
       ) : null}
 

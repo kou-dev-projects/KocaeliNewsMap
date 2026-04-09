@@ -239,15 +239,15 @@ function interpolateClamped(
 
 function getMarkerZoomScale(zoom: number) {
   if (!Number.isFinite(zoom)) {
-    return 0.9;
+    return 0.8;
   }
 
-  return Number(interpolateClamped(zoom, 9, 14, 0.74, 1.02).toFixed(3));
+  return Number(interpolateClamped(zoom, 8.5, 14.5, 0.52, 1).toFixed(3));
 }
 
 function getOverlapThreshold(zoom: number) {
   const zoomScale = getMarkerZoomScale(zoom);
-  return Math.round(44 + zoomScale * 24);
+  return Math.round(34 + zoomScale * 26);
 }
 
 function buildRingSlots(
@@ -482,7 +482,7 @@ function MarkerGlyph({
   const visual = getMarkerVisual(category);
   const shape = MARKER_SHAPES[visual.shape];
   const Icon = visual.icon;
-  const size = Math.max(48, Math.min(64, Math.round(radius * 3.2)));
+  const size = Math.max(42, Math.min(58, Math.round(radius * 2.9)));
   const gradientId = `pulse-marker-gradient-${pointId}`;
   const highlightId = `pulse-marker-highlight-${pointId}`;
   const style = {

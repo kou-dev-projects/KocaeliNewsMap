@@ -9,8 +9,11 @@ export type ScrapeBootstrapResponse =
 
 export type ScrapeQueuedResponse = {
   job_id: string;
-  status: "pending";
+  status: "pending" | "running";
   status_url: string;
+  reason?: string;
+  source?: string | null;
+  trigger_type?: string | null;
   details?: {
     reset?: {
       deleted_counts: Record<string, number>;
@@ -21,7 +24,7 @@ export type ScrapeQueuedResponse = {
 
 export type ScrapeJobStatusResponse = {
   job_id: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
   source: string | null;
   trigger_type: string;
   created_at: number;
@@ -29,8 +32,26 @@ export type ScrapeJobStatusResponse = {
   started_at?: number;
   completed_at?: number;
   last_heartbeat_at?: number;
+  cancel_requested?: boolean;
+  cancel_requested_at?: number;
   result?: Record<string, unknown>;
   error?: string;
+};
+
+export type ScrapeResetResponse = {
+  status: "completed";
+  deleted_counts: Record<string, number>;
+  total_deleted: number;
+};
+
+export type ScrapeStopResponse = {
+  job_id: string;
+  status: "pending" | "running" | "cancelled";
+  status_url: string;
+  source: string | null;
+  trigger_type: string | null;
+  cancel_requested: boolean;
+  cancel_requested_at?: number;
 };
 
 export type LatestScrapeRunResponse = {
@@ -42,6 +63,17 @@ export type LatestScrapeRunResponse = {
   updated_at: number | null;
   event_count: number;
   events: RawScrapeEvent[];
+};
+
+const EMPTY_LATEST_SCRAPE_RUN: LatestScrapeRunResponse = {
+  job_id: null,
+  status: "idle",
+  source: null,
+  trigger_type: null,
+  started_at: null,
+  updated_at: null,
+  event_count: 0,
+  events: [],
 };
 
 async function readErrorDetail(response: Response, fallback: string) {
@@ -99,6 +131,23 @@ export async function refreshScrape(options?: ScrapeRequestOptions) {
   );
 }
 
+export async function resetScrapeWorkspace(authorizationHeader?: string) {
+  return postScrapeTrigger<ScrapeResetResponse>("/api/scrape/reset", {
+    authorizationHeader,
+  });
+}
+
+export async function stopScrape(
+  options?: { authorizationHeader?: string; jobId?: string | null },
+) {
+  const path = options?.jobId
+    ? `/api/scrape/stop?job_id=${encodeURIComponent(options.jobId)}`
+    : "/api/scrape/stop";
+  return postScrapeTrigger<ScrapeStopResponse>(path, {
+    authorizationHeader: options?.authorizationHeader,
+  });
+}
+
 export async function fetchScrapeJobStatus(
   jobId: string,
   authorizationHeader?: string,
@@ -122,20 +171,19 @@ export async function fetchScrapeJobStatus(
 }
 
 export async function fetchLatestScrapeRun(authorizationHeader?: string) {
-  const response = await fetch("/api/scrape/latest", {
-    method: "GET",
-    cache: "no-store",
-    headers: buildScrapeRequestHeaders(authorizationHeader),
-  });
+  try {
+    const response = await fetch("/api/scrape/latest", {
+      method: "GET",
+      cache: "no-store",
+      headers: buildScrapeRequestHeaders(authorizationHeader),
+    });
 
-  if (!response.ok) {
-    throw new Error(
-      await readErrorDetail(
-        response,
-        `Latest scrape request failed with status ${response.status}`,
-      ),
-    );
+    if (!response.ok) {
+      return EMPTY_LATEST_SCRAPE_RUN;
+    }
+
+    return (await response.json()) as LatestScrapeRunResponse;
+  } catch {
+    return EMPTY_LATEST_SCRAPE_RUN;
   }
-
-  return (await response.json()) as LatestScrapeRunResponse;
 }

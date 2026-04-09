@@ -9,6 +9,7 @@ import type {
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 5000;
 const LIVENESS_TIMEOUT_MS = 45000;
+const STREAM_ID_PATTERN = /^(?:\$|0|\d{1,15}(?:-\d{1,19})?)$/;
 
 type ScrapeEventStreamCallbacks = {
   onStateChange?: (state: ScrapeStreamConnectionState) => void;
@@ -121,8 +122,10 @@ export class ScrapeEventStreamClient {
       headers.set("Authorization", this.authorizationHeader);
     }
 
-    if (this.lastEventId) {
+    if (this.lastEventId && STREAM_ID_PATTERN.test(this.lastEventId)) {
       headers.set("Last-Event-ID", this.lastEventId);
+    } else if (this.lastEventId) {
+      this.lastEventId = null;
     }
 
     try {

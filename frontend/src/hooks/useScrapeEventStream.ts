@@ -9,13 +9,52 @@ import type {
   ScrapeStreamConnectionState,
 } from "@/lib/scrape/types";
 
-const MAX_VISIBLE_EVENTS = 200;
+const MAX_VISIBLE_EVENTS = 80;
 
 type UseScrapeEventStreamOptions = {
   jobId?: string;
   enabled?: boolean;
   authorizationHeader?: string;
 };
+
+function shouldReplaceLastEvent(
+  currentEntry: ScrapeLogEntry | undefined,
+  nextEntry: ScrapeLogEntry,
+): boolean {
+  if (!currentEntry) {
+    return false;
+  }
+
+  const sameStreamContext =
+    currentEntry.event === nextEntry.event &&
+    currentEntry.jobId === nextEntry.jobId &&
+    currentEntry.source === nextEntry.source;
+
+  if (!sameStreamContext) {
+    return false;
+  }
+
+  return (
+    nextEntry.event === "source_progress_checkpoint" ||
+    nextEntry.event === "job_heartbeat"
+  );
+}
+
+function compactEvents(nextEvents: ScrapeLogEntry[]): ScrapeLogEntry[] {
+  return nextEvents.reduce<ScrapeLogEntry[]>((accumulator, entry) => {
+    const lastEntry = accumulator.at(-1);
+    if (!lastEntry || !shouldReplaceLastEvent(lastEntry, entry)) {
+      accumulator.push(entry);
+      return accumulator;
+    }
+
+    accumulator[accumulator.length - 1] = {
+      ...entry,
+      id: lastEntry.id,
+    };
+    return accumulator;
+  }, []);
+}
 
 export function useScrapeEventStream({
   jobId,
@@ -29,7 +68,7 @@ export function useScrapeEventStream({
   const [lastActivityAt, setLastActivityAt] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const replaceEvents = useCallback((nextEvents: ScrapeLogEntry[]) => {
-    setEvents(nextEvents.slice(-MAX_VISIBLE_EVENTS));
+    setEvents(compactEvents(nextEvents).slice(-MAX_VISIBLE_EVENTS));
   }, []);
   const clearEvents = useCallback(() => {
     setEvents([]);
@@ -65,7 +104,10 @@ export function useScrapeEventStream({
         setErrorMessage(null);
         setLastActivityAt(new Date().toISOString());
         setEvents((currentEvents) => {
-          const nextEvents = [...currentEvents, adaptScrapeEvent(event, frameId)];
+          const nextEvents = compactEvents([
+            ...currentEvents,
+            adaptScrapeEvent(event, frameId),
+          ]);
           return nextEvents.slice(-MAX_VISIBLE_EVENTS);
         });
       },

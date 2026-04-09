@@ -568,7 +568,7 @@ export function ScrapeLogPanel({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [activeJobId, queryClient]);
+  }, [activeJobId, queryClient, replaceEvents]);
 
   const startQueuedJob = (result: ScrapeQueuedResponse, message: string) => {
     replaceEvents([]);

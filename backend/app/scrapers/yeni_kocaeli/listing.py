@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import logging
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 
@@ -17,7 +18,9 @@ from app.scrapers.yeni_kocaeli.selectors import (
 )
 
 
-DETAIL_NEWS_PATTERN = re.compile(r"^https://www\.yenikocaeli\.com/haber/.+/\d+\.html$")
+DETAIL_NEWS_PATTERN = re.compile(
+    r"^https://www\.yenikocaeli\.com/haber/[^/]+/[^/]+/\d+\.html$"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -86,14 +89,30 @@ class YeniKocaeliListingScraper:
             if not href:
                 continue
 
-            absolute_url = to_absolute_url(BASE_URL, href)
+            absolute_url = self._normalize_detail_url(to_absolute_url(BASE_URL, href))
 
-            if not DETAIL_NEWS_PATTERN.match(absolute_url):
+            if not self._is_valid_detail_url(absolute_url):
                 continue
 
             urls.append(absolute_url)
 
         return unique_urls(urls)
+
+    @staticmethod
+    def _is_valid_detail_url(url: str) -> bool:
+        if "/haber//" in url:
+            return False
+        return bool(DETAIL_NEWS_PATTERN.match(url))
+
+    @staticmethod
+    def _normalize_detail_url(url: str) -> str:
+        if not url:
+            return ""
+
+        parsed = urlparse(url)
+        cleaned_path = "/".join(segment.strip() for segment in parsed.path.split("/"))
+        normalized = parsed._replace(path=cleaned_path)
+        return normalized.geturl()
 
     def close(self) -> None:
         self.client.close()

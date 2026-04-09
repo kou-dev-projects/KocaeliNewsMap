@@ -1,95 +1,171 @@
-"use client"
+"use client";
 
-import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react"
-import { motion } from "framer-motion"
-import { Globe2, Loader2, MapPinned, Newspaper, TrendingUp, X } from "lucide-react"
-import { useQueryClient } from "@tanstack/react-query"
+import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import {
+  AlertTriangle,
+  BriefcaseBusiness,
+  CalendarDays,
+  Car,
+  CloudRain,
+  Globe2,
+  Loader2,
+  MapPinned,
+  Newspaper,
+  TrendingUp,
+} from "lucide-react";
 
-import { ScrapeLogPanel } from "@/components/ScrapeLogPanel"
-import InfoCard from "@/components/map/InfoCard"
-import MapView, { type MapThemeMode, type NewsMapItem } from "@/components/map/MapView"
-import { DateRangeSelector } from "@/components/pulse/date-range-selector"
-import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector"
-import { EnhancedCategoryBar } from "@/components/pulse/enhanced-category-bar"
-import { EnhancedSidebar } from "@/components/pulse/enhanced-sidebar"
-import { EnterpriseHeader } from "@/components/pulse/enterprise-header"
-import { LiveNewsFeed, type LiveNewsFeedItem } from "@/components/pulse/live-news-feed"
-import { SplashScreen } from "@/components/pulse/splash-screen"
-import { StatsCard } from "@/components/pulse/stats-card"
-import { useNewsDashboard } from "@/hooks/useNewsDashboard"
-import type { NewsQueryFilters } from "@/lib/filter-state"
-import { EMPTY_DASHBOARD_RESPONSE } from "@/lib/news-api"
-import { newsKeys } from "@/lib/news-query-keys"
-import { bootstrapScrape, fetchLatestScrapeRun } from "@/lib/scrape-api"
+import InfoCard from "../components/map/InfoCard";
+import MapView, { type NewsMapItem } from "@/components/map/MapView";
+import {
+  CategoryFilter,
+  type PulseCategoryOption,
+} from "@/components/pulse/category-filter";
+import { DistrictSelector, type DistrictOption } from "@/components/pulse/district-selector";
+import { EnhancedSidebar } from "@/components/pulse/enhanced-sidebar";
+import { EnterpriseHeader } from "@/components/pulse/enterprise-header";
+import { EnhancedCategoryBar } from "@/components/pulse/enhanced-category-bar";
+import { LiveNewsFeed, type LiveNewsFeedItem } from "@/components/pulse/live-news-feed";
+import { ScrapingLog, type PulseLogEntry } from "@/components/pulse/scraping-log";
+import { SplashScreen } from "@/components/pulse/splash-screen";
+import { StatsCard } from "@/components/pulse/stats-card";
+import { StatsPanel } from "@/components/pulse/stats-panel";
+import { TimelineSlider } from "@/components/pulse/timeline-slider";
+import { useNewsMap } from "@/hooks/useNewsMap";
+import { useNewsStats } from "@/hooks/useNewsStats";
+import type { NewsQueryFilters } from "@/lib/filter-state";
+import { EMPTY_MAP_RESPONSE, EMPTY_STATS } from "@/lib/news-api";
+import { newsKeys } from "@/lib/news-query-keys";
+import {
+  bootstrapScrape,
+  fetchScrapeJobStatus,
+  refreshScrape,
+  type ScrapeQueuedResponse,
+} from "@/lib/scrape-api";
 
-declare global {
-  interface Window {
-    __pulseHomeAutoScrapeStarted?: boolean
+type PulseTone = "info" | "success" | "warning" | "error";
+type PulseCategoryId = "traffic" | "crime" | "weather" | "event" | "economy";
+type FeedCategoryId = LiveNewsFeedItem["pulseCategory"];
+
+const CATEGORY_OPTIONS: PulseCategoryOption[] = [
+  { id: "traffic", label: "Trafik", icon: <Car className="h-3.5 w-3.5" />, color: "bg-amber-500" },
+  { id: "crime", label: "Asayiş", icon: <AlertTriangle className="h-3.5 w-3.5" />, color: "bg-red-500" },
+  { id: "weather", label: "Hava", icon: <CloudRain className="h-3.5 w-3.5" />, color: "bg-blue-500" },
+  { id: "event", label: "Etkinlik", icon: <CalendarDays className="h-3.5 w-3.5" />, color: "bg-emerald-500" },
+  { id: "economy", label: "Gündem", icon: <BriefcaseBusiness className="h-3.5 w-3.5" />, color: "bg-purple-500" },
+];
+
+const ALL_CATEGORY_IDS = CATEGORY_OPTIONS.map((option) => option.id);
+const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "5000");
+const EMPTY_COUNTS: Record<FeedCategoryId, number> = {
+  breaking: 0,
+  traffic: 0,
+  fire: 0,
+  outage: 0,
+  theft: 0,
+  event: 0,
+};
+const CATEGORY_FILTER_MAP: Record<PulseCategoryId, string[]> = {
+  traffic: ["trafik_kazasi"],
+  crime: ["hirsizlik", "yangin"],
+  weather: ["elektrik_kesintisi"],
+  event: ["kulturel_etkinlik"],
+  economy: ["unknown"],
+};
+const MAX_SCRAPE_LOG_ENTRIES = 80;
+const SCRAPE_LOG_STORAGE_KEY = "pulse:scrape-log:v1";
+
+function toPulseCategory(raw?: string | null): FeedCategoryId {
+  switch (raw) {
+    case "trafik_kazasi":
+      return "traffic";
+    case "yangin":
+      return "fire";
+    case "elektrik_kesintisi":
+      return "outage";
+    case "hirsizlik":
+      return "theft";
+    case "kulturel_etkinlik":
+      return "event";
+    default:
+      return "breaking";
   }
 }
 
-const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "1000")
-type PulseCategory = LiveNewsFeedItem["pulseCategory"]
-
 function toFeedCategory(raw?: string | null): LiveNewsFeedItem["pulseCategory"] {
-  switch (raw) {
-    case "trafik_kazasi":
-      return "traffic"
-    case "yangin":
-      return "fire"
-    case "elektrik_kesintisi":
-      return "outage"
-    case "hirsizlik":
-      return "theft"
-    case "kulturel_etkinlik":
-      return "event"
-    default:
-      return "breaking"
-  }
+  return toPulseCategory(raw);
 }
 
 function buildQueryFilters(input: {
-  districts?: string[]
-  search?: string
-  dateFrom?: string
-  dateTo?: string
-  limit?: number
+  categories?: string[];
+  districts?: string[];
+  search?: string;
+  limit?: number;
 }): NewsQueryFilters {
-  const filters: NewsQueryFilters = {}
+  const filters: NewsQueryFilters = {};
 
+  if (input.categories && input.categories.length > 0) {
+    filters.categories = input.categories;
+  }
   if (input.districts && input.districts.length > 0) {
-    filters.districts = input.districts
+    filters.districts = input.districts;
   }
   if (input.search) {
-    filters.search = input.search
-  }
-  if (input.dateFrom) {
-    filters.dateFrom = input.dateFrom
-  }
-  if (input.dateTo) {
-    filters.dateTo = input.dateTo
+    filters.search = input.search;
   }
   if (input.limit) {
-    filters.limit = input.limit
+    filters.limit = input.limit;
   }
 
-  return filters
+  return filters;
+}
+
+function accumulateCategoryCounts(
+  target: Record<FeedCategoryId, number>,
+  category: FeedCategoryId,
+  count: number,
+) {
+  target[category] = (target[category] || 0) + count;
+}
+
+function buildCategoryCountsFromStats(
+  buckets: Array<{ key: string; count: number }>,
+): Record<FeedCategoryId, number> {
+  const counts = { ...EMPTY_COUNTS };
+
+  buckets.forEach((bucket) => {
+    accumulateCategoryCounts(counts, toFeedCategory(bucket.key), bucket.count);
+  });
+
+  return counts;
+}
+
+function buildCategoryCountsFromItems(items: NewsMapItem[]): Record<FeedCategoryId, number> {
+  const counts = { ...EMPTY_COUNTS };
+
+  items.forEach((item) => {
+    accumulateCategoryCounts(counts, toFeedCategory(item.category), 1);
+  });
+
+  return counts;
 }
 
 function normalizeDistrict(value?: string | null): string {
   if (!value) {
-    return ""
+    return "";
   }
 
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
+    .replace(/^_+|_+$/g, "");
 }
 
 function formatDistrictName(value?: string | null): string {
   if (!value) {
-    return "Bilinmeyen"
+    return "Bilinmeyen";
   }
 
   return value
@@ -97,160 +173,388 @@ function formatDistrictName(value?: string | null): string {
     .split(" ")
     .filter(Boolean)
     .map((part) => part.charAt(0).toLocaleUpperCase("tr-TR") + part.slice(1))
-    .join(" ")
+    .join(" ");
 }
 
 function parseDateValue(value?: string | null): number {
   if (!value) {
-    return 0
+    return 0;
   }
 
-  const date = new Date(value)
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return 0
+    return 0;
   }
 
-  return date.getTime()
+  return date.getTime();
 }
 
 function formatRelativeTime(value?: string | null): string {
-  const timestamp = parseDateValue(value)
+  const timestamp = parseDateValue(value);
   if (!timestamp) {
-    return "Bilinmeyen"
+    return "Bilinmeyen";
   }
 
-  const diffMinutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000))
+  const diffMinutes = Math.max(1, Math.round((Date.now() - timestamp) / 60_000));
 
   if (diffMinutes < 60) {
-    return `${diffMinutes} dk önce`
+    return `${diffMinutes} dk önce`;
   }
 
-  const diffHours = Math.round(diffMinutes / 60)
+  const diffHours = Math.round(diffMinutes / 60);
   if (diffHours < 24) {
-    return `${diffHours} saat önce`
+    return `${diffHours} saat önce`;
   }
 
-  const diffDays = Math.round(diffHours / 24)
-  return `${diffDays} gün önce`
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays} gün önce`;
 }
 
 function isLikelyLive(item: NewsMapItem): boolean {
-  const timestamp = parseDateValue(item.published_at_raw)
+  const timestamp = parseDateValue(item.published_at_raw);
   if (!timestamp) {
-    return false
+    return false;
   }
 
-  return Date.now() - timestamp <= 6 * 60 * 60 * 1000
+  return Date.now() - timestamp <= 6 * 60 * 60 * 1000;
 }
 
 function isRecentNews(item: NewsMapItem): boolean {
-  const timestamp = parseDateValue(item.published_at_raw)
+  const timestamp = parseDateValue(item.published_at_raw);
   if (!timestamp) {
-    return false
+    return false;
   }
 
-  return Date.now() - timestamp <= 90 * 60 * 1000
+  return Date.now() - timestamp <= 90 * 60 * 1000;
 }
 
-function formatDateInputValue(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
+function makeLogId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function getDefaultDateRange() {
-  const end = new Date()
-  end.setHours(0, 0, 0, 0)
+function readPersistedScrapeLogs(): PulseLogEntry[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
 
-  const start = new Date(end)
-  start.setDate(end.getDate() - 2)
+  try {
+    const raw = window.sessionStorage.getItem(SCRAPE_LOG_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
 
-  return {
-    dateFrom: formatDateInputValue(start),
-    dateTo: formatDateInputValue(end),
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter(
+        (entry): entry is {
+          id: string;
+          type: PulseLogEntry["type"];
+          message: string;
+          source?: string;
+          timestamp: string;
+        } =>
+          typeof entry?.id === "string" &&
+          typeof entry?.type === "string" &&
+          typeof entry?.message === "string" &&
+          typeof entry?.timestamp === "string",
+      )
+      .slice(-MAX_SCRAPE_LOG_ENTRIES)
+      .map((entry) => {
+        const timestamp = new Date(entry.timestamp);
+        return {
+          id: entry.id,
+          type: entry.type,
+          message: entry.message,
+          source: entry.source,
+          timestamp: Number.isNaN(timestamp.getTime()) ? new Date() : timestamp,
+        };
+      });
+  } catch {
+    return [];
   }
 }
 
-function normalizeDateRange(dateFrom: string, dateTo: string) {
-  if (!dateFrom && !dateTo) {
-    return { dateFrom: undefined, dateTo: undefined }
+function persistScrapeLogs(logs: PulseLogEntry[]) {
+  if (typeof window === "undefined") {
+    return;
   }
 
-  if (dateFrom && dateTo && dateFrom > dateTo) {
-    return { dateFrom: dateTo, dateTo: dateFrom }
-  }
-
-  return {
-    dateFrom: dateFrom || undefined,
-    dateTo: dateTo || undefined,
+  try {
+    const payload = logs.slice(-MAX_SCRAPE_LOG_ENTRIES).map((entry) => ({
+      id: entry.id,
+      type: entry.type,
+      message: entry.message,
+      source: entry.source,
+      timestamp: entry.timestamp.toISOString(),
+    }));
+    window.sessionStorage.setItem(SCRAPE_LOG_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage failures to avoid breaking primary UI flow.
   }
 }
 
 function HomeFallback() {
   return (
     <div className="fixed inset-0 bg-background p-4">
-      <div className="h-16 w-full animate-shimmer rounded-2xl glass" />
-      <div className="mt-4 h-[calc(100%-6rem)] w-full animate-shimmer rounded-2xl glass" />
+      <div className="h-16 w-full rounded-2xl glass animate-shimmer" />
+      <div className="mt-4 h-[calc(100%-6rem)] w-full rounded-2xl glass animate-shimmer" />
     </div>
-  )
+  );
 }
 
 function HomeContent() {
-  const queryClient = useQueryClient()
-  const defaultDateRange = useMemo(() => getDefaultDateRange(), [])
-  const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<PulseCategory | null>(null)
-  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([])
-  const [dateFrom, setDateFrom] = useState(defaultDateRange.dateFrom)
-  const [dateTo, setDateTo] = useState(defaultDateRange.dateTo)
-  const [searchKeyword, setSearchKeyword] = useState("")
-  const [isPanelOpen, setIsPanelOpen] = useState(false)
-  const [mapThemeMode, setMapThemeMode] = useState<MapThemeMode>("light")
-  const [showSplash, setShowSplash] = useState(true)
-  const [scrapeReloadSignal, setScrapeReloadSignal] = useState(0)
-  const deferredSearchKeyword = useDeferredValue(searchKeyword)
-  const normalizedSearchKeyword = deferredSearchKeyword.trim()
-  const normalizedDateRange = useMemo(
-    () => normalizeDateRange(dateFrom, dateTo),
-    [dateFrom, dateTo],
-  )
+  const queryClient = useQueryClient();
+  const { resolvedTheme } = useTheme();
+  const hasTriggeredBootstrapRef = useRef(false);
+  const lastLoggedErrorRef = useRef("");
 
-  const dashboardFilters = useMemo(
+  const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(ALL_CATEGORY_IDS);
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
+  const [timelineTime, setTimelineTime] = useState(new Date());
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [activeScrapeJobId, setActiveScrapeJobId] = useState<string | null>(null);
+  const [scrapeStatusMessage, setScrapeStatusMessage] = useState("");
+  const [scrapeStatusTone, setScrapeStatusTone] = useState<PulseTone>("info");
+  const [isRefreshPending, setIsRefreshPending] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+  const [timeTick, setTimeTick] = useState(() => Date.now());
+  const [logs, setLogs] = useState<PulseLogEntry[]>(() => readPersistedScrapeLogs());
+  const deferredSearchKeyword = useDeferredValue(searchKeyword);
+  const normalizedSearchKeyword = deferredSearchKeyword.trim();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTimeTick(Date.now());
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const selectedServerCategories = useMemo(() => {
+    if (
+      selectedCategories.length === 0 ||
+      selectedCategories.length === ALL_CATEGORY_IDS.length
+    ) {
+      return undefined;
+    }
+
+    return selectedCategories.flatMap((category) => {
+      const categoryId = category as PulseCategoryId;
+      return CATEGORY_FILTER_MAP[categoryId] ?? [];
+    });
+  }, [selectedCategories]);
+
+  const districtSelectionIsExplicit = selectedDistricts.length > 0;
+  const selectedServerDistricts = useMemo(() => {
+    if (!districtSelectionIsExplicit) {
+      return undefined;
+    }
+
+    return selectedDistricts;
+  }, [districtSelectionIsExplicit, selectedDistricts]);
+
+  const mapFilters = useMemo(
     () =>
       buildQueryFilters({
-        districts: selectedDistricts.length > 0 ? selectedDistricts : undefined,
+        categories: selectedServerCategories,
+        districts: selectedServerDistricts,
         search: normalizedSearchKeyword || undefined,
-        dateFrom: normalizedDateRange.dateFrom,
-        dateTo: normalizedDateRange.dateTo,
         limit: DEFAULT_MAP_LIMIT,
       }),
-    [
-      normalizedDateRange.dateFrom,
-      normalizedDateRange.dateTo,
-      normalizedSearchKeyword,
-      selectedDistricts,
-    ],
-  )
+    [normalizedSearchKeyword, selectedServerCategories, selectedServerDistricts],
+  );
+  const districtStatsFilters = useMemo(
+    () =>
+      buildQueryFilters({
+        categories: selectedServerCategories,
+        search: normalizedSearchKeyword || undefined,
+      }),
+    [normalizedSearchKeyword, selectedServerCategories],
+  );
+  const categoryStatsFilters = useMemo(
+    () =>
+      buildQueryFilters({
+        districts: selectedServerDistricts,
+        search: normalizedSearchKeyword || undefined,
+      }),
+    [normalizedSearchKeyword, selectedServerDistricts],
+  );
 
   const {
-    data: dashboardData = EMPTY_DASHBOARD_RESPONSE,
-    error: dashboardError,
-    isLoading: dashboardLoading,
-  } = useNewsDashboard(dashboardFilters)
+    data: stats = EMPTY_STATS,
+    error: statsError,
+    isLoading: statsLoading,
+  } = useNewsStats(mapFilters);
+  const {
+    data: districtStats = EMPTY_STATS,
+    error: districtStatsError,
+    isLoading: districtStatsLoading,
+  } = useNewsStats(districtStatsFilters);
+  const {
+    data: categoryStats = EMPTY_STATS,
+    error: categoryStatsError,
+    isLoading: categoryStatsLoading,
+  } = useNewsStats(categoryStatsFilters);
+  const {
+    data: mapData = EMPTY_MAP_RESPONSE,
+    error: mapError,
+    isLoading: mapLoading,
+  } = useNewsMap(mapFilters);
 
-  const stats = dashboardData.stats
-  const mapData = dashboardData.map
+  const appendLog = useCallback((type: PulseLogEntry["type"], message: string, source?: string) => {
+    setLogs((current) => [
+      ...current.slice(-(MAX_SCRAPE_LOG_ENTRIES - 1)),
+      {
+        id: makeLogId(),
+        type,
+        message,
+        source,
+        timestamp: new Date(),
+      },
+    ]);
+  }, []);
+
+  const updateScrapeStatus = useCallback(
+    (tone: PulseTone, message: string, source?: string) => {
+      setScrapeStatusTone(tone);
+      setScrapeStatusMessage(message);
+      appendLog(tone, message, source);
+    },
+    [appendLog],
+  );
+
+  const startQueuedScrape = useCallback(
+    (result: ScrapeQueuedResponse, message: string) => {
+      setActiveScrapeJobId(result.job_id);
+      updateScrapeStatus("info", message, "worker");
+    },
+    [updateScrapeStatus],
+  );
+
+  useEffect(() => {
+    if (hasTriggeredBootstrapRef.current) {
+      return;
+    }
+
+    hasTriggeredBootstrapRef.current = true;
+    let cancelled = false;
+
+    const runBootstrap = async () => {
+      updateScrapeStatus("info", "İlk veri kontrolü yapılıyor...", "bootstrap");
+
+      try {
+        const result = await bootstrapScrape();
+        if (cancelled) {
+          return;
+        }
+
+        if ("job_id" in result) {
+          startQueuedScrape(result, "İlk veri çekimi başlatıldı.");
+          return;
+        }
+
+        updateScrapeStatus("success", "Veri zaten hazır.", "bootstrap");
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        updateScrapeStatus(
+          "error",
+          error instanceof Error ? error.message : "İlk veri kontrolü başarısız oldu.",
+          "bootstrap",
+        );
+      }
+    };
+
+    void runBootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [startQueuedScrape, updateScrapeStatus]);
+
+  useEffect(() => {
+    if (!activeScrapeJobId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncJobStatus = async () => {
+      try {
+        const status = await fetchScrapeJobStatus(activeScrapeJobId);
+        if (cancelled) {
+          return;
+        }
+
+        if (status.status === "pending") {
+          updateScrapeStatus("info", "Scrape işi kuyruğa alındı.", "queue");
+          return;
+        }
+
+        if (status.status === "running") {
+          updateScrapeStatus("warning", "Scrape çalışıyor.", "worker");
+          return;
+        }
+
+        if (status.status === "completed") {
+          setActiveScrapeJobId(null);
+          setIsRefreshPending(false);
+          updateScrapeStatus("success", "Scrape tamamlandı. Veriler yenileniyor.", "worker");
+          await queryClient.invalidateQueries({ queryKey: newsKeys.all });
+          return;
+        }
+
+        if (status.status === "failed") {
+          setActiveScrapeJobId(null);
+          setIsRefreshPending(false);
+          updateScrapeStatus("error", status.error || "Scrape başarısız oldu.", "worker");
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setActiveScrapeJobId(null);
+        setIsRefreshPending(false);
+        updateScrapeStatus(
+          "error",
+          error instanceof Error ? error.message : "Scrape durumu şu anda kontrol edilemiyor.",
+          "worker",
+        );
+      }
+    };
+
+    void syncJobStatus();
+    const timer = window.setInterval(() => {
+      void syncJobStatus();
+    }, 2_500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeScrapeJobId, queryClient, updateScrapeStatus]);
 
   const districtOptions = useMemo<DistrictOption[]>(
     () =>
-      dashboardData.district_facets.map((bucket) => ({
+      districtStats.districts.map((bucket) => ({
         id: normalizeDistrict(bucket.key),
         name: formatDistrictName(bucket.key),
         newsCount: bucket.count,
       })),
-    [dashboardData.district_facets],
-  )
+    [districtStats.districts],
+  );
 
   const effectiveSelectedDistricts = useMemo(
     () =>
@@ -258,324 +562,307 @@ function HomeContent() {
         ? districtOptions.map((district) => district.id)
         : selectedDistricts,
     [districtOptions, selectedDistricts],
-  )
+  );
 
-  const mapItems = useMemo(() => {
-    return [...mapData.items].sort(
-      (a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw),
-    )
-  }, [mapData.items])
+  const baseFilteredItems = useMemo(() => {
+    return mapData.items
+      .filter((item) => {
+        const timestamp = parseDateValue(item.published_at_raw);
+        if (!timestamp) {
+          return true;
+        }
+        return timestamp <= timelineTime.getTime();
+      })
+      .sort((a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw));
+  }, [mapData.items, timelineTime]);
 
-  const categoryCounts = useMemo<Record<string, number>>(
-    () =>
-      dashboardData.category_facets.reduce<Record<string, number>>((accumulator, bucket) => {
-        const categoryKey = toFeedCategory(bucket.key)
-        accumulator[categoryKey] = (accumulator[categoryKey] || 0) + bucket.count
-        return accumulator
-      }, {}),
-    [dashboardData.category_facets],
-  )
-
-  const visibleMapItems = useMemo(() => {
-    if (!selectedCategory) {
-      return mapItems
+  const categoryCounts = useMemo<Record<string, number>>(() => {
+    if (mapData.total > mapData.items.length) {
+      return buildCategoryCountsFromStats(categoryStats.categories);
     }
 
-    return mapItems.filter((item) => toFeedCategory(item.category) === selectedCategory)
-  }, [mapItems, selectedCategory])
+    return buildCategoryCountsFromItems(baseFilteredItems);
+  }, [baseFilteredItems, categoryStats.categories, mapData.items.length, mapData.total]);
+
+  const filteredMapItems = useMemo(() => {
+    return baseFilteredItems
+      .filter((item) => {
+        if (selectedCategory) {
+          return toFeedCategory(item.category) === selectedCategory;
+        }
+        return true;
+      })
+      .sort((a, b) => parseDateValue(b.published_at_raw) - parseDateValue(a.published_at_raw));
+  }, [baseFilteredItems, selectedCategory]);
 
   const liveFeedItems = useMemo<LiveNewsFeedItem[]>(() => {
-    return visibleMapItems.slice(0, 8).map((item) => ({
+    return filteredMapItems.map((item) => ({
       ...item,
       isRecent: isRecentNews(item),
       pulseCategory: toFeedCategory(item.category),
       timeLabel: formatRelativeTime(item.published_at_raw),
-    }))
-  }, [visibleMapItems])
+    }));
+  }, [filteredMapItems]);
 
   const visibleSelectedNews =
-    selectedNews && visibleMapItems.some((item) => item.id === selectedNews.id)
+    selectedNews && filteredMapItems.some((item) => item.id === selectedNews.id)
       ? selectedNews
-      : null
+      : null;
 
-  const globalTotalNews = stats.total || mapData.total
-  const liveCount = useMemo(() => visibleMapItems.filter(isLikelyLive).length, [visibleMapItems])
-  const visibleMapCount = visibleMapItems.length
+  const globalTotalNews = stats.total || mapData.total;
+  const liveCount = useMemo(() => mapData.items.filter(isLikelyLive).length, [mapData.items]);
+  const filteredLiveCount = useMemo(
+    () => filteredMapItems.filter(isLikelyLive).length,
+    [filteredMapItems],
+  );
+
+  const topDistrict = useMemo(() => {
+    if (filteredMapItems.length === 0) {
+      if (stats.districts.length === 0) {
+        return "İzmit";
+      }
+
+      const top = [...stats.districts].sort((a, b) => b.count - a.count)[0];
+      return formatDistrictName(top?.key || "İzmit");
+    }
+
+    const counts = new Map<string, number>();
+    filteredMapItems.forEach((item) => {
+      const id = normalizeDistrict(item.district);
+      if (!id) {
+        return;
+      }
+      counts.set(id, (counts.get(id) || 0) + 1);
+    });
+
+    const topEntry = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    return formatDistrictName(topEntry?.[0] || "İzmit");
+  }, [filteredMapItems, stats.districts]);
+
+  const avgNewsPerHour = useMemo(() => {
+    if (filteredMapItems.length === 0) {
+      return 0;
+    }
+
+    return Math.round((filteredMapItems.length / 72) * 10) / 10;
+  }, [filteredMapItems.length]);
+
+  const refreshDisabled = isRefreshPending || activeScrapeJobId !== null;
+  const mapThemeMode = resolvedTheme === "dark" ? "dark" : "light";
+  const filteredGeocodeCount = useMemo(() => {
+    if (selectedCategory || timelineTime.getTime() < timeTick - 60_000) {
+      return filteredMapItems.length;
+    }
+
+    return stats.geocoded_total || filteredMapItems.length;
+  }, [filteredMapItems.length, selectedCategory, stats.geocoded_total, timeTick, timelineTime]);
   const filteredSourceCount = useMemo(
     () =>
       new Set(
-        visibleMapItems
+        filteredMapItems
           .map((item) => item.source_domain || item.source_name)
           .filter(Boolean),
       ).size,
-    [visibleMapItems],
-  )
-
+    [filteredMapItems],
+  );
   const dataErrorMessage = useMemo(() => {
-    if (!dashboardError) {
-      return ""
+    const currentError = mapError ?? statsError ?? districtStatsError ?? categoryStatsError;
+    if (!currentError) {
+      return "";
     }
 
-    return dashboardError instanceof Error
-      ? dashboardError.message
-      : "Veri akışında beklenmeyen bir hata oluştu."
-  }, [dashboardError])
-
-  const isActiveScrapeStatus = (status?: string | null) =>
-    status === "pending" || status === "running"
-
-  const wait = (durationMs: number) =>
-    new Promise((resolve) => window.setTimeout(resolve, durationMs))
+    return currentError instanceof Error
+      ? currentError.message
+      : "Veri akışında beklenmeyen bir hata oluştu.";
+  }, [categoryStatsError, districtStatsError, mapError, statsError]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return
+    if (!dataErrorMessage || lastLoggedErrorRef.current === dataErrorMessage) {
+      return;
     }
 
-    if (window.__pulseHomeAutoScrapeStarted) {
-      return
-    }
-
-    window.__pulseHomeAutoScrapeStarted = true
-    let cancelled = false
-
-    const triggerInitialScrape = async () => {
-      try {
-        const latestRun = await fetchLatestScrapeRun()
-        if (cancelled) {
-          return
-        }
-
-        if (isActiveScrapeStatus(latestRun.status) && latestRun.job_id) {
-          setScrapeReloadSignal((current) => current + 1)
-          return
-        }
-
-        let result: Awaited<ReturnType<typeof bootstrapScrape>> | null = null
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            result = await bootstrapScrape({ reset: true })
-            break
-          } catch {
-            if (attempt === 2 || cancelled) {
-              break
-            }
-            await wait(1200 * (attempt + 1))
-          }
-        }
-
-        if (cancelled) {
-          return
-        }
-
-        if (result && "job_id" in result && result.reason !== "job_already_running") {
-          queryClient.removeQueries({ queryKey: newsKeys.all })
-          queryClient.setQueryData(
-            newsKeys.dashboard(dashboardFilters),
-            EMPTY_DASHBOARD_RESPONSE,
-          )
-        }
-      } finally {
-        if (!cancelled) {
-          setScrapeReloadSignal((current) => current + 1)
-        }
-      }
-    }
-
-    void triggerInitialScrape()
+    const timer = window.setTimeout(() => {
+      lastLoggedErrorRef.current = dataErrorMessage;
+      appendLog("error", dataErrorMessage, "api");
+    }, 0);
 
     return () => {
-      cancelled = true
+      window.clearTimeout(timer);
+    };
+  }, [appendLog, dataErrorMessage]);
+
+  useEffect(() => {
+    persistScrapeLogs(logs);
+  }, [logs]);
+
+  const handleRefresh = async () => {
+    setSelectedNews(null);
+    setIsRefreshPending(true);
+    updateScrapeStatus("warning", "Veriler sıfırlanıyor ve yeni scrape başlatılıyor...", "refresh");
+
+    try {
+      const result = await refreshScrape();
+      startQueuedScrape(result, "Yenileme başlatıldı.");
+    } catch (error) {
+      setIsRefreshPending(false);
+      updateScrapeStatus(
+        "error",
+        error instanceof Error ? error.message : "Yenileme başlatılamadı.",
+        "refresh",
+      );
     }
-  }, [dashboardFilters, queryClient])
+  };
 
   return (
     <>
       {showSplash ? <SplashScreen onComplete={() => setShowSplash(false)} /> : null}
 
-      <main className="relative h-screen w-screen overflow-hidden bg-transparent">
-        <EnterpriseHeader
-          searchQuery={searchKeyword}
-          onSearchChange={setSearchKeyword}
-          onMenuToggle={() => setIsPanelOpen((current) => !current)}
-          isMenuOpen={isPanelOpen}
-          totalNews={globalTotalNews}
-          liveCount={liveCount}
-          mapThemeMode={mapThemeMode}
-          onMapThemeModeChange={setMapThemeMode}
-        />
+      <main className="h-screen w-screen overflow-hidden relative bg-transparent">
+      <EnterpriseHeader
+        searchQuery={searchKeyword}
+        onSearchChange={setSearchKeyword}
+        onMenuToggle={() => setIsPanelOpen((current) => !current)}
+        isMenuOpen={isPanelOpen}
+        totalNews={globalTotalNews}
+        liveCount={liveCount}
+      />
 
-        <div className="absolute inset-0 z-0">
-          <motion.div
-            className="h-full w-full overflow-hidden"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.4 }}
-          >
-            <MapView
-              className="h-full w-full"
-              themeMode={mapThemeMode}
-              items={visibleMapItems}
-              onMarkerSelect={setSelectedNews}
-            />
-          </motion.div>
-
-          {dashboardLoading ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="glass inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                Veriler yükleniyor...
-              </div>
-            </div>
-          ) : null}
-
-          {!dashboardLoading && dataErrorMessage ? (
-            <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
-              <div className="glass rounded-xl border border-destructive/30 px-4 py-3 text-sm text-destructive shadow-lg">
-                {dataErrorMessage}
-              </div>
-            </div>
-          ) : null}
-
-          {!dashboardLoading && !dataErrorMessage && visibleMapItems.length === 0 ? (
-            <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
-              <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
-                Aktif filtrelere göre gösterilecek haber bulunamadı.
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
-
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 hidden w-full max-w-[1600px] -translate-x-1/2 px-4 xl:block">
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{
-              opacity: isPanelOpen ? 0 : 1,
-              y: isPanelOpen ? 12 : 0,
-              pointerEvents: isPanelOpen ? "none" : "auto",
-            }}
-            transition={{ delay: 0.26 }}
-            className="pointer-events-auto hidden xl:block"
-          >
-            <div className="rounded-2xl glass p-1.5 shadow-2xl">
-              <div
-                className="grid items-stretch gap-2"
-                style={{ gridTemplateColumns: "1.08fr 1.08fr 7.84fr" }}
-              >
-                <DistrictSelector
-                  districts={districtOptions}
-                  selected={effectiveSelectedDistricts}
-                  onChange={setSelectedDistricts}
-                />
-                <DateRangeSelector
-                  dateFrom={dateFrom}
-                  dateTo={dateTo}
-                  onDateFromChange={setDateFrom}
-                  onDateToChange={setDateTo}
-                  onResetToDefault={() => {
-                    setDateFrom(defaultDateRange.dateFrom)
-                    setDateTo(defaultDateRange.dateTo)
-                  }}
-                />
-                <div>
-                  <EnhancedCategoryBar
-                    selectedCategory={selectedCategory}
-                    onCategoryChange={(category) =>
-                      setSelectedCategory(category as PulseCategory | null)
-                    }
-                    categoryCounts={categoryCounts}
-                    embedded
-                  />
-                  </div>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-
-        <EnhancedSidebar
-          isOpen={isPanelOpen}
-          onClose={() => setIsPanelOpen(false)}
-          title="Canlı Kontrol Paneli"
-          subtitle="Özet kartlar üstte, scrape işlemleri hemen altında."
+      <div className="absolute inset-0 z-0">
+        <motion.div
+          className="h-full w-full overflow-hidden"
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
         >
-          {dataErrorMessage ? (
-            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <MapView
+            className="h-full w-full"
+            themeMode={mapThemeMode}
+            items={filteredMapItems}
+            onMarkerSelect={setSelectedNews}
+          />
+        </motion.div>
+
+        {(mapLoading || statsLoading || districtStatsLoading || categoryStatsLoading) && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="glass rounded-xl px-4 py-3 inline-flex items-center gap-2 text-sm">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              Veriler yükleniyor...
+            </div>
+          </div>
+        )}
+
+        {!mapLoading && !statsLoading && dataErrorMessage ? (
+          <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+            <div className="glass rounded-xl border border-destructive/30 px-4 py-3 text-sm text-destructive shadow-lg">
               {dataErrorMessage}
             </div>
-          ) : null}
-
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <StatsCard
-                title="Toplam"
-                value={globalTotalNews}
-                icon={<Newspaper className="h-4 w-4" />}
-                color="bg-primary"
-                delay={0}
-              />
-              <StatsCard
-                title="Haritada"
-                value={visibleMapCount}
-                icon={<MapPinned className="h-4 w-4" />}
-                color="bg-emerald-500"
-                delay={0.05}
-              />
-              <StatsCard
-                title="Kaynak"
-                value={filteredSourceCount || stats.active_sources}
-                icon={<Globe2 className="h-4 w-4" />}
-                color="bg-sky-500"
-                delay={0.1}
-              />
-              <StatsCard
-                title="Son 6 Saat"
-                value={liveCount}
-                icon={<TrendingUp className="h-4 w-4" />}
-                color="bg-violet-500"
-                delay={0.15}
-              />
-            </div>
-
-            <div
-              className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
-              data-testid="visible-news-count"
-            >
-              Haritada {visibleMapCount} / toplam {globalTotalNews} haber
-            </div>
-
-            <ScrapeLogPanel variant="embedded" reloadSignal={scrapeReloadSignal} />
           </div>
-        </EnhancedSidebar>
-
-        {visibleSelectedNews ? (
-          <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 12, scale: 0.98 }}
-            transition={{ duration: 0.22 }}
-            className="pointer-events-none absolute inset-x-4 top-28 z-20 flex justify-center xl:inset-x-auto xl:right-6 xl:top-28"
-          >
-            <div className="pointer-events-auto relative w-full max-w-[58rem]">
-              <button
-                type="button"
-                onClick={() => setSelectedNews(null)}
-                className="absolute right-3 top-3 z-10 rounded-full border border-border/70 bg-background/80 p-2 text-foreground shadow-sm backdrop-blur transition hover:bg-background"
-                aria-label="Haber detayını kapat"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              <InfoCard
-                item={visibleSelectedNews}
-                className="shadow-[0_24px_60px_rgba(15,23,42,0.22)]"
-              />
-            </div>
-          </motion.div>
         ) : null}
-      </main>
+
+        {!mapLoading && !statsLoading && !dataErrorMessage && filteredMapItems.length === 0 ? (
+          <div className="pointer-events-none absolute inset-x-0 top-32 flex justify-center px-4">
+            <div className="glass rounded-xl px-4 py-3 text-sm text-muted-foreground shadow-lg">
+              Aktif filtrelere göre gösterilecek haber bulunamadı.
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <LiveNewsFeed news={liveFeedItems} onNewsClick={setSelectedNews} hidden={isPanelOpen} />
+
+      <StatsPanel
+        totalNews={filteredMapItems.length}
+        liveCount={filteredLiveCount}
+        topDistrict={topDistrict}
+        avgNewsPerHour={avgNewsPerHour}
+        hidden={isPanelOpen}
+      />
+
+      <EnhancedCategoryBar
+        selectedCategory={selectedCategory}
+        onCategoryChange={setSelectedCategory}
+        categoryCounts={categoryCounts}
+      />
+
+      <EnhancedSidebar
+        isOpen={isPanelOpen}
+        onClose={() => setIsPanelOpen(false)}
+        title="Canlı Kontrol Paneli"
+        subtitle={scrapeStatusMessage || "Tarama sistemi hazır."}
+      >
+        {dataErrorMessage ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {dataErrorMessage}
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <StatsCard
+            title="Toplam Çekilen"
+            value={globalTotalNews}
+            icon={<Newspaper className="h-4 w-4" />}
+            color="bg-primary"
+            delay={0}
+          />
+          <StatsCard
+            title="Konumlu"
+            value={filteredGeocodeCount}
+            icon={<MapPinned className="h-4 w-4" />}
+            color="bg-emerald-500"
+            delay={0.05}
+          />
+          <StatsCard
+            title="Kaynak"
+            value={filteredSourceCount || stats.active_sources}
+            icon={<Globe2 className="h-4 w-4" />}
+            color="bg-sky-500"
+            delay={0.1}
+          />
+          <StatsCard
+            title="Son 6 Saat"
+            value={filteredLiveCount}
+            icon={<TrendingUp className="h-4 w-4" />}
+            color="bg-violet-500"
+            delay={0.15}
+          />
+        </div>
+
+          <div className="mt-4 space-y-3">
+            <CategoryFilter
+              selected={selectedCategories}
+              onChange={setSelectedCategories}
+              options={CATEGORY_OPTIONS}
+            />
+            <DistrictSelector
+              districts={districtOptions}
+              selected={effectiveSelectedDistricts}
+              onChange={setSelectedDistricts}
+            />
+        </div>
+
+        <div className="mt-4">
+          <TimelineSlider onTimeChange={setTimelineTime} />
+        </div>
+
+        <div className="mt-4">
+          <ScrapingLog logs={logs} isExpanded />
+        </div>
+
+        <div className="mt-4">
+          <InfoCard item={visibleSelectedNews} className="border-border/60 bg-card/90" />
+        </div>
+
+          <div
+            className="mt-4 rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
+            data-testid="visible-news-count"
+          >
+            {filteredMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
+            {scrapeStatusTone === "warning" && " - tarama devam ediyor"}
+          </div>
+      </EnhancedSidebar>
+    </main>
     </>
-  )
+  );
 }
 
 export default function Home() {
@@ -583,5 +870,5 @@ export default function Home() {
     <Suspense fallback={<HomeFallback />}>
       <HomeContent />
     </Suspense>
-  )
+  );
 }

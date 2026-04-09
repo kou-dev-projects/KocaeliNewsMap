@@ -69,3 +69,26 @@ def test_yeni_kocaeli_detail_uses_playwright_before_crawl_api():
 
     assert "<h1>Baslik</h1>" in html
     assert created_clients[0].stop_called is True
+
+
+def test_yeni_kocaeli_listing_filters_malformed_double_slash_article_urls():
+    scraper = YeniKocaeliListingScraper(client=BlockedStaticClient())
+
+    html = """
+    <html>
+      <body>
+        <main>
+          <a href="/haber//ogrencilerimi-dinlemek-zamani/193779.html">bozuk</a>
+          <a href="/haber/spor/ selcuk-inan-galatasaray-ligin-en-iyi-takimi/193777.html">bosluklu</a>
+          <a href="/haber/guncel/gebzede-kosgeb-is-gelistirme-destegi-juri-degerlendirme-sureci-tamamlandi/193778.html">gecerli</a>
+        </main>
+      </body>
+    </html>
+    """
+
+    urls = scraper.extract_news_urls(html)
+
+    assert urls == [
+        "https://www.yenikocaeli.com/haber/spor/selcuk-inan-galatasaray-ligin-en-iyi-takimi/193777.html",
+        "https://www.yenikocaeli.com/haber/guncel/gebzede-kosgeb-is-gelistirme-destegi-juri-degerlendirme-sureci-tamamlandi/193778.html"
+    ]

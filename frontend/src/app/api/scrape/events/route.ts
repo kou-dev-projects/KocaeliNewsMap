@@ -29,15 +29,6 @@ export async function GET(request: NextRequest): Promise<Response> {
     headers.set("Last-Event-ID", lastEventId);
   }
 
-  const apiKey = (
-    process.env.SCRAPE_EVENTS_API_KEY ||
-    process.env.SCRAPE_TRIGGER_API_KEY ||
-    ""
-  ).trim();
-  if (apiKey) {
-    headers.set("X-API-Key", apiKey);
-  }
-
   let upstream: Response;
   try {
     upstream = await fetch(backendUrl, {

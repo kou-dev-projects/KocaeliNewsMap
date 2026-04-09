@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 
 from .keyword_classifier import KeywordClassifier
@@ -6,11 +7,11 @@ from .resolver import ConflictResolver
 from .schemas import ClassificationInput, ClassificationResult, NewsCategory
 from .semantic_classifier import SemanticClassifier
 
+
 logger = logging.getLogger(__name__)
 
 
 class ClassifierService:
-
     def __init__(
         self,
         keyword_classifier: KeywordClassifier,
@@ -26,19 +27,7 @@ class ClassifierService:
         self._keyword_only_mode = keyword_only_mode
 
     def classify(self, input_data: ClassificationInput) -> ClassificationResult:
-      
-        # Aşama 1: Keyword
         keyword_result = self._keyword.classify(input_data)
-
-        if keyword_result is not None and keyword_result.confidence == 1.0:
-            logger.debug(
-                "classifier.service.keyword_only",
-                extra={
-                    "category": keyword_result.category.value,
-                    "keywords": keyword_result.matched_keywords[:3],
-                },
-            )
-            return keyword_result
 
         if self._keyword_only_mode or not self._semantic_enabled:
             logger.debug(
@@ -46,10 +35,12 @@ class ClassifierService:
                 extra={
                     "keyword_only_mode": self._keyword_only_mode,
                     "semantic_enabled": self._semantic_enabled,
+                    "keyword_category": keyword_result.category.value if keyword_result else None,
                 },
             )
             if keyword_result is not None:
                 return keyword_result
+
             return ClassificationResult(
                 category=NewsCategory.UNKNOWN,
                 confidence=0.0,
@@ -57,10 +48,33 @@ class ClassifierService:
                 news_id=input_data.news_id,
             )
 
-        # Aşama 2: Semantic
-        semantic_result = self._semantic.classify(input_data)
+        try:
+            semantic_result = self._semantic.classify(input_data)
+        except Exception as exc:
+            logger.warning(
+                "classifier.service.semantic_failed",
+                extra={
+                    "news_id": input_data.news_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+            )
+            if keyword_result is not None:
+                return ClassificationResult(
+                    category=keyword_result.category,
+                    confidence=keyword_result.confidence,
+                    method="keyword_fallback_semantic_error",
+                    news_id=input_data.news_id,
+                    matched_keywords=keyword_result.matched_keywords,
+                    all_scores=keyword_result.all_scores,
+                )
 
-        # Aşama 3: Resolver
+            return ClassificationResult(
+                category=NewsCategory.UNKNOWN,
+                confidence=0.0,
+                method="semantic_error_unknown",
+                news_id=input_data.news_id,
+            )
+
         final = self._resolver.resolve(keyword_result, semantic_result)
 
         logger.info(
@@ -70,6 +84,8 @@ class ClassifierService:
                 "category": final.category.value,
                 "confidence": final.confidence,
                 "method": final.method,
+                "keyword_category": keyword_result.category.value if keyword_result else None,
+                "semantic_category": semantic_result.category.value,
             },
         )
 

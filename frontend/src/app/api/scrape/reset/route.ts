@@ -14,32 +14,24 @@ export async function POST(request: NextRequest): Promise<Response> {
     return authError;
   }
 
-  const upstreamUrl = buildScrapeBackendUrl("/api/v1/scrape/refresh");
-  const reset = request.nextUrl.searchParams.get("reset");
-  if (reset === "true") {
-    upstreamUrl.searchParams.set("reset", "true");
-  }
-
   let upstream: Response;
-
   try {
-    upstream = await fetch(upstreamUrl, {
+    upstream = await fetch(buildScrapeBackendUrl("/api/v1/scrape/reset"), {
       method: "POST",
       headers: createScrapeProxyHeaders(),
       cache: "no-store",
     });
   } catch {
     return Response.json(
-      { detail: "Refresh scrape is unavailable." },
+      { detail: "Workspace reset is unavailable." },
       { status: 502 },
     );
   }
 
   const contentType = upstream.headers.get("content-type") ?? "";
-
   if (!contentType.includes("application/json")) {
     return Response.json(
-      { detail: "Unexpected refresh scrape response." },
+      { detail: "Unexpected reset response." },
       { status: upstream.status || 502 },
     );
   }

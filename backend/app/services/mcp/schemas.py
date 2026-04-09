@@ -19,7 +19,6 @@ class NewsWriteRequest:
     source: str                    # kaynak domain
     content: Optional[str] = None
     summary: Optional[str] = None
-    image_url: Optional[str] = None
     published_at: Optional[str] = None
     raw_html: Optional[str] = None
     crawl_session_id: Optional[str] = None
@@ -37,7 +36,6 @@ class NewsWriteRequest:
             "title_len": len(self.title),
             "source": self.source,
             "url_hash": self.idempotency_key()[:16],
-            "has_image": bool(self.image_url),
             "dataset_generation": self.dataset_generation,
         }
 

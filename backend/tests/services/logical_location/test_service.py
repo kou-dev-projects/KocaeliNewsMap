@@ -160,3 +160,76 @@ def test_team_name_without_match_context_does_not_build_stadium_fallback():
     )
 
     assert all("stadium" not in candidate.strategy for candidate in candidates)
+
+
+def test_non_traffic_story_with_d100_does_not_build_highway_candidate():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="D-100 Karayolu",
+                normalized_text="d 100 karayolu",
+                score=0.88,
+                is_kocaeli_district=False,
+                district="Izmit",
+            )
+        ],
+        validated_districts=["Izmit"],
+        provider="stub",
+    )
+
+    candidates = build_logical_location_candidates(
+        title="Cezaevinde tanistigi adama 3 milyon TL kaptirdi",
+        summary=None,
+        body="Sahis, D-100 Karayolu uzerinde basin aciklamasi yapti.",
+        classification=_classification(NewsCategory.HIRSIZLIK),
+        ner_result=ner_result,
+        fallback_district="izmit",
+    )
+
+    assert all(candidate.strategy != "logic_highway_segment" for candidate in candidates)
+
+
+def test_transport_guide_prefers_named_stadium_over_neighborhood_noise():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Yeni Mahalle Mahallesi",
+                normalized_text="Yeni Mahalle Mahallesi",
+                score=0.91,
+                is_kocaeli_district=False,
+                district="Golcuk",
+                neighborhood="Yeni Mahalle Mahallesi",
+            ),
+            LocationCandidate(
+                original_text="Kocaeli Stadyumu'na",
+                normalized_text="Kocaeli Stadyumu",
+                score=0.89,
+                is_kocaeli_district=False,
+                district="Izmit",
+            ),
+        ],
+        validated_districts=["Golcuk", "Izmit"],
+        provider="stub",
+    )
+
+    candidates = build_logical_location_candidates(
+        title="Kocaelispor - Basaksehir maci ulasim rehberi aciklandi",
+        summary=None,
+        body=(
+            "Mac gunu ulasim ozeti: UlasimPark, Kurucesme - Stadyum hattinda "
+            "tramvaylar ve ozel otobus seferleri planladi."
+        ),
+        classification=_classification(NewsCategory.UNKNOWN),
+        ner_result=ner_result,
+        fallback_district="golcuk",
+    )
+
+    assert all(candidate.strategy != "logic_highway_segment" for candidate in candidates)
+    stadium_candidate = next(
+        candidate
+        for candidate in candidates
+        if candidate.strategy == "logic_stadium_mentioned"
+    )
+    assert stadium_candidate.address == "Kocaeli Stadyumu"

@@ -126,11 +126,10 @@ powershell -ExecutionPolicy Bypass -File .\backend\scripts\warm_ml_models.ps1
 
 The scrape control plane is now closed by default:
 
-- Backend `/api/v1/scrape/*` routes require `SCRAPE_TRIGGER_API_KEY`.
-- Frontend `/api/scrape/*` proxy routes and `/scrape-log` require server-side HTTP Basic Auth via `SCRAPE_OPS_USERNAME` and `SCRAPE_OPS_PASSWORD`.
-- Docker Compose now places an `edge` Nginx reverse proxy in front of the frontend on `FRONTEND_EDGE_PORT` and applies an IP allowlist to `/scrape-log` and `/api/scrape/*`.
-- The edge allowlist is driven by `SCRAPE_OPS_ALLOWED_CIDRS` and defaults to localhost plus RFC1918 private ranges. Tighten this in production to your office VPN, bastion, or fixed operator IPs.
-- Public home page no longer exposes scrape controls; operators use the dedicated `/scrape-log` route after authenticating in the browser.
+- Backend `/api/v1/scrape/*` routes are open in local development; trigger endpoints still keep rate limiting.
+- Frontend `/api/scrape/*` proxy routes and `/scrape-log` no longer require server-side Basic Auth.
+- Docker Compose still places an `edge` Nginx reverse proxy in front of the frontend on `FRONTEND_EDGE_PORT`, but scrape routes are no longer gated by a CIDR allowlist there.
+- The public home page now embeds scrape controls directly, and `/scrape-log` remains available as a dedicated monitoring view.
 
 ### Dedicated ML Service
 

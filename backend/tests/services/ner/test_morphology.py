@@ -27,3 +27,7 @@ def test_strip_suffix_without_apostrophe():
     result = strip_suffixes("Izmitte")
     # Kural tabanlı — "te" suffix'i kaldırır
     assert result == "Izmit"
+
+
+def test_strip_suffix_preserves_lexical_ending_si():
+    assert strip_suffixes("Caddesi") == "Caddesi"

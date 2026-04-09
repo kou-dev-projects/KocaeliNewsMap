@@ -26,13 +26,3 @@ class MockTextProvider:
 
     def embed_text(self, text: str) -> np.ndarray:
         return _hash_to_vector(f"text:{text}", self.dimension)
-
-
-class MockImageProvider:
-    name = "mock-image"
-    dimension = 768
-
-    def embed_image(self, image_url: str) -> np.ndarray | None:
-        if not image_url:
-            return None
-        return _hash_to_vector(f"image:{image_url}", self.dimension)

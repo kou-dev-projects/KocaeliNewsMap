@@ -1,6 +1,6 @@
 # PULSE Frontend
 
-Next.js App Router frontend for the Kocaeli news map, operator-only scrape monitor, and PWA shell.
+Next.js App Router frontend for the Kocaeli news map, live scrape monitor, and PWA shell.
 
 ## Local Development
 
@@ -24,8 +24,6 @@ Important values:
 
 - `NEXT_PUBLIC_API_URL`: browser-facing backend URL, usually `http://localhost:8000`
 - `API_INTERNAL_URL`: server-side route handlers use this when proxying to the backend
-- `SCRAPE_OPS_USERNAME`, `SCRAPE_OPS_PASSWORD`: browser Basic Auth for `/scrape-log` and frontend `/api/scrape/*`
-- `SCRAPE_OPS_ALLOWED_CIDRS`: comma-separated CIDRs allowed through the edge proxy for `/scrape-log` and `/api/scrape/*`
 - `FRONTEND_EDGE_PORT`: host port exposed by the edge proxy, usually `3000`
 - `NEXT_PUBLIC_ENABLE_PWA_IN_DEV`: enables service worker registration during local development
 - `NEXT_PUBLIC_ENABLE_PUSH_TEST`, `ENABLE_PUSH_TEST_ENDPOINT`, `PUSH_TEST_API_KEY`: local push QA controls
@@ -54,15 +52,14 @@ and Lighthouse reports are local-only outputs and are gitignored.
 ## Key Routes
 
 - `/`: primary public news map
-- `/scrape-log`: Basic-Auth-protected scrape operations monitor
+- `/scrape-log`: scrape operations monitor
 - `/api/scrape/*`: server-side proxy routes to the backend scrape control plane
 - `/api/push/*`: push subscription and test endpoints
 
 ## Notes
 
 - The main app entry is `src/app/page.tsx`.
-- Scrape bootstrap is no longer triggered automatically on page load.
-- Public users never see scrape controls on `/`; operators use `/scrape-log` after browser authentication.
-- Docker Compose adds a second gate in front of ops routes: the edge proxy only forwards `/scrape-log` and `/api/scrape/*` from IPs allowed by `SCRAPE_OPS_ALLOWED_CIDRS`.
+- Scrape bootstrap is triggered automatically from the embedded control panel on `/`.
+- `/scrape-log` and `/api/scrape/*` are no longer protected by frontend Basic Auth or edge CIDR allowlists.
 - PWA bootstrap logic lives under `src/components/pwa/`.
 - Map rendering uses MapLibre + DeckGL under `src/components/map/`.

@@ -6,7 +6,6 @@ import time
 
 from app.services.embedding.config import EmbeddingConfig
 from app.services.embedding.local_factory import (
-    build_local_image_provider,
     build_local_text_provider,
 )
 from app.services.ner.config import NERConfig
@@ -20,16 +19,12 @@ logger = logging.getLogger(__name__)
 def _build_embedding_config(
     *,
     text_provider: str,
-    image_provider: str,
 ) -> EmbeddingConfig:
     return EmbeddingConfig(
         text_provider=text_provider,
-        image_provider=image_provider,
         text_dimension=1024,
-        image_dimension=768,
         duplicate_threshold=0.90,
-        text_score_weight=0.85,
-        image_score_weight=0.15,
+        text_score_weight=1.00,
         cost_log_path="logs/embedding_cost.jsonl",
     )
 
@@ -84,7 +79,7 @@ def preload_text(*, provider: str) -> None:
     )
     started_at = time.perf_counter()
     embedding_provider = build_local_text_provider(
-        _build_embedding_config(text_provider=provider, image_provider="mock"),
+        _build_embedding_config(text_provider=provider),
         allow_fallback=False,
     )
     get_model = getattr(embedding_provider, "_get_model", None)
@@ -102,32 +97,6 @@ def preload_text(*, provider: str) -> None:
     )
 
 
-def preload_image(*, provider: str) -> None:
-    if provider == "mock":
-        return
-
-    logger.info(
-        "preload_ml_models.start",
-        extra={"provider_type": "embedding_image", "provider": provider},
-    )
-    started_at = time.perf_counter()
-    embedding_provider = build_local_image_provider(
-        _build_embedding_config(text_provider="mock", image_provider=provider),
-        allow_fallback=False,
-    )
-    get_model = getattr(embedding_provider, "_get_model", None)
-    if callable(get_model):
-        get_model()
-    logger.info(
-        "preload_ml_models.ready",
-        extra={
-            "provider_type": "embedding_image",
-            "provider": provider,
-            "elapsed_seconds": round(time.perf_counter() - started_at, 2),
-        },
-    )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ner-provider", default="mock")
@@ -135,7 +104,6 @@ def main() -> None:
     parser.add_argument("--ner-min-score", type=float, default=0.50)
     parser.add_argument("--gliner-threshold", type=float, default=0.50)
     parser.add_argument("--text-provider", default="mock")
-    parser.add_argument("--image-provider", default="mock")
     args = parser.parse_args()
 
     preload_ner(
@@ -145,7 +113,6 @@ def main() -> None:
         gliner_threshold=args.gliner_threshold,
     )
     preload_text(provider=args.text_provider)
-    preload_image(provider=args.image_provider)
 
 
 if __name__ == "__main__":

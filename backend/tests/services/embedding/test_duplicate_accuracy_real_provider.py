@@ -30,12 +30,9 @@ def real_embedding_service():
 
     cfg = EmbeddingConfig(
         text_provider="bge-m3",
-        image_provider="mock",
         text_dimension=1024,
-        image_dimension=768,
         duplicate_threshold=float(os.getenv("DUPLICATE_THRESHOLD", "0.90")),
-        text_score_weight=float(os.getenv("DUPLICATE_TEXT_WEIGHT", "0.85")),
-        image_score_weight=float(os.getenv("DUPLICATE_IMAGE_WEIGHT", "0.15")),
+        text_score_weight=float(os.getenv("DUPLICATE_TEXT_WEIGHT", "1.00")),
         cost_log_path=os.getenv("EMBEDDING_COST_LOG", "logs/embedding_cost.jsonl"),
     )
     return build_embedding_service(cfg)
@@ -44,16 +41,15 @@ def real_embedding_service():
 def test_duplicate_accuracy_with_real_text_embeddings(news, real_embedding_service):
     threshold = float(os.getenv("REAL_DUPLICATE_ACCURACY_THRESHOLD", "0.90"))
 
-    embeddings: dict[str, tuple] = {}
+    embeddings: dict[str, object] = {}
     for item in news:
         inp = EmbeddingInput(
             title=item["title"],
             source=item["source"],
             content=item.get("content"),
-            image_url=None,
         )
-        text_emb, image_emb = real_embedding_service.embed(inp)
-        embeddings[item["id"]] = (text_emb, image_emb)
+        text_emb = real_embedding_service.embed(inp)
+        embeddings[item["id"]] = text_emb
 
     total = 0
     correct = 0
@@ -61,14 +57,13 @@ def test_duplicate_accuracy_with_real_text_embeddings(news, real_embedding_servi
     false_negative = 0
 
     for item in news:
-        text_emb, image_emb = embeddings[item["id"]]
+        text_emb = embeddings[item["id"]]
         is_actual_dup = item["label"].startswith("duplicate_of_")
 
         candidates = [
             {
                 "id": other["id"],
-                "text_vector": embeddings[other["id"]][0].vector,
-                "image_vector": None,
+                "text_vector": embeddings[other["id"]].vector,
                 "kaynak_listesi": [other["source"]],
             }
             for other in news
@@ -77,7 +72,6 @@ def test_duplicate_accuracy_with_real_text_embeddings(news, real_embedding_servi
 
         result = real_embedding_service.decide_duplicate(
             text_emb,
-            image_emb,
             candidates,
             item["source"],
         )

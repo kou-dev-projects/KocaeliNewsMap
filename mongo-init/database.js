@@ -216,10 +216,6 @@ ensureCollection("raw_documents", {
         screenshot_path: { bsonType: "string" },
         published_at_raw: { bsonType: ["date", "null"] },
         author_raw: { bsonType: ["string", "null"] },
-        image_urls_raw: {
-          bsonType: "array",
-          items: { bsonType: "string", pattern: "^https?://" },
-        },
         language: { bsonType: ["string", "null"] },
         content_hash: { bsonType: "string" },
         fetch_status: { enum: ["success", "partial", "failed"] },
@@ -269,19 +265,12 @@ ensureIndex(
 // - Boyut: 1024
 // - Similarity: cosine
 //
-// Opsiyonel ikinci index:
-// - Index adı: source_records_image_embedding_vector
-// - Alan: image_embedding
-// - Boyut: 768
-// - Similarity: cosine
-//
-// Bu indexler, eski tek "embedding" alanı yerine multimodal yapıyı destekler.
+// Bu index, duplicate detection için text embedding alanını kullanır.
 // database.js içindeki normal createIndex çağrılarıyla değil, Atlas Search & Vector Search ekranından oluşturulur.
 //
 // Not:
 // - Local Mongo tarafında Vector Search yoktur.
 // - Local ortamda yalnızca validator + normal index değişiklikleri uygulanır.
-// - Duplicate kararında ana sinyal text_embedding, image_embedding ise yardımcı sinyaldir.
 ensureCollection("source_records", {
   validator: {
     $jsonSchema: {
@@ -365,8 +354,7 @@ ensureCollection("source_records", {
         text_embedding: {
           bsonType: ["array","null"],
           items: { bsonType: ["double", "int", "long", "decimal"] },
-          description:
-            "Text embedding vector (multimodal duplicate detection için ana sinyal)",
+          description: "Text embedding vector",
         },
         text_embedding_model: {
           bsonType: ["string", "null"],
@@ -375,20 +363,6 @@ ensureCollection("source_records", {
         text_embedding_dim: {
           bsonType: ["int", "long","null"],
           description: "Text embedding vector dimension",
-        },
-
-        image_embedding: {
-          bsonType: ["array", "null"],
-          items: { bsonType: ["double", "int", "long", "decimal"] },
-          description: "Image embedding vector (opsiyonel yardımcı sinyal)",
-        },
-        image_embedding_model: {
-          bsonType: ["string", "null"],
-          description: "Image embedding model name",
-        },
-        image_embedding_dim: {
-          bsonType: ["int", "long", "null"],
-          description: "Image embedding vector dimension",
         },
 
         duplicate_status: {
@@ -408,12 +382,6 @@ ensureCollection("source_records", {
           minimum: 0,
           maximum: 1,
           description: "Text embedding similarity skoru",
-        },
-        duplicate_image_similarity: {
-          bsonType: ["double", "int", "decimal", "null"],
-          minimum: 0,
-          maximum: 1,
-          description: "Image embedding similarity skoru",
         },
         duplicate_final_score: {
           bsonType: ["double", "int", "decimal", "null"],

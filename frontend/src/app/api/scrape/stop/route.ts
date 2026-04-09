@@ -14,14 +14,13 @@ export async function POST(request: NextRequest): Promise<Response> {
     return authError;
   }
 
-  const upstreamUrl = buildScrapeBackendUrl("/api/v1/scrape/refresh");
-  const reset = request.nextUrl.searchParams.get("reset");
-  if (reset === "true") {
-    upstreamUrl.searchParams.set("reset", "true");
+  const upstreamUrl = buildScrapeBackendUrl("/api/v1/scrape/stop");
+  const jobId = request.nextUrl.searchParams.get("job_id")?.trim();
+  if (jobId) {
+    upstreamUrl.searchParams.set("job_id", jobId);
   }
 
   let upstream: Response;
-
   try {
     upstream = await fetch(upstreamUrl, {
       method: "POST",
@@ -30,16 +29,15 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
   } catch {
     return Response.json(
-      { detail: "Refresh scrape is unavailable." },
+      { detail: "Scrape stop request is unavailable." },
       { status: 502 },
     );
   }
 
   const contentType = upstream.headers.get("content-type") ?? "";
-
   if (!contentType.includes("application/json")) {
     return Response.json(
-      { detail: "Unexpected refresh scrape response." },
+      { detail: "Unexpected stop response." },
       { status: upstream.status || 502 },
     );
   }

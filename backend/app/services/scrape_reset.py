@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 
 logger = logging.getLogger(__name__)
 
+_DATASET_STATE_COLLECTION = "dataset_state"
+_DATASET_STATE_ID = "news_feed"
 
 SCRAPED_DATA_COLLECTIONS: tuple[str, ...] = (
     "raw_documents",
@@ -52,6 +55,29 @@ def reset_scraped_news_data(database: Any) -> ScrapeResetResult:
     )
 
     return ScrapeResetResult(deleted_counts=deleted_counts)
+
+
+def clear_scraped_news_generation_state(database: Any) -> None:
+    database[_DATASET_STATE_COLLECTION].update_one(
+        {"_id": _DATASET_STATE_ID},
+        {
+            "$unset": {
+                "active_generation": "",
+                "pending_refresh_generation": "",
+            },
+            "$set": {"updated_at": datetime.now(timezone.utc)},
+            "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
+        },
+        upsert=True,
+    )
+
+    logger.info("scrape.reset.dataset_state_cleared")
+
+
+def reset_scraped_news_workspace(database: Any) -> ScrapeResetResult:
+    result = reset_scraped_news_data(database)
+    clear_scraped_news_generation_state(database)
+    return result
 
 
 def _delete_raw_and_source_records(

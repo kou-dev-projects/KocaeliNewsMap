@@ -63,6 +63,7 @@ backend/.env
 
 # Temporary debug / probe scripts
 backend/tmp/
+backend/logs/
 
 # Local archive artifacts
 *.archive

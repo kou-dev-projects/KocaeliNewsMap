@@ -376,7 +376,13 @@ _RAW_ENTRIES = [{'canonical_name': 'İzmit',
  {'canonical_name': 'Yenimahalle Mahallesi',
   'feature_type': 'neighborhood',
   'district': 'Çayırova',
-  'aliases': ('Yenimahalle Mahallesi Çayırova', 'Çayırova Yenimahalle Mahallesi'),
+  # "Yenimahalle" ve "Çayırova Yenimahalle" alias'ları eklendi:
+  # Haber metinlerinde "Çayırova Yenimahalle'de" biçiminde suffix'siz geçiyor.
+  'aliases': ('Yenimahalle',
+              'Çayırova Yenimahalle',
+              'Yenimahalle Mahallesi',
+              'Yenimahalle Mahallesi Çayırova',
+              'Çayırova Yenimahalle Mahallesi'),
   'source_key': 'kocaelitime_muhtar_list_2020',
   'allow_fuzzy': False},
  {'canonical_name': 'Bağlarbaşı Mahallesi',
@@ -2708,8 +2714,11 @@ _RAW_ENTRIES = [{'canonical_name': 'İzmit',
  {'canonical_name': 'Fatih Sultan Mehmet Mahallesi',
   'feature_type': 'neighborhood',
   'district': 'Kartepe',
-  'aliases': ('Fatih Sultan Mehmet',
-              'Fatih Sultan Mehmet Mahallesi',
+  # NOTE: Yalın "Fatih Sultan Mehmet" alias'ı kasıtlı olarak eklenmedi.
+  # Bu isim Kocaeli'de park, bulvar ve köprülerde de geçtiğinden yalın form
+  # sahte eşleşmelere yol açıyor (ör: "Fatih Sultan Mehmet Parkı" → Kartepe).
+  # Eşleşme için "Mahallesi" suffix'i zorunlu tutuldu.
+  'aliases': ('Fatih Sultan Mehmet Mahallesi',
               'Fatih Sultan Mehmet Mahallesi Kartepe',
               'Kartepe Fatih Sultan Mehmet Mahallesi'),
   'source_key': 'kocaelitime_muhtar_list_2020',

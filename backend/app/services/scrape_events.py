@@ -161,7 +161,7 @@ def _persist_latest_scrape_event(event: ScrapeEvent, collection=None) -> None:
 
         current_run = collection.find_one(
             {"_id": _LATEST_SCRAPE_RUN_ID},
-            {"job_id": 1, "started_at": 1},
+            {"job_id": 1, "started_at": 1, "status": 1},
         )
 
         if current_run is None:
@@ -173,6 +173,12 @@ def _persist_latest_scrape_event(event: ScrapeEvent, collection=None) -> None:
             return
 
         if current_run.get("job_id") != event.job_id:
+            if event.status in {"running", "completed", "failed", "cancelled"}:
+                collection.replace_one(
+                    {"_id": _LATEST_SCRAPE_RUN_ID},
+                    _build_latest_scrape_run_document(event),
+                    upsert=True,
+                )
             return
 
         serialized_event = _serialize_scrape_event(event)
@@ -237,6 +243,72 @@ def get_latest_scrape_run() -> dict[str, Any] | None:
 
     document["event_count"] = len(document["events"])
     return document
+
+
+def get_recent_scrape_events_for_job(job_id: str, *, limit: int = 80) -> list[dict[str, Any]]:
+    normalized_job_id = str(job_id or "").strip()
+    if not normalized_job_id:
+        return []
+
+    try:
+        client = redis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
+        items = client.xrevrange(
+            _SCRAPE_EVENT_STREAM_KEY,
+            count=max(limit * 8, 200),
+        )
+    except Exception as exc:
+        logger.warning(
+            "scrape_events.read_recent_failed",
+            extra={"error": type(exc).__name__},
+        )
+        return []
+
+    events: list[dict[str, Any]] = []
+    for _msg_id, fields in items:
+        if fields.get("job_id") != normalized_job_id:
+            continue
+
+        details_raw = fields.get("details")
+        try:
+            details = json.loads(details_raw) if details_raw else {}
+        except (TypeError, json.JSONDecodeError):
+            details = {}
+
+        timestamp_raw = fields.get("timestamp")
+        try:
+            timestamp = float(timestamp_raw) if timestamp_raw is not None else None
+        except (TypeError, ValueError):
+            timestamp = None
+
+        attempt_raw = fields.get("attempt_count")
+        try:
+            attempt_count = int(attempt_raw) if attempt_raw not in {None, ""} else None
+        except (TypeError, ValueError):
+            attempt_count = None
+
+        events.append(
+            {
+                "event": fields.get("event"),
+                "message": fields.get("message"),
+                "timestamp": timestamp,
+                "job_id": normalized_job_id,
+                "source": fields.get("source") or None,
+                "trigger_type": fields.get("trigger_type") or None,
+                "status": fields.get("status") or None,
+                "attempt_count": attempt_count,
+                "details": details,
+            }
+        )
+        if len(events) >= limit:
+            break
+
+    events.reverse()
+    return events
 
 
 def get_scrape_event_publisher() -> ScrapeEventPublisher:

@@ -16,7 +16,6 @@ class NewsBase(BaseModel):
     source_domain: str
     source_base_url: Optional[str] = None
     url: str
-    image_url: Optional[str] = None
     published_at_raw: Optional[str] = None
     category: Optional[str] = None
     category_confidence: Optional[float] = None

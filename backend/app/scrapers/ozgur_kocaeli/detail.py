@@ -8,7 +8,6 @@ from app.scrapers.base.static_client import StaticHttpClient
 from app.scrapers.base.static_helpers import clean_text
 from app.scrapers.ozgur_kocaeli.selectors import (
     DATE_SELECTORS,
-    IMAGE_SELECTORS,
     TITLE_SELECTORS,
 )
 
@@ -46,15 +45,18 @@ class OzgurKocaeliDetailScraper:
         title = self._extract_title(soup)
         summary = self._extract_summary(soup, title)
         content = self._extract_content(soup, title, summary)
+        if not content and summary:
+            # Some pages render the full article as the first paragraph and
+            # footer/comment blocks immediately after it. In that shape,
+            # summary is the only clean article text.
+            content = summary
         published_at_raw = self._extract_published_at(soup)
-        image_url = self._extract_image(soup)
 
         return {
             "title": title,
             "summary": summary,
             "content_text": content,
             "published_at_raw": published_at_raw,
-            "image_url": image_url,
         }
 
     def _extract_title(self, soup: BeautifulSoup) -> str:
@@ -131,22 +133,5 @@ class OzgurKocaeliDetailScraper:
         match = PUBLISHED_AT_REGEX.search(page_text)
         if match:
             return clean_text(match.group(0))
-
-        return ""
-
-    def _extract_image(self, soup: BeautifulSoup) -> str:
-        for selector in IMAGE_SELECTORS:
-            node = soup.select_one(selector)
-            if not node:
-                continue
-
-            if node.name == "meta":
-                content = node.get("content")
-                if content:
-                    return content.strip()
-
-            src = node.get("src")
-            if src:
-                return src.strip()
 
         return ""

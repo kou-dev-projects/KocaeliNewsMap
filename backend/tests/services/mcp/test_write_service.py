@@ -1,4 +1,4 @@
-
+from app.services.embedding.schemas import DuplicateScore, TextEmbedding
 from app.services.mcp.config import MCPConfig
 from app.services.mcp.dead_letter import DeadLetterStore
 from app.services.mcp.queue import WriteQueue
@@ -45,6 +45,61 @@ class DummyMaterializer:
             "schema_version": "1.0",
             "updated_at": raw_document["updated_at"],
         }
+
+
+class DummySemanticMaterializer(DummyMaterializer):
+    def __init__(self, *, dedupe_hash: str):
+        self._dedupe_hash = dedupe_hash
+
+    def materialize(self, *, raw_document, source_document, now=None):
+        doc = super().materialize(
+            raw_document=raw_document,
+            source_document=source_document,
+            now=now,
+        )
+        doc["dedupe_hash"] = self._dedupe_hash
+        return doc
+
+
+class DummyEmbeddingService:
+    def __init__(self):
+        self._cfg = type("Cfg", (), {"duplicate_threshold": 0.90})()
+
+    def embed(self, input_data):
+        payload = input_data.build_text_payload().casefold()
+        if "başiskele kavşağı projesi" in payload or "bas iskele kavsagi projesi" in payload:
+            vector = [1.0, 0.0, 0.0]
+        elif "yangın" in payload or "yangin" in payload:
+            vector = [0.0, 1.0, 0.0]
+        else:
+            vector = [0.0, 0.0, 1.0]
+        return (
+            TextEmbedding(vector=vector, dimension=3, provider="dummy-text"),
+            None,
+        )
+
+    def decide_duplicate(self, incoming_text, incoming_image, candidates, new_source):
+        best = None
+        best_score = -1.0
+        for candidate in candidates:
+            score = sum(
+                left * right
+                for left, right in zip(incoming_text.vector, candidate["text_vector"], strict=False)
+            )
+            if score > best_score:
+                best_score = score
+                best = candidate
+
+        is_duplicate = best is not None and best_score >= 0.90
+        return DuplicateScore(
+            text_similarity=best_score if best_score > 0 else 0.0,
+            image_similarity=None,
+            final_score=best_score if best_score > 0 else 0.0,
+            is_duplicate=is_duplicate,
+            matched_news_id=best["id"] if is_duplicate and best is not None else None,
+            merged_kaynak_listesi=None,
+            debug={"threshold": 0.90},
+        )
 
 
 def _cfg() -> MCPConfig:
@@ -389,6 +444,71 @@ def test_cross_source_duplicate_merges_into_existing_canonical():
     assert merged_doc["duplicate_of_record_id"] == "canonical_id"
 
 
+def test_cross_source_semantic_duplicate_merges_when_hashes_differ():
+    idem = DummyIdempotency()
+    mongo = FakeMongo(
+        duplicate_source_record_doc={
+            "_id": "semantic_canonical_id",
+            "raw_document_id": "raw_semantic_canonical_id",
+            "dedupe_hash": "old-story-hash",
+            "record_status": "active",
+            "title": "Başiskele Kavşağı'nda gece mesaisi uyarısı",
+            "body": (
+                "Başiskele Kavşağı Projesi kapsamında gece çalışması yapılacak. "
+                "D-130 üzerinde trafik kontrollü verilecek."
+            ),
+            "summary": (
+                "Başiskele Kavşağı Projesi kapsamında gece çalışması yapılacak. "
+                "D-130 üzerinde trafik kontrollü verilecek."
+            ),
+            "kaynak_listesi": ["ozgurkocaeli.com.tr"],
+            "category_predicted": "trafik_kazasi",
+            "category_confidence": 0.7,
+            "geocode_status": "resolved",
+            "updated_at": "old_time",
+        },
+        raw_upserted_id="raw_semantic_new_id",
+        source_record_upserted_id="source_semantic_new_id",
+    )
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=DummySemanticMaterializer(dedupe_hash="new-story-hash"),
+        embedding_service=DummyEmbeddingService(),
+    )
+
+    result = svc.write(
+        _req(
+            "https://other.example.com/basiskele-gece-mesaisi",
+            source="cagdaskocaeli.com.tr",
+            title="Başiskele'de gece mesaisi başlıyor: D-130'da trafik kontrollü verilecek",
+            content=(
+                "Kocaeli Büyükşehir Belediyesi tarafından yürütülen Başiskele Kavşağı "
+                "Projesi'nde saha çalışmaları gece mesaisiyle devam edecek."
+            ),
+        )
+    )
+
+    assert result.status == WriteStatus.DUPLICATE_MERGED
+    assert result.news_id == "semantic_canonical_id"
+    assert result.was_duplicate is True
+
+    canonical_doc = mongo.source_records.find_one({"_id": "semantic_canonical_id"})
+    merged_doc = mongo.source_records.find_one({"raw_document_id": "raw_semantic_new_id"})
+    assert canonical_doc["kaynak_listesi"] == [
+        "ozgurkocaeli.com.tr",
+        "cagdaskocaeli.com.tr",
+    ]
+    assert merged_doc["record_status"] == "merged_duplicate"
+    assert merged_doc["duplicate_of_record_id"] == "semantic_canonical_id"
+    assert merged_doc["duplicate_reason"] == "semantic_text_similarity_match"
+    assert merged_doc["duplicate_text_similarity"] >= 0.90
+
+
 def test_fail_closed_dead_letters_when_queue_full():
     idem = DummyIdempotency()
     queue = WriteQueue(0, 3)
@@ -548,6 +668,9 @@ class FakeCollection:
             if self._matches(doc, flt):
                 return dict(doc)
         return None
+
+    def find(self, flt):
+        return [dict(doc) for doc in self.docs if self._matches(doc, flt)]
 
 
 class FakeSourceCollection:

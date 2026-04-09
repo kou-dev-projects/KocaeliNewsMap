@@ -8,6 +8,8 @@ from bson.errors import InvalidId
 
 from app.domain.enums import NewsCategory, normalize_news_category
 from app.pipelines import SourceRecordMaterializer
+from app.services.embedding import EmbeddingService
+from app.services.embedding.schemas import EmbeddingInput, TextEmbedding
 from app.services.dataset_generation import resolve_write_generation
 from app.services.ner.districts import normalize_for_compare
 from app.scrapers.base.date_utils import parse_published_at_raw
@@ -238,6 +240,7 @@ class NewsWriteService:
         config: MCPConfig,
         mongo_client=None,
         materializer: SourceRecordMaterializer | None = None,
+        embedding_service: EmbeddingService | None = None,
     ) -> None:
         self._idempotency = idempotency
         self._queue = queue
@@ -245,6 +248,7 @@ class NewsWriteService:
         self._cfg = config
         self._mongo = mongo_client
         self._materializer = materializer or SourceRecordMaterializer()
+        self._embedding_service = embedding_service
 
     def write(self, request: NewsWriteRequest) -> WriteResult:
         idem_key = request.idempotency_key()
@@ -391,9 +395,6 @@ class NewsWriteService:
             body=str(source_record.get("body") or request.content or ""),
             summary=str(source_record.get("summary") or request.summary or ""),
         )
-        source_record_update = {
-            key: value for key, value in source_record.items() if key != "created_at"
-        }
         source_records = database["source_records"]
         source_record_filter = {"raw_document_id": saved_raw_document["_id"]}
         existing_source_record = source_records.find_one(source_record_filter)
@@ -403,6 +404,9 @@ class NewsWriteService:
             raw_document_id=saved_raw_document["_id"],
             dataset_generation=dataset_generation,
         )
+        source_record_update = {
+            key: value for key, value in source_record.items() if key != "created_at"
+        }
         is_cross_source_duplicate = (
             duplicate_target is not None
             and (
@@ -489,6 +493,44 @@ class NewsWriteService:
         raw_document_id: ObjectId,
         dataset_generation: str | None,
     ) -> dict | None:
+        hash_duplicate_target = self._find_hash_duplicate_target(
+            source_records=source_records,
+            source_record=source_record,
+            raw_document_id=raw_document_id,
+            dataset_generation=dataset_generation,
+        )
+        if hash_duplicate_target is not None:
+            source_record.update(
+                {
+                    "duplicate_status": "duplicate",
+                    "duplicate_source_record_id": hash_duplicate_target["_id"],
+                    "duplicate_text_similarity": 1.0,
+                    "duplicate_final_score": 1.0,
+                    "duplicate_threshold": self._duplicate_threshold(),
+                    "duplicate_reason": "dedupe_hash_match",
+                }
+            )
+            return hash_duplicate_target
+
+        semantic_duplicate_target = self._find_semantic_duplicate_target(
+            source_records=source_records,
+            source_record=source_record,
+            raw_document_id=raw_document_id,
+            dataset_generation=dataset_generation,
+        )
+        if semantic_duplicate_target is not None:
+            return semantic_duplicate_target
+
+        return None
+
+    def _find_hash_duplicate_target(
+        self,
+        *,
+        source_records,
+        source_record: dict,
+        raw_document_id: ObjectId,
+        dataset_generation: str | None,
+    ) -> dict | None:
         dedupe_hash = str(source_record.get("dedupe_hash") or "").strip()
         if not dedupe_hash:
             return None
@@ -502,6 +544,147 @@ class NewsWriteService:
             query["dataset_generation"] = dataset_generation
 
         return source_records.find_one(query)
+
+    def _find_semantic_duplicate_target(
+        self,
+        *,
+        source_records,
+        source_record: dict,
+        raw_document_id: ObjectId,
+        dataset_generation: str | None,
+    ) -> dict | None:
+        if self._embedding_service is None:
+            return None
+
+        incoming_embedding = self._ensure_text_embedding(source_record)
+        if incoming_embedding is None:
+            source_record["duplicate_status"] = "skipped"
+            source_record["duplicate_reason"] = "semantic_embedding_unavailable"
+            return None
+
+        source_record["duplicate_status"] = "unique"
+        source_record["duplicate_threshold"] = self._duplicate_threshold()
+
+        candidate_query: dict[str, object] = {
+            "record_status": "active",
+            "raw_document_id": {"$ne": raw_document_id},
+        }
+        if dataset_generation is not None:
+            candidate_query["dataset_generation"] = dataset_generation
+
+        candidates: list[dict] = []
+        candidate_docs_by_id: dict[str, dict] = {}
+
+        for index, candidate_doc in enumerate(source_records.find(candidate_query)):
+            if index >= 250:
+                break
+
+            candidate_embedding = self._ensure_text_embedding(candidate_doc)
+            if candidate_embedding is None:
+                continue
+
+            candidate_id = str(candidate_doc.get("_id"))
+            candidate_docs_by_id[candidate_id] = candidate_doc
+            candidates.append(
+                {
+                    "id": candidate_id,
+                    "text_vector": candidate_embedding.vector,
+                    "image_vector": None,
+                    "kaynak_listesi": candidate_doc.get("kaynak_listesi", []),
+                }
+            )
+
+        if not candidates:
+            source_record["duplicate_reason"] = "semantic_no_candidates"
+            return None
+
+        try:
+            duplicate_score = self._embedding_service.decide_duplicate(
+                incoming_text=incoming_embedding,
+                incoming_image=None,
+                candidates=candidates,
+                new_source=str((source_record.get("kaynak_listesi") or [""])[0]),
+            )
+        except Exception as exc:
+            logger.warning(
+                "mcp.write.semantic_duplicate_failed",
+                extra={"error": f"{type(exc).__name__}: {exc}"},
+            )
+            source_record["duplicate_status"] = "error"
+            source_record["duplicate_reason"] = "semantic_duplicate_failed"
+            return None
+
+        source_record.update(
+            {
+                "duplicate_text_similarity": duplicate_score.text_similarity,
+                "duplicate_final_score": duplicate_score.final_score,
+                "duplicate_threshold": self._duplicate_threshold(),
+                "duplicate_reason": (
+                    "semantic_text_similarity_match"
+                    if duplicate_score.is_duplicate
+                    else "semantic_below_threshold"
+                ),
+            }
+        )
+
+        if not duplicate_score.is_duplicate or duplicate_score.matched_news_id is None:
+            return None
+
+        matched_doc = candidate_docs_by_id.get(duplicate_score.matched_news_id)
+        if matched_doc is None:
+            return None
+
+        source_record["duplicate_status"] = "duplicate"
+        source_record["duplicate_source_record_id"] = matched_doc["_id"]
+        return matched_doc
+
+    def _ensure_text_embedding(self, source_record: dict) -> TextEmbedding | None:
+        existing_vector = source_record.get("text_embedding")
+        if isinstance(existing_vector, list) and existing_vector:
+            return TextEmbedding(
+                vector=[float(value) for value in existing_vector],
+                dimension=int(source_record.get("text_embedding_dim") or len(existing_vector)),
+                provider=str(source_record.get("text_embedding_model") or "stored-text-embedding"),
+            )
+
+        if self._embedding_service is None:
+            return None
+
+        try:
+            text_embedding, _ = self._embedding_service.embed(
+                EmbeddingInput(
+                    title=str(source_record.get("title") or ""),
+                    summary=str(source_record.get("summary") or "") or None,
+                    content=str(source_record.get("body") or "") or None,
+                    source=self._embedding_source_label(source_record),
+                    image_url=None,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "mcp.write.text_embedding_failed",
+                extra={"error": f"{type(exc).__name__}: {exc}"},
+            )
+            return None
+
+        source_record["text_embedding"] = text_embedding.vector
+        source_record["text_embedding_model"] = text_embedding.provider
+        source_record["text_embedding_dim"] = text_embedding.dimension
+        return text_embedding
+
+    def _embedding_source_label(self, source_record: dict) -> str:
+        kaynak_listesi = source_record.get("kaynak_listesi") or []
+        if kaynak_listesi:
+            return str(kaynak_listesi[0])
+        source_name = str(source_record.get("source_name_snapshot") or "").strip()
+        if source_name:
+            return source_name
+        return "unknown"
+
+    def _duplicate_threshold(self) -> float | None:
+        if self._embedding_service is None:
+            return None
+        return float(getattr(getattr(self._embedding_service, "_cfg", None), "duplicate_threshold", 0.90))
 
     def _get_source_document(self, database, domain: str) -> dict:
         source_doc = database["sources"].find_one({"domain": domain})

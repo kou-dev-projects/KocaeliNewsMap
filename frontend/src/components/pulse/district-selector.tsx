@@ -85,7 +85,6 @@ export function DistrictSelector({ districts, selected, onChange }: DistrictSele
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-foreground">Kocaeli İlçeleri</p>
-                    <p className="text-xs text-muted-foreground">Haritayı ilçe bazında daraltın.</p>
                   </div>
 
                   <button

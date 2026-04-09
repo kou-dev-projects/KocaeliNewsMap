@@ -1,5 +1,4 @@
 import {
-  authorizeScrapeControlRequest,
   buildScrapeBackendUrl,
   createScrapeProxyHeaders,
 } from "../_proxy";

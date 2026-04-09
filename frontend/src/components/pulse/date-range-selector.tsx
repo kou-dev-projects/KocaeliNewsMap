@@ -71,7 +71,6 @@ export function DateRangeSelector({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-foreground">Tarih Aralığı</p>
-                    <p className="text-xs text-muted-foreground">Varsayılan görünüm son 3 gündür.</p>
                   </div>
 
                   <button

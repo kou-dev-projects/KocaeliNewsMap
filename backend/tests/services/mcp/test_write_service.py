@@ -78,7 +78,7 @@ class DummyEmbeddingService:
             None,
         )
 
-    def decide_duplicate(self, incoming_text, incoming_image, candidates, new_source):
+    def decide_duplicate(self, incoming_text, candidates, new_source, incoming_image=None):
         best = None
         best_score = -1.0
         for candidate in candidates:
@@ -93,7 +93,6 @@ class DummyEmbeddingService:
         is_duplicate = best is not None and best_score >= 0.90
         return DuplicateScore(
             text_similarity=best_score if best_score > 0 else 0.0,
-            image_similarity=None,
             final_score=best_score if best_score > 0 else 0.0,
             is_duplicate=is_duplicate,
             matched_news_id=best["id"] if is_duplicate and best is not None else None,

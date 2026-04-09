@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { X } from 'lucide-react'
 
 interface EnhancedSidebarProps {
   isOpen: boolean

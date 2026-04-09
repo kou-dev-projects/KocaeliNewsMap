@@ -1,6 +1,7 @@
 import { type NextRequest } from "next/server";
 
 import {
+  authorizeScrapeControlRequest,
   buildScrapeBackendUrl,
   createScrapeProxyHeaders,
 } from "../_proxy";

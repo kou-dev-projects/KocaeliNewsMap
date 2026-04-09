@@ -596,10 +596,10 @@ def get_latest_scrape() -> dict:
 
     try:
         active_job = manager.find_latest_active_job()
-    except JobQueueUnavailableError as exc:
-        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+    except (JobQueueUnavailableError, RuntimeError):
+        if latest_run is None:
+            return _build_idle_latest_run()
+        return latest_run
 
     if active_job is not None:
         if latest_run is None or latest_run.get("job_id") != active_job.job_id:

@@ -42,6 +42,12 @@ class FakeScrapeEventReader:
 def _reset_scrape_auth(monkeypatch):
     monkeypatch.setattr("app.routes.scrape.settings.scrape_events_heartbeat_seconds", 999)
 
+    class _FakeJobManager:
+        def find_latest_active_job(self):
+            return None
+
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: _FakeJobManager())
+
 
 def _authorized_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
@@ -96,7 +102,7 @@ class TestScrapeEventsRoute:
             "app.routes.scrape.get_latest_scrape_run",
             lambda: {
                 "job_id": "abc123",
-                "status": "running",
+                "status": "completed",
                 "source": None,
                 "trigger_type": "refresh",
                 "started_at": 1.0,
@@ -110,7 +116,7 @@ class TestScrapeEventsRoute:
                         "job_id": "abc123",
                         "source": None,
                         "trigger_type": "refresh",
-                        "status": "running",
+                        "status": "completed",
                         "attempt_count": None,
                         "details": {},
                     }

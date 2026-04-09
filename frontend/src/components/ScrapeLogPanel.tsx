@@ -68,8 +68,10 @@ const connectionMeta: Record<
 
 const toneMeta: Record<ScrapeLogTone, string> = {
   info: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-  success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  warning: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  success:
+    "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  warning:
+    "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   error: "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300",
   muted: "border-border/70 bg-secondary/45 text-muted-foreground",
 };
@@ -129,7 +131,7 @@ function summarizeRefreshResult(result: Record<string, unknown> | undefined): st
     "status" in refreshCleanup &&
     refreshCleanup.status === "discarded"
   ) {
-    return "Refresh kısmi kaldı. Aday veri atıldı, aktif görünüm korundu.";
+    return "Refresh kısmı kaldı. Aday veri atıldı, aktif görünüm korundu.";
   }
 
   if (
@@ -145,7 +147,7 @@ function summarizeRefreshResult(result: Record<string, unknown> | undefined): st
     "status" in refreshCleanup &&
     refreshCleanup.status === "completed"
   ) {
-    return "Refresh tamamlandı. Yeni dataset aktive edildi.";
+    return "Refresh tamamlandı. Yeni veri kümesi aktive edildi.";
   }
 
   return "Scrape tamamlandı.";
@@ -171,9 +173,9 @@ function buildLiveJobMessage(
 
   switch (latestEvent.event) {
     case "refresh_preserving_active_dataset":
-      return "Aktif veri korunuyor. Yeni dataset arka planda hazırlanıyor.";
+      return "Aktif veri korunuyor. Yeni veri kümesi arka planda hazırlanıyor.";
     case "refresh_generation_started":
-      return "Yeni dataset jenerasyonu açıldı. Kaynak taraması başlıyor.";
+      return "Yeni veri kümesi oluşturuldu. Kaynak taraması başlıyor.";
     case "source_crawl_started":
       return `${sourceLabel} taranıyor.`;
     case "source_listing_collected":
@@ -203,13 +205,13 @@ function buildLiveJobMessage(
     case "source_crawl_failed":
       return `${sourceLabel} hata verdi. Detaylar logda.`;
     case "source_crawl_skipped":
-      return `${sourceLabel} atlandı. Neden logda görünüyor.`;
+      return `${sourceLabel} atlandı. Nedeni logda görünüyor.`;
     case "refresh_cutover_started":
-      return "Kaynak taraması bitti. Yeni dataset aktive ediliyor.";
+      return "Kaynak taraması bitti. Yeni veri kümesi aktive ediliyor.";
     case "refresh_cleanup_completed":
-      return "Yeni dataset aktive edildi. Görünüm yenileniyor.";
+      return "Yeni veri kümesi aktive edildi. Görünüm yenileniyor.";
     case "refresh_cleanup_skipped":
-      return "Refresh kısmi kaldı. Aktif görünüm korunuyor.";
+      return "Refresh kısmı kaldı. Aktif görünüm korunuyor.";
     case "refresh_cleanup_failed":
       return "Cutover hata verdi. Aktif görünüm korunuyor.";
     case "job_cancelling":
@@ -237,7 +239,7 @@ function buildLatestRunMessage(
   latestEvent: ScrapeLogEntry | null,
 ): string {
   if (latestRun.event_count === 0) {
-    return "Henuz scrape gecmisi yok.";
+    return "Henüz scrape geçmişi yok.";
   }
 
   const fallback =
@@ -249,7 +251,7 @@ function buildLatestRunMessage(
           ? "Son scrape durduruldu."
         : latestRun.status === "failed"
           ? "Son scrape hata ile bitti."
-          : "Son scrape tamamlandi.";
+          : "Son scrape tamamlandı.";
 
   return buildLiveJobMessage(latestEvent, fallback);
 }
@@ -400,11 +402,9 @@ export function ScrapeLogPanel({
         setIsStopping(false);
         setIsCancelPending(false);
         setActionError(
-          error instanceof Error
-            ? error.message
-            : "Son scrape loglari yuklenemedi.",
+          error instanceof Error ? error.message : "Son scrape logları yüklenemedi.",
         );
-        setJobStatusMessage("Son scrape loglari okunamadi.");
+        setJobStatusMessage("Son scrape logları okunamadı.");
       } finally {
         if (!cancelled) {
           setIsLatestRunHydrated(true);
@@ -798,7 +798,7 @@ export function ScrapeLogPanel({
             onClick={handleReloadLatestRun}
             disabled={isReloadingLatestRun}
             className="rounded-lg border border-border/70 bg-background px-2.5 py-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-            aria-label="Son scrape loglarini yenile"
+            aria-label="Son scrape loglarını yenile"
           >
             <RotateCcw className="h-4 w-4" />
           </button>

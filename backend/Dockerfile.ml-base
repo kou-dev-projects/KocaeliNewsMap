@@ -35,7 +35,6 @@ RUN groupadd -r appuser \
 WORKDIR /app
 
 COPY --chown=appuser:appuser app ./app
-COPY --chown=appuser:appuser _codex_restore_pyc ./_codex_restore_pyc
 
 USER appuser
 

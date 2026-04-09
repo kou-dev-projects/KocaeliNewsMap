@@ -166,7 +166,29 @@ class TestScrapeEventPublisher:
     def test_publish_ignores_event_for_stale_job(self):
         fake_redis = MagicMock()
         fake_collection = MagicMock()
-        fake_collection.find_one.return_value = {"job_id": "other-job", "started_at": 1.0}
+        fake_collection.find_one.return_value = {
+            "job_id": "other-job",
+            "started_at": 1.0,
+            "status": "pending",
+        }
+        pub = _make_publisher(
+            redis_client=fake_redis,
+            scrape_run_collection=fake_collection,
+        )
+
+        pub.publish(_make_event(event="source_listing_collected", status="pending"))
+
+        fake_collection.update_one.assert_not_called()
+        fake_collection.replace_one.assert_not_called()
+
+    def test_publish_replaces_stale_latest_run_when_active_job_resumes(self):
+        fake_redis = MagicMock()
+        fake_collection = MagicMock()
+        fake_collection.find_one.return_value = {
+            "job_id": "other-job",
+            "started_at": 1.0,
+            "status": "pending",
+        }
         pub = _make_publisher(
             redis_client=fake_redis,
             scrape_run_collection=fake_collection,
@@ -174,7 +196,11 @@ class TestScrapeEventPublisher:
 
         pub.publish(_make_event(event="job_started", status="running"))
 
-        fake_collection.update_one.assert_not_called()
+        fake_collection.replace_one.assert_called_once()
+        persisted = fake_collection.replace_one.call_args.args[1]
+        assert persisted["job_id"] == "abc123"
+        assert persisted["status"] == "running"
+        assert persisted["events"][0]["event"] == "job_started"
 
     def test_get_latest_scrape_run_sanitizes_document(self):
         fake_collection = MagicMock()

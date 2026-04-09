@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     scrape_trigger_rate_limit_window_seconds: int = 60
     trusted_proxy_cidrs: str = ""
     job_ttl_seconds: int = 86400
-    job_claim_idle_seconds: int = 14400
+    job_claim_idle_seconds: int = 120
     job_heartbeat_seconds: int = 30
     job_max_attempts: int = 3
     job_retry_backoff_seconds: float = 5.0

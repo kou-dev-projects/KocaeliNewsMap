@@ -7,7 +7,7 @@ import sys
 import time
 from typing import Any
 
-from app.scheduler.orchestrator import ScrapeOrchestrator
+from app.scheduler.orchestrator import ScrapeCancellationRequested, ScrapeOrchestrator
 from app.services.dataset_generation import (
     activate_generation,
     begin_refresh_generation,
@@ -148,6 +148,8 @@ def _run_scrape_job(
     source: str | None,
     trigger_type: str,
     job_id: str,
+    *,
+    should_cancel=None,
 ) -> dict[str, Any]:
     refresh_generation: str | None = None
     progress_callback = _build_progress_callback(job_id=job_id, trigger_type=trigger_type)
@@ -160,6 +162,8 @@ def _run_scrape_job(
             trigger_type=trigger_type,
             source=source,
         )
+        if should_cancel is not None and should_cancel():
+            raise ScrapeCancellationRequested("scrape_cancel_requested")
 
     if trigger_type == "refresh" and source is None:
         _publish_job_event(
@@ -189,12 +193,14 @@ def _run_scrape_job(
                 source,
                 trigger_type=trigger_type,
                 progress_callback=progress_callback,
+                should_cancel=should_cancel,
             )
         else:
             crawl_result = orchestrator.crawl_active_sources(
                 trigger_type=trigger_type,
                 dataset_generation=refresh_generation,
                 progress_callback=progress_callback,
+                should_cancel=should_cancel,
             )
     except Exception:
         if refresh_generation is not None:
@@ -210,8 +216,10 @@ def _run_scrape_job(
             message="Source crawl pass finished",
             status="completed",
             details={
+                "status": result.get("status"),
                 "active_sources": result.get("active_sources"),
                 "processed_sources": result.get("processed_sources"),
+                "failed_sources": result.get("failed_sources"),
                 "skipped_sources": result.get("skipped_sources"),
             },
         )
@@ -474,6 +482,16 @@ def _execute_job_with_heartbeat(
     heartbeat_seconds = max(settings.job_heartbeat_seconds, 1)
     current_job = running_job
 
+    def _should_cancel() -> bool:
+        try:
+            return job_manager.is_cancel_requested(current_job.job_id)
+        except JobQueueUnavailableError:
+            logger.warning(
+                "worker.job_cancel_state_unavailable",
+                extra={"job_id": current_job.job_id},
+            )
+            return False
+
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(
             _run_scrape_job,
@@ -481,12 +499,15 @@ def _execute_job_with_heartbeat(
             current_job.source,
             current_job.trigger_type,
             current_job.job_id,
+            should_cancel=_should_cancel,
         )
 
         while True:
             try:
                 return future.result(timeout=heartbeat_seconds), current_job
             except FutureTimeoutError:
+                if _should_cancel():
+                    raise ScrapeCancellationRequested("scrape_cancel_requested")
                 try:
                     current_job = job_manager.heartbeat_job(
                         claimed_message_id,
@@ -542,7 +563,7 @@ def main() -> None:
             time.sleep(2)
             continue
 
-        if job.status in {"completed", "failed"}:
+        if job.status in {"completed", "failed", "cancelled"}:
             try:
                 job_manager.ack_job(claimed.message_id, job=job)
             except JobQueueUnavailableError:
@@ -593,6 +614,39 @@ def main() -> None:
                 claimed.message_id,
                 running_job,
             )
+        except ScrapeCancellationRequested as exc:
+            try:
+                cancelled_job = job_manager.mark_cancelled(
+                    running_job.job_id,
+                    str(exc),
+                    base_job=running_job,
+                )
+                _publish(
+                    ScrapeEvent(
+                        event="job_cancelled",
+                        message="Scrape job stopped by user request",
+                        job_id=cancelled_job.job_id,
+                        source=cancelled_job.source,
+                        trigger_type=cancelled_job.trigger_type,
+                        status="cancelled",
+                        attempt_count=cancelled_job.attempt_count,
+                        details={"error": str(exc)},
+                    )
+                )
+                job_manager.ack_job(claimed.message_id, job=cancelled_job)
+            except (JobQueueUnavailableError, KeyError):
+                logger.warning(
+                    "worker.job_cancel_persist_failed",
+                    extra={"job_id": running_job.job_id},
+                )
+                time.sleep(2)
+                continue
+
+            logger.info(
+                "worker.job.cancelled",
+                extra={"job_id": running_job.job_id},
+            )
+            continue
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
             max_attempts = max(settings.job_max_attempts, 1)
@@ -671,22 +725,100 @@ def main() -> None:
             )
             continue
 
+        if job.cancel_requested and job.status == "pending":
+            try:
+                cancelled_job = job_manager.mark_cancelled(
+                    job.job_id,
+                    "scrape_cancel_requested",
+                    base_job=job,
+                )
+                _publish(
+                    ScrapeEvent(
+                        event="job_cancelled",
+                        message="Scrape job stopped before execution started",
+                        job_id=cancelled_job.job_id,
+                        source=cancelled_job.source,
+                        trigger_type=cancelled_job.trigger_type,
+                        status="cancelled",
+                        attempt_count=cancelled_job.attempt_count,
+                        details={"error": "scrape_cancel_requested"},
+                    )
+                )
+                job_manager.ack_job(claimed.message_id, job=cancelled_job)
+            except (JobQueueUnavailableError, KeyError):
+                logger.warning("worker.job_cancel_persist_failed", extra={"job_id": job.job_id})
+                time.sleep(2)
+                continue
+            continue
+
+        result_status = str(result.get("status") or "success")
+        if result_status == "failed":
+            failed_sources = int(result.get("failed_sources") or 0)
+            error_msg = (
+                f"Scrape crawl failed: {failed_sources} source(s) failed and no successful source completed"
+            )
+            try:
+                failed_job = job_manager.mark_failed(
+                    running_job.job_id,
+                    error_msg,
+                    base_job=running_job,
+                )
+                _publish(
+                    ScrapeEvent(
+                        event="job_failed",
+                        message="Scrape job failed after source crawl errors",
+                        job_id=failed_job.job_id,
+                        source=failed_job.source,
+                        trigger_type=failed_job.trigger_type,
+                        status="failed",
+                        attempt_count=failed_job.attempt_count,
+                        details={
+                            "error": error_msg,
+                            "result_status": result_status,
+                            "failed_sources": failed_sources,
+                        },
+                    )
+                )
+                job_manager.ack_job(claimed.message_id, job=failed_job)
+            except (JobQueueUnavailableError, KeyError):
+                logger.warning(
+                    "worker.job_fail_persist_failed",
+                    extra={"job_id": running_job.job_id},
+                )
+                time.sleep(2)
+                continue
+
+            logger.warning(
+                "worker.job.failed_after_crawl",
+                extra={"job_id": running_job.job_id, "failed_sources": failed_sources},
+            )
+            continue
+
         try:
             completed_job = job_manager.mark_completed(
                 running_job.job_id,
                 result,
                 base_job=running_job,
             )
+            completion_event = "job_completed"
+            completion_message = "Scrape job completed"
+            if result_status == "completed_with_errors":
+                completion_event = "job_partial"
+                completion_message = "Scrape job completed with source failures"
             _publish(
                 ScrapeEvent(
-                    event="job_completed",
-                    message="Scrape job completed",
+                    event=completion_event,
+                    message=completion_message,
                     job_id=completed_job.job_id,
                     source=completed_job.source,
                     trigger_type=completed_job.trigger_type,
                     status="completed",
                     attempt_count=completed_job.attempt_count,
-                    details={"result_status": result.get("status")},
+                    details={
+                        "result_status": result_status,
+                        "failed_sources": result.get("failed_sources"),
+                        "processed_sources": result.get("processed_sources"),
+                    },
                 )
             )
             job_manager.ack_job(claimed.message_id, job=completed_job)

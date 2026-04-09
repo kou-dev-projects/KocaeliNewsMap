@@ -37,6 +37,12 @@ from .sessions import CrawlSessionStore
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[dict[str, Any]], None]
+CancellationCallback = Callable[[], bool]
+_SOURCE_PROGRESS_EMIT_INTERVAL = 25
+
+
+class ScrapeCancellationRequested(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -80,8 +86,7 @@ DYNAMIC_SOURCE_REGISTRY: dict[str, DynamicSourceDefinition] = {
             listing_url=base_url,
         ),
         detail_scraper_factory=lambda client: SesKocaeliDetailScraper(client=client),
-        max_urls_override=1,
-        per_url_delay_seconds=8.0,
+        per_url_delay_seconds=1.0,
     ),
     "bizimyaka.com": DynamicSourceDefinition(
         listing_scraper_factory=lambda client, base_url: BizimYakaListingScraper(
@@ -147,12 +152,15 @@ class ScrapeOrchestrator:
         trigger_type: str = "scheduled",
         dataset_generation: str | None = None,
         progress_callback: ProgressCallback | None = None,
+        should_cancel: CancellationCallback | None = None,
     ) -> dict[str, Any]:
         active_sources = self._list_active_sources()
 
         summary = {
+            "status": "success",
             "active_sources": len(active_sources),
             "processed_sources": 0,
+            "failed_sources": 0,
             "skipped_sources": 0,
             "skipped_session_reasons": [],
             "sessions": [],
@@ -161,6 +169,7 @@ class ScrapeOrchestrator:
             summary["dataset_generation"] = dataset_generation
 
         for source_document in active_sources:
+            self._raise_if_cancelled(should_cancel)
             domain = source_document["domain"]
             self._emit_progress(
                 progress_callback,
@@ -182,7 +191,10 @@ class ScrapeOrchestrator:
                     trigger_type=trigger_type,
                     dataset_generation=dataset_generation,
                     progress_callback=progress_callback,
+                    should_cancel=should_cancel,
                 )
+            except ScrapeCancellationRequested:
+                raise
             except Exception as exc:
                 logger.exception(
                     "scheduler.source.unhandled_error",
@@ -211,7 +223,16 @@ class ScrapeOrchestrator:
                 continue
 
             summary["processed_sources"] += 1
+            if session_result.get("status") == "failed":
+                summary["failed_sources"] += 1
             summary["sessions"].append(session_result)
+
+        if summary["failed_sources"] > 0:
+            summary["status"] = (
+                "failed"
+                if summary["processed_sources"] == summary["failed_sources"]
+                else "completed_with_errors"
+            )
 
         return summary
 
@@ -221,11 +242,13 @@ class ScrapeOrchestrator:
         trigger_type: str = "scheduled",
         dataset_generation: str | None = None,
         progress_callback: ProgressCallback | None = None,
+        should_cancel: CancellationCallback | None = None,
     ) -> dict[str, Any]:
         return self._crawl_active_sources(
             trigger_type=trigger_type,
             dataset_generation=dataset_generation,
             progress_callback=progress_callback,
+            should_cancel=should_cancel,
         )
 
     def crawl_source(
@@ -234,6 +257,7 @@ class ScrapeOrchestrator:
         *,
         trigger_type: str = "manual",
         progress_callback: ProgressCallback | None = None,
+        should_cancel: CancellationCallback | None = None,
     ) -> dict[str, Any]:
         source_document = self._db["sources"].find_one(
             {"domain": domain, "active": True},
@@ -260,6 +284,7 @@ class ScrapeOrchestrator:
             trigger_type=trigger_type,
             dataset_generation=None,
             progress_callback=progress_callback,
+            should_cancel=should_cancel,
         )
         self._emit_progress(
             progress_callback,
@@ -274,8 +299,10 @@ class ScrapeOrchestrator:
         trigger_type: str,
         dataset_generation: str | None,
         progress_callback: ProgressCallback | None,
+        should_cancel: CancellationCallback | None,
     ) -> dict[str, Any]:
         domain = source_document["domain"]
+        self._raise_if_cancelled(should_cancel)
 
         if domain.lower() in self._config.skipped_domains:
             logger.info(
@@ -294,6 +321,7 @@ class ScrapeOrchestrator:
                 trigger_type=trigger_type,
                 dataset_generation=dataset_generation,
                 progress_callback=progress_callback,
+                should_cancel=should_cancel,
             )
         if domain in DYNAMIC_SOURCE_REGISTRY:
             return self._crawl_single_source_dynamic(
@@ -301,6 +329,7 @@ class ScrapeOrchestrator:
                 trigger_type=trigger_type,
                 dataset_generation=dataset_generation,
                 progress_callback=progress_callback,
+                should_cancel=should_cancel,
             )
 
         logger.info(
@@ -359,6 +388,7 @@ class ScrapeOrchestrator:
         trigger_type: str,
         dataset_generation: str | None,
         progress_callback: ProgressCallback | None,
+        should_cancel: CancellationCallback | None,
     ) -> dict[str, Any]:
         domain = source_document["domain"]
         trace_id = uuid4().hex[:16]
@@ -391,6 +421,7 @@ class ScrapeOrchestrator:
         parser = None
 
         try:
+            self._raise_if_cancelled(should_cancel)
             session_id = self._sessions.create_for_source(
                 source_id=source_document["_id"],
                 trigger_type=trigger_type,
@@ -405,6 +436,7 @@ class ScrapeOrchestrator:
             detail_scraper = definition.detail_scraper_factory()
             parser = definition.parser_factory()
 
+            self._raise_if_cancelled(should_cancel)
             listing_html = listing_scraper.fetch_listing_html(source_document["base_url"])
             urls = listing_scraper.extract_news_urls(listing_html)[: self._config.max_urls_per_source]
             stats["listing_count"] = len(urls)
@@ -418,6 +450,7 @@ class ScrapeOrchestrator:
                     "details": {
                         "listing_count": stats["listing_count"],
                         "max_urls_per_source": self._config.max_urls_per_source,
+                        "sample_url": urls[0] if urls else None,
                     },
                 },
             )
@@ -429,7 +462,8 @@ class ScrapeOrchestrator:
                     message="No news urls extracted from listing page",
                 )
 
-            for target_url in urls:
+            for url_index, target_url in enumerate(urls, start=1):
+                self._raise_if_cancelled(should_cancel)
                 try:
                     detail_html = detail_scraper.fetch_detail_html(target_url)
                     stats["fetched_count"] += 1
@@ -438,6 +472,16 @@ class ScrapeOrchestrator:
 
                     if not self._is_record_within_lookback(record.get("published_at_raw")):
                         stats["lookback_filtered_count"] += 1
+                        self._emit_source_checkpoint(
+                            progress_callback,
+                            source=domain,
+                            stats=stats,
+                            target_url=target_url,
+                            url_index=url_index,
+                            total_urls=stats["listing_count"],
+                            outcome="lookback_filtered",
+                            record_title=str(record.get("title") or "") or None,
+                        )
                         continue
 
                     if not record.get("title", "").strip() or not record.get("content_text", "").strip():
@@ -447,6 +491,16 @@ class ScrapeOrchestrator:
                             code="invalid_record",
                             message="Parsed record is missing title or content",
                             sample_url=target_url,
+                        )
+                        self._emit_source_checkpoint(
+                            progress_callback,
+                            source=domain,
+                            stats=stats,
+                            target_url=target_url,
+                            url_index=url_index,
+                            total_urls=stats["listing_count"],
+                            outcome="invalid_record",
+                            record_title=str(record.get("title") or "") or None,
                         )
                         continue
 
@@ -463,6 +517,16 @@ class ScrapeOrchestrator:
                             stats["inserted_count"] += 1
                         else:
                             stats["duplicate_count"] += 1
+                        self._emit_source_checkpoint(
+                            progress_callback,
+                            source=domain,
+                            stats=stats,
+                            target_url=target_url,
+                            url_index=url_index,
+                            total_urls=stats["listing_count"],
+                            outcome=str(write_result["status"]),
+                            record_title=str(record.get("title") or "") or None,
+                        )
                         continue
 
                     stats["failed_count"] += 1
@@ -472,6 +536,19 @@ class ScrapeOrchestrator:
                         message=write_result.get("reason") or "Write pipeline returned non-success status",
                         sample_url=target_url,
                     )
+                    self._emit_source_checkpoint(
+                        progress_callback,
+                        source=domain,
+                        stats=stats,
+                        target_url=target_url,
+                        url_index=url_index,
+                        total_urls=stats["listing_count"],
+                        outcome="source_processing_error",
+                        record_title=str(record.get("title") or "") or None,
+                        error_message=str(write_result.get("reason") or "Write pipeline returned non-success status"),
+                    )
+                except ScrapeCancellationRequested:
+                    raise
                 except Exception as exc:
                     stats["failed_count"] += 1
                     self._append_error(
@@ -481,7 +558,19 @@ class ScrapeOrchestrator:
                         error_type=type(exc).__name__,
                         sample_url=target_url,
                     )
+                    self._emit_source_checkpoint(
+                        progress_callback,
+                        source=domain,
+                        stats=stats,
+                        target_url=target_url,
+                        url_index=url_index,
+                        total_urls=stats["listing_count"],
+                        outcome="source_processing_error",
+                        error_message=f"{type(exc).__name__}: {exc}",
+                    )
 
+        except ScrapeCancellationRequested:
+            raise
         except Exception as exc:
             stats["failed_count"] += 1
             self._append_error(
@@ -537,6 +626,7 @@ class ScrapeOrchestrator:
         trigger_type: str,
         dataset_generation: str | None,
         progress_callback: ProgressCallback | None,
+        should_cancel: CancellationCallback | None,
     ) -> dict[str, Any]:
         if sys.platform == "win32":
             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -547,6 +637,7 @@ class ScrapeOrchestrator:
                 trigger_type=trigger_type,
                 dataset_generation=dataset_generation,
                 progress_callback=progress_callback,
+                should_cancel=should_cancel,
             )
         )
 
@@ -557,6 +648,7 @@ class ScrapeOrchestrator:
         trigger_type: str,
         dataset_generation: str | None,
         progress_callback: ProgressCallback | None,
+        should_cancel: CancellationCallback | None,
     ) -> dict[str, Any]:
         domain = source_document["domain"]
         trace_id = uuid4().hex[:16]
@@ -590,6 +682,7 @@ class ScrapeOrchestrator:
         final_status = "failed"
 
         try:
+            self._raise_if_cancelled(should_cancel)
             session_id = self._sessions.create_for_source(
                 source_id=source_document["_id"],
                 trigger_type=trigger_type,
@@ -600,6 +693,7 @@ class ScrapeOrchestrator:
             )
 
             try:
+                self._raise_if_cancelled(should_cancel)
                 listing_scraper = definition.listing_scraper_factory(client, source_document["base_url"])
                 detail_scraper = definition.detail_scraper_factory(client)
 
@@ -619,6 +713,7 @@ class ScrapeOrchestrator:
                         "details": {
                             "listing_count": stats["listing_count"],
                             "max_urls_per_source": max_urls,
+                            "sample_url": urls[0] if urls else None,
                         },
                     },
                 )
@@ -632,9 +727,11 @@ class ScrapeOrchestrator:
                         message="No news urls extracted from listing page",
                     )
 
-                for target_url in urls:
+                for url_index, target_url in enumerate(urls, start=1):
+                    self._raise_if_cancelled(should_cancel)
                     if per_url_delay > 0:
                         await asyncio.sleep(per_url_delay)
+                    self._raise_if_cancelled(should_cancel)
 
                     try:
                         detail_data = await detail_scraper.fetch_detail(target_url)
@@ -654,6 +751,16 @@ class ScrapeOrchestrator:
 
                         if not self._is_record_within_lookback(record.get("published_at_raw")):
                             stats["lookback_filtered_count"] += 1
+                            self._emit_source_checkpoint(
+                                progress_callback,
+                                source=domain,
+                                stats=stats,
+                                target_url=target_url,
+                                url_index=url_index,
+                                total_urls=stats["listing_count"],
+                                outcome="lookback_filtered",
+                                record_title=str(record.get("title") or "") or None,
+                            )
                             continue
 
                         if not record.get("title", "").strip() or not record.get("content_text", "").strip():
@@ -663,6 +770,16 @@ class ScrapeOrchestrator:
                                 code="invalid_record",
                                 message="Parsed record is missing title or content",
                                 sample_url=target_url,
+                            )
+                            self._emit_source_checkpoint(
+                                progress_callback,
+                                source=domain,
+                                stats=stats,
+                                target_url=target_url,
+                                url_index=url_index,
+                                total_urls=stats["listing_count"],
+                                outcome="invalid_record",
+                                record_title=str(record.get("title") or "") or None,
                             )
                             continue
 
@@ -679,6 +796,16 @@ class ScrapeOrchestrator:
                                 stats["inserted_count"] += 1
                             else:
                                 stats["duplicate_count"] += 1
+                            self._emit_source_checkpoint(
+                                progress_callback,
+                                source=domain,
+                                stats=stats,
+                                target_url=target_url,
+                                url_index=url_index,
+                                total_urls=stats["listing_count"],
+                                outcome=str(write_result["status"]),
+                                record_title=str(record.get("title") or "") or None,
+                            )
                             continue
 
                         stats["failed_count"] += 1
@@ -688,6 +815,19 @@ class ScrapeOrchestrator:
                             message=write_result.get("reason") or "Write pipeline returned non-success status",
                             sample_url=target_url,
                         )
+                        self._emit_source_checkpoint(
+                            progress_callback,
+                            source=domain,
+                            stats=stats,
+                            target_url=target_url,
+                            url_index=url_index,
+                            total_urls=stats["listing_count"],
+                            outcome="source_processing_error",
+                            record_title=str(record.get("title") or "") or None,
+                            error_message=str(write_result.get("reason") or "Write pipeline returned non-success status"),
+                        )
+                    except ScrapeCancellationRequested:
+                        raise
                     except Exception as exc:
                         stats["failed_count"] += 1
                         self._append_error(
@@ -697,6 +837,18 @@ class ScrapeOrchestrator:
                             error_type=type(exc).__name__,
                             sample_url=target_url,
                         )
+                        self._emit_source_checkpoint(
+                            progress_callback,
+                            source=domain,
+                            stats=stats,
+                            target_url=target_url,
+                            url_index=url_index,
+                            total_urls=stats["listing_count"],
+                            outcome="source_processing_error",
+                            error_message=f"{type(exc).__name__}: {exc}",
+                        )
+            except ScrapeCancellationRequested:
+                raise
             except Exception as exc:
                 stats["failed_count"] += 1
                 self._append_error(
@@ -767,6 +919,11 @@ class ScrapeOrchestrator:
         if sample_url:
             error["sample_url"] = sample_url
         error_summary.append(error)
+
+    @staticmethod
+    def _raise_if_cancelled(should_cancel: CancellationCallback | None) -> None:
+        if should_cancel is not None and should_cancel():
+            raise ScrapeCancellationRequested("scrape_cancel_requested")
 
     @staticmethod
     def _summarize_error_details(error_summary: list[dict[str, Any]]) -> dict[str, str]:
@@ -841,6 +998,71 @@ class ScrapeOrchestrator:
             "message": "Source crawl failed",
             "details": details,
         }
+
+    @staticmethod
+    def _should_emit_source_checkpoint(
+        *,
+        url_index: int,
+        total_urls: int,
+        outcome: str,
+    ) -> bool:
+        if outcome in {"source_processing_error", "invalid_record"}:
+            return True
+        if total_urls <= 1 or url_index == 1 or url_index == total_urls:
+            return True
+        return url_index % _SOURCE_PROGRESS_EMIT_INTERVAL == 0
+
+    @staticmethod
+    def _emit_source_checkpoint(
+        progress_callback: ProgressCallback | None,
+        *,
+        source: str,
+        stats: dict[str, Any],
+        target_url: str,
+        url_index: int,
+        total_urls: int,
+        outcome: str,
+        record_title: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        outcome_messages = {
+            "inserted": "Detail URL işlendi ve yeni kayıt yazıldı",
+            "duplicate_merged": "Detail URL işlendi ve mevcut kayıtla birleştirildi",
+            "lookback_filtered": "Detail URL lookback filtresine takıldı",
+            "invalid_record": "Detail URL eksik başlık veya içerik nedeniyle atlandı",
+            "source_processing_error": "Detail URL işlenirken hata oluştu",
+        }
+        if not ScrapeOrchestrator._should_emit_source_checkpoint(
+            url_index=url_index,
+            total_urls=total_urls,
+            outcome=outcome,
+        ):
+            return
+
+        details = {
+            "url_index": url_index,
+            "total_urls": total_urls,
+            "current_url": target_url,
+            "outcome": outcome,
+            "record_title": record_title,
+            "error_message": error_message,
+            "fetched_count": stats.get("fetched_count"),
+            "parsed_count": stats.get("parsed_count"),
+            "failed_count": stats.get("failed_count"),
+            "inserted_count": stats.get("inserted_count"),
+            "duplicate_count": stats.get("duplicate_count"),
+            "lookback_filtered_count": stats.get("lookback_filtered_count"),
+        }
+        ScrapeOrchestrator._emit_progress(
+            progress_callback,
+            {
+                "event": "source_progress_checkpoint",
+                "source": source,
+                "status": "running",
+                "message": outcome_messages.get(outcome, "Detail URL işlendi"),
+                "details": details,
+            },
+        )
 
     @staticmethod
     def _close_scraper(scraper: Any) -> None:

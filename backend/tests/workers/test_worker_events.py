@@ -146,7 +146,60 @@ class TestJobWorkerEvents:
         assert completed_evt is not None, "job_completed event was not published"
         assert completed_evt.status == "completed"
         assert completed_evt.job_id == "job_abc"
-        assert completed_evt.details == {"result_status": "success"}
+        assert completed_evt.details == {
+            "result_status": "success",
+            "failed_sources": None,
+            "processed_sources": None,
+        }
+
+    def test_job_partial_event_correct_contract(self, monkeypatch):
+        job = _make_job()
+        running = _make_job(status="running", attempt_count=1)
+        completed = _make_job(status="completed", attempt_count=1)
+
+        published = _capture_publisher(monkeypatch)
+        manager = _build_manager_for_one_job(job, running, completed_job=completed)
+
+        _run_main_with(
+            manager,
+            orchestrator_result={
+                "status": "completed_with_errors",
+                "failed_sources": 1,
+                "processed_sources": 5,
+            },
+        )
+
+        partial_evt = next((e for e in published if e.event == "job_partial"), None)
+        assert partial_evt is not None, "job_partial event was not published"
+        assert partial_evt.status == "completed"
+        assert partial_evt.details == {
+            "result_status": "completed_with_errors",
+            "failed_sources": 1,
+            "processed_sources": 5,
+        }
+
+    def test_job_failed_event_when_crawl_summary_is_failed(self, monkeypatch):
+        job = _make_job()
+        running = _make_job(status="running", attempt_count=1)
+        failed = _make_job(status="failed", attempt_count=1)
+
+        published = _capture_publisher(monkeypatch)
+        manager = _build_manager_for_one_job(job, running, failed_job=failed)
+
+        _run_main_with(
+            manager,
+            orchestrator_result={
+                "status": "failed",
+                "failed_sources": 2,
+            },
+        )
+
+        failed_evt = next((e for e in published if e.event == "job_failed"), None)
+        assert failed_evt is not None, "job_failed event was not published"
+        assert failed_evt.status == "failed"
+        assert failed_evt.details is not None
+        assert failed_evt.details["result_status"] == "failed"
+        assert failed_evt.details["failed_sources"] == 2
 
     def test_job_failed_event_correct_contract(self, monkeypatch):
         job = _make_job()
@@ -243,6 +296,7 @@ class TestJobWorkerEvents:
 
         manager = MagicMock()
         manager.heartbeat_job.return_value = heartbeat_job
+        manager.is_cancel_requested.return_value = False
 
         call_count = [0]
 

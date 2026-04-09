@@ -1,6 +1,9 @@
 import time
 
+import pytest
+
 from app.services.dataset_generation import DatasetGenerationState
+from app.scheduler.orchestrator import ScrapeCancellationRequested
 from app.workers.job_manager import JobInfo
 from app.workers.job_worker import (
     _collect_refresh_success,
@@ -13,6 +16,7 @@ from app.workers.job_worker import (
 class FakeJobManager:
     def __init__(self):
         self.heartbeat_calls = 0
+        self.cancel_requested = False
 
     def heartbeat_job(self, message_id, job_id, *, base_job):
         self.heartbeat_calls += 1
@@ -26,6 +30,9 @@ class FakeJobManager:
             attempt_count=base_job.attempt_count,
             last_heartbeat_at=time.time(),
         )
+
+    def is_cancel_requested(self, job_id):
+        return self.cancel_requested
 
 
 class _FakeDeleteResult:
@@ -52,8 +59,10 @@ class SlowOrchestrator:
             "dataset_state": _FakeStateCollection(),
         }
 
-    def crawl_source(self, source, *, trigger_type, progress_callback=None):
+    def crawl_source(self, source, *, trigger_type, progress_callback=None, should_cancel=None):
         time.sleep(1.1)
+        if should_cancel is not None and should_cancel():
+            raise ScrapeCancellationRequested("scrape_cancel_requested")
         if progress_callback is not None:
             progress_callback(
                 {
@@ -73,9 +82,18 @@ class RefreshOrchestrator:
     def __init__(self):
         self.database = {"dataset_state": _FakeStateCollection()}
 
-    def crawl_active_sources(self, *, trigger_type, dataset_generation=None, progress_callback=None):
+    def crawl_active_sources(
+        self,
+        *,
+        trigger_type,
+        dataset_generation=None,
+        progress_callback=None,
+        should_cancel=None,
+    ):
         assert trigger_type == "refresh"
         assert dataset_generation == "generation_1"
+        if should_cancel is not None and should_cancel():
+            raise ScrapeCancellationRequested("scrape_cancel_requested")
         if progress_callback is not None:
             progress_callback(
                 {
@@ -110,9 +128,18 @@ class PartialRefreshOrchestrator:
     def __init__(self):
         self.database = {"dataset_state": _FakeStateCollection()}
 
-    def crawl_active_sources(self, *, trigger_type, dataset_generation=None, progress_callback=None):
+    def crawl_active_sources(
+        self,
+        *,
+        trigger_type,
+        dataset_generation=None,
+        progress_callback=None,
+        should_cancel=None,
+    ):
         assert trigger_type == "refresh"
         assert dataset_generation == "generation_1"
+        if should_cancel is not None and should_cancel():
+            raise ScrapeCancellationRequested("scrape_cancel_requested")
         if progress_callback is not None:
             progress_callback(
                 {
@@ -166,6 +193,29 @@ def test_execute_job_with_heartbeat_touches_running_job(monkeypatch):
     assert updated_job.last_heartbeat_at is not None
     assert result["status"] == "success"
     assert result["queue_drain"]["processed"] == 0
+
+
+def test_execute_job_with_heartbeat_raises_when_cancel_requested(monkeypatch):
+    monkeypatch.setattr("app.workers.job_worker.settings.job_heartbeat_seconds", 1)
+
+    manager = FakeJobManager()
+    manager.cancel_requested = True
+    running_job = JobInfo(
+        job_id="job_cancel_1",
+        status="running",
+        source="ozgurkocaeli.com.tr",
+        trigger_type="manual",
+        created_at=100.0,
+        started_at=101.0,
+    )
+
+    with pytest.raises(ScrapeCancellationRequested):
+        _execute_job_with_heartbeat(
+            manager,
+            SlowOrchestrator(),
+            "1710000000000-0",
+            running_job,
+        )
 
 
 def test_is_retryable_error_only_for_transient_failures():
@@ -307,3 +357,21 @@ def test_run_scrape_job_refresh_discards_partial_when_active_dataset_exists(monk
     event_names = [event.event for event in published_events]
     assert "refresh_cleanup_skipped" in event_names
     assert "refresh_partial_cutover_completed" not in event_names
+
+
+def test_run_scrape_job_raises_when_bootstrap_cancel_requested(monkeypatch):
+    published_events = []
+    orchestrator = SlowOrchestrator()
+
+    monkeypatch.setattr("app.workers.job_worker._publish", lambda event: published_events.append(event))
+
+    with pytest.raises(ScrapeCancellationRequested):
+        _run_scrape_job(
+            orchestrator,
+            None,
+            "bootstrap",
+            "job_bootstrap_cancel",
+            should_cancel=lambda: True,
+        )
+
+    assert any(event.event == "dataset_reset" for event in published_events)

@@ -20,7 +20,14 @@ class SesKocaeliListingScraper:
         self.listing_url = listing_url
         self.robots = RobotsChecker(strict=False)
         self.crawl_api = CrawlApiClient()
-        self.static_client = StaticHttpClient(timeout=15, delay_seconds=0.2)
+        self.static_client = StaticHttpClient(
+            timeout=10,
+            delay_seconds=0.2,
+            retry_total=0,
+            retry_connect=0,
+            retry_read=0,
+            retry_status=0,
+        )
 
     async def fetch_links(self) -> list[str]:
         allowed, reason = self.robots.can_fetch(self.listing_url)

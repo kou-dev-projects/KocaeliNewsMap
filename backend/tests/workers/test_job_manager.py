@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -155,3 +156,112 @@ def test_default_consumer_name_includes_runtime_suffix(monkeypatch):
 
     assert manager._consumer_name.startswith("worker:")
     assert manager._consumer_name.count(":") >= 3
+
+
+def test_default_claim_idle_is_short_enough_to_recover_stalled_jobs(monkeypatch):
+    client = MagicMock()
+    client.ping.return_value = True
+
+    monkeypatch.setattr("app.workers.job_manager.redis.from_url", lambda *args, **kwargs: client)
+    monkeypatch.setattr("app.workers.job_manager.settings.job_claim_idle_seconds", 120)
+    monkeypatch.setattr("app.workers.job_manager.settings.job_heartbeat_seconds", 30)
+
+    manager = JobManager(redis_url="redis://example:6379/0")
+
+    assert manager._claim_idle_seconds == 120
+
+
+def test_find_latest_active_job_prefers_newest_pending_or_running_job(monkeypatch):
+    client = MagicMock()
+    client.ping.return_value = True
+    client.scan_iter.return_value = [
+        "pulse:jobs:v1:job_old",
+        "pulse:jobs:v1:job_done",
+        "pulse:jobs:v1:job_new",
+    ]
+
+    payloads = {
+        "pulse:jobs:v1:job_old": json.dumps(
+            {
+                "job_id": "job_old",
+                "status": "running",
+                "source": None,
+                "trigger_type": "scheduled",
+                "created_at": 100.0,
+            }
+        ),
+        "pulse:jobs:v1:job_done": json.dumps(
+            {
+                "job_id": "job_done",
+                "status": "completed",
+                "source": None,
+                "trigger_type": "scheduled",
+                "created_at": 150.0,
+            }
+        ),
+        "pulse:jobs:v1:job_new": json.dumps(
+            {
+                "job_id": "job_new",
+                "status": "pending",
+                "source": "ozgurkocaeli.com.tr",
+                "trigger_type": "manual",
+                "created_at": 200.0,
+            }
+        ),
+    }
+    client.get.side_effect = lambda key: payloads.get(key)
+
+    monkeypatch.setattr("app.workers.job_manager.redis.from_url", lambda *args, **kwargs: client)
+    monkeypatch.setattr("app.workers.job_manager.time.time", lambda: 220.0)
+    monkeypatch.setattr("app.workers.job_manager.settings.job_heartbeat_seconds", 30)
+
+    manager = JobManager(redis_url="redis://example:6379/0")
+    latest = manager.find_latest_active_job()
+
+    assert latest is not None
+    assert latest.job_id == "job_new"
+
+
+def test_find_latest_active_job_ignores_stale_running_jobs(monkeypatch):
+    client = MagicMock()
+    client.ping.return_value = True
+    client.scan_iter.return_value = [
+        "pulse:jobs:v1:job_stale",
+        "pulse:jobs:v1:job_fresh",
+    ]
+
+    payloads = {
+        "pulse:jobs:v1:job_stale": json.dumps(
+            {
+                "job_id": "job_stale",
+                "status": "running",
+                "source": None,
+                "trigger_type": "scheduled",
+                "created_at": 100.0,
+                "started_at": 110.0,
+                "last_heartbeat_at": 120.0,
+            }
+        ),
+        "pulse:jobs:v1:job_fresh": json.dumps(
+            {
+                "job_id": "job_fresh",
+                "status": "running",
+                "source": None,
+                "trigger_type": "scheduled",
+                "created_at": 130.0,
+                "started_at": 140.0,
+                "last_heartbeat_at": 215.0,
+            }
+        ),
+    }
+    client.get.side_effect = lambda key: payloads.get(key)
+
+    monkeypatch.setattr("app.workers.job_manager.redis.from_url", lambda *args, **kwargs: client)
+    monkeypatch.setattr("app.workers.job_manager.time.time", lambda: 250.0)
+    monkeypatch.setattr("app.workers.job_manager.settings.job_heartbeat_seconds", 30)
+
+    manager = JobManager(redis_url="redis://example:6379/0")
+    latest = manager.find_latest_active_job()
+
+    assert latest is not None
+    assert latest.job_id == "job_fresh"

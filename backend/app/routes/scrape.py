@@ -1,16 +1,30 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import math
+import re
 import secrets
 import time
 
 import redis
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.db.database import db
+from app.services.scrape_orchestrator import (
+    ScrapeTriggerResult,
+    start_bootstrap_scrape_if_needed,
+    start_refresh_scrape,
+)
+from app.services.scrape_events import (
+    ScrapeEvent,
+    ScrapeEventReader,
+    _HEARTBEAT_SENTINEL,
+    get_latest_scrape_run,
+    get_scrape_event_publisher,
+)
 from app.settings import settings
 from app.workers.job_manager import JobManager, JobQueueUnavailableError
 
@@ -23,6 +37,17 @@ _rate_limit_redis: redis.Redis | None = None
 _trusted_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] | None = None
 
 _RATE_LIMIT_KEY_PREFIX = "pulse:ratelimit:trigger"
+
+_STREAM_ID_RE = re.compile(r"^(?:\$|0|\d{1,15}(?:-\d{1,19})?)$")
+
+
+def _parse_last_event_id(raw: str) -> str:
+    """Return a valid Redis Stream ID or "$" as safe fallback."""
+    stripped = raw.strip()
+    if _STREAM_ID_RE.match(stripped):
+        return stripped
+    logger.warning("scrape.events.invalid_last_event_id", extra={"raw": stripped[:100]})
+    return "$"
 
 
 def _get_job_manager() -> JobManager:
@@ -65,11 +90,14 @@ def _get_trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Networ
 
 
 def _verify_trigger_auth(x_api_key: str | None) -> None:
-    expected_key = settings.scrape_trigger_api_key
+    expected_key = (settings.scrape_trigger_api_key or "").strip()
     if not expected_key:
-        return
+        logger.error("scrape.trigger_auth.misconfigured")
+        raise HTTPException(status_code=503, detail="scrape_trigger_auth_misconfigured")
 
-    if not x_api_key or not secrets.compare_digest(x_api_key, expected_key):
+    provided_key = x_api_key.strip() if isinstance(x_api_key, str) else ""
+
+    if not provided_key or not secrets.compare_digest(provided_key, expected_key):
         raise HTTPException(status_code=401, detail="unauthorized_scrape_trigger")
 
 
@@ -123,6 +151,7 @@ def _resolve_client_id(request: Request) -> str:
 
 
 def _enforce_rate_limit(client_id: str) -> None:
+    global _rate_limit_redis
     if not settings.scrape_trigger_rate_limit_enabled:
         return
 
@@ -163,7 +192,63 @@ def _enforce_rate_limit(client_id: str) -> None:
     except HTTPException:
         raise
     except Exception:
+        _rate_limit_redis = None  # force reconnect on next call
         logger.warning("scrape.rate_limit.redis_error - failing open")
+
+
+def _build_job_response(request: Request, job_id: str) -> dict[str, str]:
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "status_url": str(request.url_for("get_job_status", job_id=job_id)),
+    }
+
+
+def _publish_scrape_job_submitted(
+    *,
+    job_id: str,
+    source: str | None,
+    trigger_type: str,
+    message: str,
+    details: dict | None = None,
+) -> None:
+    get_scrape_event_publisher().publish(
+        ScrapeEvent(
+            event="job_submitted",
+            message=message,
+            job_id=job_id,
+            source=source,
+            trigger_type=trigger_type,
+            status="pending",
+            details=details,
+        )
+    )
+
+
+def _trigger_started_response(
+    request: Request,
+    *,
+    result: ScrapeTriggerResult,
+    source: str | None = None,
+    message: str,
+    details: dict | None = None,
+) -> JSONResponse:
+    if result.job_id is None:
+        raise RuntimeError("missing_job_id_for_started_trigger")
+
+    _publish_scrape_job_submitted(
+        job_id=result.job_id,
+        source=source,
+        trigger_type=result.trigger_type,
+        message=message,
+        details=details,
+    )
+
+    content = _build_job_response(request, result.job_id)
+    if details:
+        content["details"] = details
+
+    return JSONResponse(status_code=202, content=content)
 
 
 @router.post("/trigger")
@@ -184,17 +269,89 @@ def trigger_scrape(
     try:
         job_id = manager.submit_job(source=normalized_source, trigger_type="manual")
     except JobQueueUnavailableError as exc:
-        raise HTTPException(status_code=503, detail="job_queue_unavailable")
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
 
-    return JSONResponse(
-        status_code=202,
-        content={
-            "job_id": job_id,
-            "status": "pending",
-            "status_url": str(request.url_for("get_job_status", job_id=job_id)),
-        },
+    return _trigger_started_response(
+        request,
+        result=ScrapeTriggerResult(
+            status="started",
+            trigger_type="manual",
+            job_id=job_id,
+        ),
+        source=normalized_source,
+        message="Manual scrape job queued",
+    )
+
+
+@router.post("/bootstrap")
+def bootstrap_scrape(
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> JSONResponse:
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+
+    _verify_trigger_auth(x_api_key)
+    _enforce_rate_limit(_resolve_client_id(request))
+
+    manager = _get_job_manager()
+    try:
+        result = start_bootstrap_scrape_if_needed(db, manager)
+    except JobQueueUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+
+    if result.status == "already_initialized":
+        get_scrape_event_publisher().publish(
+            ScrapeEvent(
+                event="bootstrap_skipped",
+                message="Bootstrap scrape skipped because data already exists",
+                trigger_type=result.trigger_type,
+                status="skipped",
+                details={"reason": result.reason},
+            )
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": result.status,
+                "reason": result.reason,
+            },
+        )
+
+    return _trigger_started_response(
+        request,
+        result=result,
+        message="Bootstrap scrape job queued",
+    )
+
+
+@router.post("/refresh")
+def refresh_scrape(
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> JSONResponse:
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+
+    _verify_trigger_auth(x_api_key)
+    _enforce_rate_limit(_resolve_client_id(request))
+
+    manager = _get_job_manager()
+    try:
+        result = start_refresh_scrape(db, manager)
+    except JobQueueUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
+
+    return _trigger_started_response(
+        request,
+        result=result,
+        message="Refresh scrape job queued",
     )
 
 
@@ -212,7 +369,7 @@ def get_job_status(
     try:
         job = manager.get_job(job_id)
     except JobQueueUnavailableError as exc:
-        raise HTTPException(status_code=503, detail="job_queue_unavailable")
+        raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="job_queue_unavailable") from exc
     if job is None:
@@ -239,3 +396,94 @@ def get_job_status(
         response["error"] = job.error
 
     return response
+
+
+@router.get("/latest")
+def get_latest_scrape(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> dict:
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+
+    _verify_trigger_auth(x_api_key)
+
+    latest_run = get_latest_scrape_run()
+    if latest_run is None:
+        return {
+            "job_id": None,
+            "status": "idle",
+            "source": None,
+            "trigger_type": None,
+            "started_at": None,
+            "updated_at": None,
+            "event_count": 0,
+            "events": [],
+        }
+
+    return latest_run
+
+
+@router.get("/events")
+async def scrape_events_stream(
+    request: Request,
+    job_id: str | None = Query(default=None, description="Filter events to a specific job ID"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> StreamingResponse:
+
+    if not isinstance(x_api_key, str):
+        x_api_key = None
+    _verify_trigger_auth(x_api_key)
+
+    last_event_id = _parse_last_event_id(request.headers.get("last-event-id", ""))
+
+    job_id_filter: str | None = None
+    if isinstance(job_id, str):
+        job_id_filter = job_id.strip().lower() or None
+
+    reader = ScrapeEventReader(
+        redis_url=settings.redis_url,
+        heartbeat_seconds=settings.scrape_events_heartbeat_seconds,
+    )
+
+    async def _generate():
+        async for msg_id, fields in reader.stream(
+            last_id=last_event_id,
+            job_id_filter=job_id_filter,
+        ):
+            if await request.is_disconnected():
+                break
+
+            if msg_id == _HEARTBEAT_SENTINEL:
+                yield ": ping\n\n"
+                continue
+
+            out: dict = dict(fields)
+            if out.get("details"):
+                try:
+                    out["details"] = json.loads(out["details"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if out.get("attempt_count"):
+                try:
+                    out["attempt_count"] = int(out["attempt_count"])
+                except (ValueError, TypeError):
+                    pass
+            if out.get("timestamp"):
+                try:
+                    out["timestamp"] = float(out["timestamp"])
+                except (ValueError, TypeError):
+                    pass
+
+            payload = json.dumps(out, ensure_ascii=False, default=str)
+            event_name = out.get("event", "message")
+            yield f"id: {msg_id}\nevent: {event_name}\ndata: {payload}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

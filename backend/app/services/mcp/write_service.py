@@ -8,8 +8,11 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 from app.pipelines import SourceRecordMaterializer
+from app.services.embedding import EmbeddingService
+from app.services.embedding.schemas import EmbeddingInput, TextEmbedding
+from app.services.dataset_generation import resolve_write_generation
 from app.scrapers.base.date_utils import parse_published_at_raw
-from app.utils.content_hash import compute_content_hash
+from app.utils.content_hash import compute_content_hash, compute_duplicate_hash
 
 from .config import MCPConfig
 from .dead_letter import DeadLetterStore
@@ -18,6 +21,108 @@ from .queue import WriteQueue
 from .schemas import NewsWriteRequest, WriteResult, WriteStatus
 
 logger = logging.getLogger(__name__)
+_GEOCODE_STATUS_RANK = {
+    "resolved": 4,
+    "approximate": 3,
+    "pending": 2,
+    "failed": 1,
+    "not_needed": 0,
+}
+
+
+def _merge_unique_sources(*source_groups: list[str] | None) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    for group in source_groups:
+        for value in group or []:
+            source = str(value or "").strip()
+            if not source:
+                continue
+            source_key = source.casefold()
+            if source_key in seen:
+                continue
+            seen.add(source_key)
+            merged.append(source)
+
+    return merged
+
+
+def _geocode_rank(status: str | None) -> int:
+    return _GEOCODE_STATUS_RANK.get(str(status or "").strip(), -1)
+
+
+def merge_duplicate_source_record_docs(
+    canonical_doc: dict,
+    incoming_doc: dict,
+) -> dict[str, object]:
+    update: dict[str, object] = {
+        "kaynak_listesi": _merge_unique_sources(
+            canonical_doc.get("kaynak_listesi"),
+            incoming_doc.get("kaynak_listesi"),
+        ),
+        "updated_at": incoming_doc.get("updated_at"),
+    }
+
+    canonical_category = canonical_doc.get("category_predicted")
+    incoming_category = incoming_doc.get("category_predicted")
+    canonical_confidence = float(canonical_doc.get("category_confidence") or 0.0)
+    incoming_confidence = float(incoming_doc.get("category_confidence") or 0.0)
+    if canonical_category in {None, "", "unknown"} and incoming_category not in {None, "", "unknown"}:
+        update["category_predicted"] = incoming_category
+        update["category_confidence"] = incoming_doc.get("category_confidence")
+        update["category_model_version"] = incoming_doc.get("category_model_version")
+    elif (
+        incoming_category not in {None, "", "unknown"}
+        and incoming_category != canonical_category
+        and incoming_confidence > canonical_confidence
+    ):
+        update["category_predicted"] = incoming_category
+        update["category_confidence"] = incoming_doc.get("category_confidence")
+        update["category_model_version"] = incoming_doc.get("category_model_version")
+
+    if not canonical_doc.get("district_predicted") and incoming_doc.get("district_predicted"):
+        update["district_predicted"] = incoming_doc.get("district_predicted")
+        update["district_confidence"] = incoming_doc.get("district_confidence")
+
+    if not canonical_doc.get("location_text_extracted") and incoming_doc.get("location_text_extracted"):
+        update["location_text_extracted"] = incoming_doc.get("location_text_extracted")
+
+    if not canonical_doc.get("summary") and incoming_doc.get("summary"):
+        update["summary"] = incoming_doc.get("summary")
+
+    canonical_body = str(canonical_doc.get("body") or "")
+    incoming_body = str(incoming_doc.get("body") or "")
+    if len(incoming_body) > len(canonical_body):
+        update["body"] = incoming_doc.get("body")
+    if len(str(incoming_doc.get("summary") or "")) > len(str(canonical_doc.get("summary") or "")):
+        update["summary"] = incoming_doc.get("summary")
+
+    if _geocode_rank(incoming_doc.get("geocode_status")) > _geocode_rank(canonical_doc.get("geocode_status")):
+        for field in (
+            "geocode_status",
+            "geocode_provider",
+            "geocode_provider_version",
+            "geocode_point",
+            "geocode_bbox",
+            "location_resolution_method",
+            "district_predicted",
+            "district_confidence",
+            "location_text_extracted",
+        ):
+            if field in incoming_doc:
+                update[field] = incoming_doc.get(field)
+
+    for field in (
+        "image_url",
+        "image_url_snapshot",
+        "hero_image_url",
+        "cover_image_url",
+    ):
+        if not canonical_doc.get(field) and incoming_doc.get(field):
+            update[field] = incoming_doc.get(field)
+
+    return update
 
 
 class NewsWriteService:
@@ -29,6 +134,7 @@ class NewsWriteService:
         config: MCPConfig,
         mongo_client=None,
         materializer: SourceRecordMaterializer | None = None,
+        embedding_service: EmbeddingService | None = None,
     ) -> None:
         self._idempotency = idempotency
         self._queue = queue
@@ -36,6 +142,7 @@ class NewsWriteService:
         self._cfg = config
         self._mongo = mongo_client
         self._materializer = materializer or SourceRecordMaterializer()
+        self._embedding_service = embedding_service
 
     def write(self, request: NewsWriteRequest) -> WriteResult:
         idem_key = request.idempotency_key()
@@ -43,15 +150,12 @@ class NewsWriteService:
         if self._idempotency.is_duplicate(idem_key):
             existing_id = self._idempotency.get_existing_id(idem_key)
             logger.info(
-                "mcp.write.idempotency_hit",
-                extra={"idem_key": idem_key[:16], "existing_id": existing_id},
-            )
-            return WriteResult(
-                status=WriteStatus.DUPLICATE_MERGED,
-                news_id=existing_id,
-                was_duplicate=True,
-                idempotency_key=idem_key,
-                reason="idempotency_cache_hit",
+                "mcp.write.idempotency_refresh",
+                extra={
+                    "idem_key": idem_key[:16],
+                    "existing_id": existing_id,
+                    "reason": "recompute_materialized_record",
+                },
             )
 
         error_message: str | None = None
@@ -94,8 +198,10 @@ class NewsWriteService:
             idem_key = request.idempotency_key()
 
             if self._idempotency.is_duplicate(idem_key):
-                summary["processed"] += 1
-                continue
+                logger.info(
+                    "mcp.write.queue_idempotency_refresh",
+                    extra={"idem_key": idem_key[:16]},
+                )
 
             try:
                 self._mongo_write(request, idem_key)
@@ -136,12 +242,17 @@ class NewsWriteService:
         database = self._mongo[self._cfg.mongo_db]
         source_doc = self._get_source_document(database, request.source)
         crawl_session_id = self._resolve_crawl_session_id(database, request, source_doc)
+        dataset_generation = resolve_write_generation(
+            database,
+            requested_generation=request.dataset_generation,
+        )
 
         raw_documents = database["raw_documents"]
         raw_document = self._build_raw_document(
             request=request,
             source_doc=source_doc,
             crawl_session_id=crawl_session_id,
+            dataset_generation=dataset_generation,
         )
         raw_document_update = {
             key: value for key, value in raw_document.items() if key != "created_at"
@@ -150,6 +261,8 @@ class NewsWriteService:
             "source_id": source_doc["_id"],
             "canonical_url": request.url,
         }
+        if dataset_generation is not None:
+            raw_filter["dataset_generation"] = dataset_generation
         raw_result = raw_documents.update_one(
             raw_filter,
             {
@@ -169,11 +282,70 @@ class NewsWriteService:
             raw_document=saved_raw_document,
             source_document=source_doc,
         )
+        if dataset_generation is not None:
+            source_record["dataset_generation"] = dataset_generation
+        source_record["dedupe_hash"] = source_record.get("dedupe_hash") or self._duplicate_hash(
+            title=str(source_record.get("title") or request.title),
+            body=str(source_record.get("body") or request.content or ""),
+            summary=str(source_record.get("summary") or request.summary or ""),
+        )
+        source_records = database["source_records"]
+        source_record_filter = {"raw_document_id": saved_raw_document["_id"]}
+        existing_source_record = source_records.find_one(source_record_filter)
+        duplicate_target = self._find_duplicate_target(
+            source_records=source_records,
+            source_record=source_record,
+            raw_document_id=saved_raw_document["_id"],
+            dataset_generation=dataset_generation,
+        )
         source_record_update = {
             key: value for key, value in source_record.items() if key != "created_at"
         }
-        source_records = database["source_records"]
-        source_record_filter = {"raw_document_id": saved_raw_document["_id"]}
+        is_cross_source_duplicate = (
+            duplicate_target is not None
+            and (
+                existing_source_record is None
+                or str(duplicate_target.get("_id")) != str(existing_source_record.get("_id"))
+            )
+        )
+
+        if is_cross_source_duplicate:
+            canonical_update = merge_duplicate_source_record_docs(
+                duplicate_target,
+                source_record,
+            )
+            source_records.update_one(
+                {"_id": duplicate_target["_id"]},
+                {"$set": canonical_update},
+                upsert=False,
+            )
+            duplicate_record_update = {
+                **source_record_update,
+                "record_status": "merged_duplicate",
+                "duplicate_of_record_id": duplicate_target["_id"],
+                "kaynak_listesi": source_record.get("kaynak_listesi") or [request.source],
+            }
+            source_records.update_one(
+                source_record_filter,
+                {
+                    "$set": duplicate_record_update,
+                    "$setOnInsert": {
+                        "created_at": source_record["updated_at"],
+                    },
+                },
+                upsert=True,
+            )
+
+            news_id = str(duplicate_target["_id"])
+            self._idempotency.mark_processed(idem_key, news_id)
+            return WriteResult(
+                status=WriteStatus.DUPLICATE_MERGED,
+                news_id=news_id,
+                was_duplicate=True,
+                idempotency_key=idem_key,
+                reason="cross_source_duplicate_merged",
+            )
+
         source_record_result = source_records.update_one(
             source_record_filter,
             {
@@ -206,6 +378,207 @@ class NewsWriteService:
             was_duplicate=True,
             idempotency_key=idem_key,
         )
+
+    def _find_duplicate_target(
+        self,
+        *,
+        source_records,
+        source_record: dict,
+        raw_document_id: ObjectId,
+        dataset_generation: str | None,
+    ) -> dict | None:
+        hash_duplicate_target = self._find_hash_duplicate_target(
+            source_records=source_records,
+            source_record=source_record,
+            raw_document_id=raw_document_id,
+            dataset_generation=dataset_generation,
+        )
+        if hash_duplicate_target is not None:
+            source_record.update(
+                {
+                    "duplicate_status": "duplicate",
+                    "duplicate_source_record_id": hash_duplicate_target["_id"],
+                    "duplicate_text_similarity": 1.0,
+                    "duplicate_final_score": 1.0,
+                    "duplicate_threshold": self._duplicate_threshold(),
+                    "duplicate_reason": "dedupe_hash_match",
+                }
+            )
+            return hash_duplicate_target
+
+        semantic_duplicate_target = self._find_semantic_duplicate_target(
+            source_records=source_records,
+            source_record=source_record,
+            raw_document_id=raw_document_id,
+            dataset_generation=dataset_generation,
+        )
+        if semantic_duplicate_target is not None:
+            return semantic_duplicate_target
+
+        return None
+
+    def _find_hash_duplicate_target(
+        self,
+        *,
+        source_records,
+        source_record: dict,
+        raw_document_id: ObjectId,
+        dataset_generation: str | None,
+    ) -> dict | None:
+        dedupe_hash = str(source_record.get("dedupe_hash") or "").strip()
+        if not dedupe_hash:
+            return None
+
+        query: dict[str, object] = {
+            "dedupe_hash": dedupe_hash,
+            "record_status": {"$ne": "merged_duplicate"},
+            "raw_document_id": {"$ne": raw_document_id},
+        }
+        if dataset_generation is not None:
+            query["dataset_generation"] = dataset_generation
+
+        return source_records.find_one(query)
+
+    def _find_semantic_duplicate_target(
+        self,
+        *,
+        source_records,
+        source_record: dict,
+        raw_document_id: ObjectId,
+        dataset_generation: str | None,
+    ) -> dict | None:
+        if self._embedding_service is None:
+            return None
+
+        incoming_embedding = self._ensure_text_embedding(source_record)
+        if incoming_embedding is None:
+            source_record["duplicate_status"] = "skipped"
+            source_record["duplicate_reason"] = "semantic_embedding_unavailable"
+            return None
+
+        source_record["duplicate_status"] = "unique"
+        source_record["duplicate_threshold"] = self._duplicate_threshold()
+
+        candidate_query: dict[str, object] = {
+            "record_status": "active",
+            "raw_document_id": {"$ne": raw_document_id},
+        }
+        if dataset_generation is not None:
+            candidate_query["dataset_generation"] = dataset_generation
+
+        candidates: list[dict] = []
+        candidate_docs_by_id: dict[str, dict] = {}
+
+        for index, candidate_doc in enumerate(source_records.find(candidate_query)):
+            if index >= 250:
+                break
+
+            candidate_embedding = self._ensure_text_embedding(candidate_doc)
+            if candidate_embedding is None:
+                continue
+
+            candidate_id = str(candidate_doc.get("_id"))
+            candidate_docs_by_id[candidate_id] = candidate_doc
+            candidates.append(
+                {
+                    "id": candidate_id,
+                    "text_vector": candidate_embedding.vector,
+                    "image_vector": None,
+                    "kaynak_listesi": candidate_doc.get("kaynak_listesi", []),
+                }
+            )
+
+        if not candidates:
+            source_record["duplicate_reason"] = "semantic_no_candidates"
+            return None
+
+        try:
+            duplicate_score = self._embedding_service.decide_duplicate(
+                incoming_text=incoming_embedding,
+                incoming_image=None,
+                candidates=candidates,
+                new_source=str((source_record.get("kaynak_listesi") or [""])[0]),
+            )
+        except Exception as exc:
+            logger.warning(
+                "mcp.write.semantic_duplicate_failed",
+                extra={"error": f"{type(exc).__name__}: {exc}"},
+            )
+            source_record["duplicate_status"] = "error"
+            source_record["duplicate_reason"] = "semantic_duplicate_failed"
+            return None
+
+        source_record.update(
+            {
+                "duplicate_text_similarity": duplicate_score.text_similarity,
+                "duplicate_final_score": duplicate_score.final_score,
+                "duplicate_threshold": self._duplicate_threshold(),
+                "duplicate_reason": (
+                    "semantic_text_similarity_match"
+                    if duplicate_score.is_duplicate
+                    else "semantic_below_threshold"
+                ),
+            }
+        )
+
+        if not duplicate_score.is_duplicate or duplicate_score.matched_news_id is None:
+            return None
+
+        matched_doc = candidate_docs_by_id.get(duplicate_score.matched_news_id)
+        if matched_doc is None:
+            return None
+
+        source_record["duplicate_status"] = "duplicate"
+        source_record["duplicate_source_record_id"] = matched_doc["_id"]
+        return matched_doc
+
+    def _ensure_text_embedding(self, source_record: dict) -> TextEmbedding | None:
+        existing_vector = source_record.get("text_embedding")
+        if isinstance(existing_vector, list) and existing_vector:
+            return TextEmbedding(
+                vector=[float(value) for value in existing_vector],
+                dimension=int(source_record.get("text_embedding_dim") or len(existing_vector)),
+                provider=str(source_record.get("text_embedding_model") or "stored-text-embedding"),
+            )
+
+        if self._embedding_service is None:
+            return None
+
+        try:
+            text_embedding, _ = self._embedding_service.embed(
+                EmbeddingInput(
+                    title=str(source_record.get("title") or ""),
+                    summary=str(source_record.get("summary") or "") or None,
+                    content=str(source_record.get("body") or "") or None,
+                    source=self._embedding_source_label(source_record),
+                    image_url=None,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "mcp.write.text_embedding_failed",
+                extra={"error": f"{type(exc).__name__}: {exc}"},
+            )
+            return None
+
+        source_record["text_embedding"] = text_embedding.vector
+        source_record["text_embedding_model"] = text_embedding.provider
+        source_record["text_embedding_dim"] = text_embedding.dimension
+        return text_embedding
+
+    def _embedding_source_label(self, source_record: dict) -> str:
+        kaynak_listesi = source_record.get("kaynak_listesi") or []
+        if kaynak_listesi:
+            return str(kaynak_listesi[0])
+        source_name = str(source_record.get("source_name_snapshot") or "").strip()
+        if source_name:
+            return source_name
+        return "unknown"
+
+    def _duplicate_threshold(self) -> float | None:
+        if self._embedding_service is None:
+            return None
+        return float(getattr(getattr(self._embedding_service, "_cfg", None), "duplicate_threshold", 0.90))
 
     def _get_source_document(self, database, domain: str) -> dict:
         source_doc = database["sources"].find_one({"domain": domain})
@@ -247,6 +620,7 @@ class NewsWriteService:
         request: NewsWriteRequest,
         source_doc: dict,
         crawl_session_id: ObjectId,
+        dataset_generation: str | None,
     ) -> dict:
         now = datetime.now(timezone.utc)
         published_at = parse_published_at_raw(request.published_at)
@@ -259,7 +633,7 @@ class NewsWriteService:
             resolved_url=request.resolved_url or request.url,
         )
 
-        return {
+        raw_document = {
             "source_id": source_doc["_id"],
             "crawl_session_id": crawl_session_id,
             "canonical_url": request.url,
@@ -279,9 +653,15 @@ class NewsWriteService:
             "created_at": now,
             "updated_at": now,
         }
+        if dataset_generation is not None:
+            raw_document["dataset_generation"] = dataset_generation
+        return raw_document
 
     def _content_hash(self, title: str, text_raw: str) -> str:
         return compute_content_hash(title=title, body=text_raw)
+
+    def _duplicate_hash(self, *, title: str, body: str, summary: str) -> str:
+        return compute_duplicate_hash(title=title, body=body, summary=summary)
 
     def _build_image_urls_raw(
         self,

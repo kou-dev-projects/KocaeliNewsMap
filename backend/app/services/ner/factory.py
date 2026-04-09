@@ -1,31 +1,20 @@
 from __future__ import annotations
-from .providers.gliner_tagger import GLiNERTagger
-from .config import NERConfig, load_ner_config
-from .providers.bertturk import BERTTurkNERProvider
-from .providers.mock import MockNERProvider
-from .service import NERService
 
+from app.settings import settings
+
+from .config import NERConfig, load_ner_config
+from .local_factory import build_local_ner_service
+from .remote_service import RemoteNERService
+from .service import NERService
 
 def build_ner_service(
     config: NERConfig | None = None,
-) -> NERService:
+) -> NERService | RemoteNERService:
     cfg = config or load_ner_config()
-
-    match cfg.provider:
-
-        case "mock":
-            provider = MockNERProvider()
-        case "bertturk":
-            provider = BERTTurkNERProvider(model_name=cfg.model_name)
-        case "gliner":
-            provider = GLiNERTagger(
-                model_name=cfg.model_name or "urchade/gliner_multi-v2.1",
-                threshold=cfg.gliner_threshold,
-            )
-        case _:
-            raise ValueError(f"Bilinmeyen NER provider: {cfg.provider!r}")
-
-    return NERService(
-        provider=provider,
-        min_score=cfg.min_score,
-    )
+    if settings.ml_service_url and cfg.provider != "mock":
+        return RemoteNERService(
+            base_url=settings.ml_service_url,
+            timeout_seconds=settings.ml_service_timeout_seconds,
+            config=cfg,
+        )
+    return build_local_ner_service(cfg)

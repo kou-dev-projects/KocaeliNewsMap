@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 
 from ..schemas import RawEntity
 
@@ -14,6 +13,10 @@ except ImportError:
 
 class BERTTurkNERProvider:
     def __init__(self, model_name: str) -> None:
+        if not _AVAILABLE:
+            raise ImportError(
+                "transformers yüklü değil. BERTTurk NER provider kullanılamaz."
+            )
         self._model_name = model_name
         self._pipeline = None
 

@@ -1,4 +1,5 @@
 import pytest
+
 from app.services.ner.gazetteer import GazetteerMatcher
 
 
@@ -33,15 +34,33 @@ def test_no_match_unknown(matcher):
     assert result is None
 
 
+def test_hereke_stays_district(matcher):
+    result = matcher.match("Hereke'de")
+    assert result is not None
+    assert result.canonical_name == "Hereke"
+    assert result.feature_type == "district"
+    assert result.district == "Hereke"
+
+
 def test_all_13_districts(matcher):
     districts = [
-        "İzmit", "Gebze", "Darıca", "Gölcük", "Hereke", "Körfez",
-        "Kartepe", "Başiskele", "Çayırova", "Dilovası",
-        "Kandıra", "Karamürsel", "Derince",
+        "İzmit",
+        "Gebze",
+        "Darıca",
+        "Gölcük",
+        "Hereke",
+        "Körfez",
+        "Kartepe",
+        "Başiskele",
+        "Çayırova",
+        "Dilovası",
+        "Kandıra",
+        "Karamürsel",
+        "Derince",
     ]
-    for d in districts:
-        result = matcher.match(d)
-        assert result is not None, f"{d} gazetteer'de bulunamadı"
+    for district in districts:
+        result = matcher.match(district)
+        assert result is not None, f"{district} gazetteer'de bulunamadı"
 
 
 def test_match_all_batch(matcher):

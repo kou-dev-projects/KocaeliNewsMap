@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
@@ -14,7 +14,6 @@ class WriteStatus(str, Enum):
 
 @dataclass(frozen=True)
 class NewsWriteRequest:
-  
     title: str
     url: str
     source: str                    # kaynak domain
@@ -24,22 +23,22 @@ class NewsWriteRequest:
     published_at: Optional[str] = None
     raw_html: Optional[str] = None
     crawl_session_id: Optional[str] = None
+    dataset_generation: Optional[str] = None
     resolved_url: Optional[str] = None
     scraped_at: Optional[str] = None
     parser_version: str = "mcp_write_v1"
 
     def idempotency_key(self) -> str:
-        
         payload = f"{self.source}::{self.url}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
     def safe_log_repr(self) -> dict:
-       
         return {
             "title_len": len(self.title),
             "source": self.source,
             "url_hash": self.idempotency_key()[:16],
             "has_image": bool(self.image_url),
+            "dataset_generation": self.dataset_generation,
         }
 
 

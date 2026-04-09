@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1.7
+
+FROM python:3.13-slim-bookworm
+
+ARG PRELOAD_ML_MODELS=true
+ARG PRELOAD_NER_PROVIDER=bertturk
+ARG PRELOAD_NER_MODEL=savasy/bert-base-turkish-ner-cased
+ARG PRELOAD_TEXT_PROVIDER=mock
+ARG PRELOAD_IMAGE_PROVIDER=mock
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_CACHE_DIR=/root/.cache/pip \
+    PIP_ROOT_USER_ACTION=ignore \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/appuser \
+    HF_HOME=/home/appuser/.cache/huggingface \
+    HF_HUB_DISABLE_XET=1 \
+    TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/hub
+
+WORKDIR /build
+
+COPY requirements.txt ./requirements.txt
+COPY requirements/runtime.txt requirements/torch-cpu.txt requirements/optional-ml.txt ./requirements/
+
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    python -m pip install -r requirements.txt \
+    && python -m pip install -r requirements/torch-cpu.txt \
+    && python -m pip install -r requirements/optional-ml.txt
+
+RUN groupadd -r appuser \
+    && useradd -m -r -g appuser -d /home/appuser appuser \
+    && mkdir -p /home/appuser/.cache/huggingface/hub \
+    && chown -R appuser:appuser /home/appuser
+
+WORKDIR /app
+
+COPY --chown=appuser:appuser app ./app
+
+USER appuser
+
+RUN if [ "$PRELOAD_ML_MODELS" = "true" ]; then \
+        python -m app.scripts.preload_ml_models \
+            --ner-provider "$PRELOAD_NER_PROVIDER" \
+            --ner-model "$PRELOAD_NER_MODEL" \
+            --text-provider "$PRELOAD_TEXT_PROVIDER" \
+            --image-provider "$PRELOAD_IMAGE_PROVIDER"; \
+    fi

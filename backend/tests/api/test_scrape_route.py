@@ -3,8 +3,16 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from app.routes.scrape import get_job_status, trigger_scrape
+from app.routes.scrape import (
+    bootstrap_scrape,
+    get_job_status,
+    refresh_scrape,
+    trigger_scrape,
+)
+from app.services.scrape_orchestrator import ScrapeTriggerResult
 from app.workers.job_manager import JobInfo, JobQueueUnavailableError
+
+API_KEY = "secret-token"
 
 
 class FakeRequestClient:
@@ -52,11 +60,12 @@ class FakeJobManager:
 
 @pytest.fixture(autouse=True)
 def reset_scrape_route_state(monkeypatch):
-    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", None)
+    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", API_KEY)
     monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_rate_limit_enabled", True)
     monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_rate_limit_requests", 5)
     monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_rate_limit_window_seconds", 60)
     monkeypatch.setattr("app.routes.scrape.settings.trusted_proxy_cidrs", "")
+    monkeypatch.setattr("app.routes.scrape._get_rate_limit_redis", lambda: None)
     monkeypatch.setattr("app.routes.scrape._job_manager", None)
     monkeypatch.setattr("app.routes.scrape._rate_limit_redis", None)
     monkeypatch.setattr("app.routes.scrape._trusted_networks", None)
@@ -67,7 +76,7 @@ def test_trigger_scrape_returns_202_with_job_details(monkeypatch):
     monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: manager)
     monkeypatch.setattr("app.routes.scrape._validate_source_exists", lambda source: None)
 
-    result = trigger_scrape(request=FakeRequest(), source=None)
+    result = trigger_scrape(request=FakeRequest(), source=None, x_api_key=API_KEY)
     payload = json.loads(result.body)
 
     assert result.status_code == 202
@@ -79,6 +88,71 @@ def test_trigger_scrape_returns_202_with_job_details(monkeypatch):
     assert manager.submitted == [(None, "manual")]
 
 
+def test_bootstrap_scrape_returns_200_when_data_already_initialized(monkeypatch):
+    monkeypatch.setattr(
+        "app.routes.scrape.start_bootstrap_scrape_if_needed",
+        lambda database, manager: ScrapeTriggerResult(
+            status="already_initialized",
+            trigger_type="bootstrap",
+            reason="data_exists",
+        ),
+    )
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
+
+    result = bootstrap_scrape(request=FakeRequest(), x_api_key=API_KEY)
+    payload = json.loads(result.body)
+
+    assert result.status_code == 200
+    assert payload == {
+        "status": "already_initialized",
+        "reason": "data_exists",
+    }
+
+
+def test_bootstrap_scrape_returns_202_when_job_is_started(monkeypatch):
+    monkeypatch.setattr(
+        "app.routes.scrape.start_bootstrap_scrape_if_needed",
+        lambda database, manager: ScrapeTriggerResult(
+            status="started",
+            trigger_type="bootstrap",
+            job_id="job_456",
+        ),
+    )
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
+
+    result = bootstrap_scrape(request=FakeRequest(), x_api_key=API_KEY)
+    payload = json.loads(result.body)
+
+    assert result.status_code == 202
+    assert payload == {
+        "job_id": "job_456",
+        "status": "pending",
+        "status_url": "http://testserver/api/v1/scrape/jobs/job_456",
+    }
+
+
+def test_refresh_scrape_returns_202_with_job_details(monkeypatch):
+    monkeypatch.setattr(
+        "app.routes.scrape.start_refresh_scrape",
+        lambda database, manager: ScrapeTriggerResult(
+            status="started",
+            trigger_type="refresh",
+            job_id="job_789",
+        ),
+    )
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
+
+    result = refresh_scrape(request=FakeRequest(), x_api_key=API_KEY)
+    payload = json.loads(result.body)
+
+    assert result.status_code == 202
+    assert payload == {
+        "job_id": "job_789",
+        "status": "pending",
+        "status_url": "http://testserver/api/v1/scrape/jobs/job_789",
+    }
+
+
 def test_trigger_scrape_normalizes_source_before_enqueue(monkeypatch):
     manager = FakeJobManager()
     monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: manager)
@@ -87,6 +161,7 @@ def test_trigger_scrape_normalizes_source_before_enqueue(monkeypatch):
     result = trigger_scrape(
         request=FakeRequest(),
         source=" OZGURKOCAELI.COM.TR ",
+        x_api_key=API_KEY,
     )
     payload = json.loads(result.body)
 
@@ -105,15 +180,13 @@ def test_trigger_scrape_raises_404_for_missing_source(monkeypatch):
     monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
 
     with pytest.raises(HTTPException) as exc_info:
-        trigger_scrape(request=FakeRequest(), source="missing.com")
+        trigger_scrape(request=FakeRequest(), source="missing.com", x_api_key=API_KEY)
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "active_source_not_found: missing.com"
 
 
-def test_trigger_scrape_requires_api_key_when_configured(monkeypatch):
-    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", "secret-token")
-
+def test_trigger_scrape_requires_api_key(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         trigger_scrape(
             request=FakeRequest(),
@@ -125,16 +198,29 @@ def test_trigger_scrape_requires_api_key_when_configured(monkeypatch):
     assert exc_info.value.detail == "unauthorized_scrape_trigger"
 
 
+def test_trigger_scrape_returns_503_when_api_key_not_configured(monkeypatch):
+    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", "")
+
+    with pytest.raises(HTTPException) as exc_info:
+        trigger_scrape(
+            request=FakeRequest(),
+            source=None,
+            x_api_key=API_KEY,
+        )
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "scrape_trigger_auth_misconfigured"
+
+
 def test_trigger_scrape_accepts_valid_api_key(monkeypatch):
     manager = FakeJobManager()
-    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", "secret-token")
     monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: manager)
     monkeypatch.setattr("app.routes.scrape._validate_source_exists", lambda source: None)
 
     result = trigger_scrape(
         request=FakeRequest(),
         source="ozgurkocaeli.com.tr",
-        x_api_key="secret-token",
+        x_api_key=API_KEY,
     )
     payload = json.loads(result.body)
 
@@ -156,7 +242,7 @@ def test_trigger_scrape_returns_503_when_queue_unavailable(monkeypatch):
     monkeypatch.setattr("app.routes.scrape._validate_source_exists", lambda source: None)
 
     with pytest.raises(HTTPException) as exc_info:
-        trigger_scrape(request=FakeRequest(), source=None)
+        trigger_scrape(request=FakeRequest(), source=None, x_api_key=API_KEY)
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "job_queue_unavailable"
@@ -172,7 +258,7 @@ def test_get_job_status_returns_503_when_queue_unavailable(monkeypatch):
     monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: manager)
 
     with pytest.raises(HTTPException) as exc_info:
-        get_job_status("job_123")
+        get_job_status("job_123", x_api_key=API_KEY)
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "job_queue_unavailable"
@@ -181,7 +267,6 @@ def test_get_job_status_returns_503_when_queue_unavailable(monkeypatch):
 def test_trigger_scrape_rate_limit_returns_429(monkeypatch):
     monkeypatch.setattr("app.routes.scrape._validate_source_exists", lambda source: None)
     monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: FakeJobManager())
-    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", "secret-token")
     monkeypatch.setattr(
         "app.routes.scrape._enforce_rate_limit",
         lambda client_id: (_ for _ in ()).throw(
@@ -197,7 +282,7 @@ def test_trigger_scrape_rate_limit_returns_429(monkeypatch):
         trigger_scrape(
             request=FakeRequest(host="10.0.0.55"),
             source=None,
-            x_api_key="secret-token",
+            x_api_key=API_KEY,
         )
 
     assert exc_info.value.status_code == 429
@@ -220,7 +305,7 @@ def test_get_job_status_returns_job_payload(monkeypatch):
     )
     monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: manager)
 
-    result = get_job_status("job_123")
+    result = get_job_status("job_123", x_api_key=API_KEY)
 
     assert result == {
         "job_id": "job_123",

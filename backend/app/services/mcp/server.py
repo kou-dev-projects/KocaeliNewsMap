@@ -3,6 +3,8 @@ import logging
 
 from pymongo import MongoClient
 
+from app.services.embedding import build_embedding_service
+
 from .config import MCPConfig, load_mcp_config
 from .dead_letter import DeadLetterStore
 from .idempotency import IdempotencyStore
@@ -60,6 +62,7 @@ def create_write_services(
         dead_letter=dead_letter,
         config=cfg,
         mongo_client=mongo,
+        embedding_service=build_embedding_service(),
     )
 
     logger.info("mcp.services.ready")

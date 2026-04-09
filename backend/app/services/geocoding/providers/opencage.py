@@ -6,10 +6,11 @@ import requests
 
 from ..config import GeocodingConfig
 from ..exceptions import ProviderError, ProviderRateLimitError
+from ..provider_versions import PROVIDER_VERSIONS
 from ..schemas import GeocodingInput, GeocodingResult
 
 logger = logging.getLogger(__name__)
-_PROVIDER_VERSION = "opencage@1.0"
+_PROVIDER_VERSION = PROVIDER_VERSIONS["opencage"]
 
 
 class OpenCageProvider:

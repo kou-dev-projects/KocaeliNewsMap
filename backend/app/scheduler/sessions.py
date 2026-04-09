@@ -21,6 +21,7 @@ class CrawlSessionStore:
         lookback_days: int,
         worker_version: str,
         trace_id: str,
+        dataset_generation: str | None = None,
     ):
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(days=lookback_days)
@@ -42,6 +43,8 @@ class CrawlSessionStore:
             "created_at": now,
             "updated_at": now,
         }
+        if dataset_generation:
+            document["dataset_generation"] = dataset_generation
         result = self._db["crawl_sessions"].insert_one(document)
         return result.inserted_id
 

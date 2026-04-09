@@ -1,0 +1,19 @@
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+filterwarnings = [
+  "ignore:.*torch\\.jit\\.script.*:DeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [
+  "frontend",
+  "backend/tmp",
+  "backend/_codex_restore_pyc",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

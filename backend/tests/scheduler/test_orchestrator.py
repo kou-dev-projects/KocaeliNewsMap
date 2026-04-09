@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from app.scheduler.config import SchedulerConfig
 from app.scheduler.orchestrator import (
     DynamicSourceDefinition,
@@ -106,7 +108,7 @@ class FakeDetailScraper:
         return {
             "title": "Test baslik",
             "content_text": "Test icerik",
-            "published_at_raw": "2026-03-23T10:30:00+03:00",
+            "published_at_raw": datetime.now(timezone.utc).isoformat(),
             "image_url": "https://example.com/image.jpg",
         }
 
@@ -120,7 +122,7 @@ class FakeParser:
             "content_text": detail_data["content_text"],
             "published_at_raw": detail_data["published_at_raw"],
             "image_url": detail_data["image_url"],
-            "scraped_at": "2026-03-23T08:00:00+00:00",
+            "scraped_at": datetime.now(timezone.utc).isoformat(),
         }
 
 
@@ -223,6 +225,7 @@ def test_crawl_active_sources_processes_supported_sources(monkeypatch):
     assert summary["active_sources"] == 2
     assert summary["processed_sources"] == 1
     assert summary["skipped_sources"] == 1
+    assert summary["skipped_session_reasons"] == ["unsupported_source"]
     assert summary["sessions"][0]["status"] == "success"
     assert summary["sessions"][0]["parsed_count"] == 1
     # Verify lease was acquired and released
@@ -252,8 +255,16 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
 
     orchestrator = _make_orchestrator(source_docs)
 
-    def fake_crawl_single_source(*, source_document, trigger_type):
+    def fake_crawl_single_source(
+        *,
+        source_document,
+        trigger_type,
+        dataset_generation=None,
+        progress_callback=None,
+    ):
         assert trigger_type == "scheduled"
+        assert dataset_generation is None
+        assert progress_callback is None
         if source_document["domain"] == "broken.example.com":
             raise RuntimeError("boom")
         return {
@@ -276,6 +287,8 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
     failed_session = next(item for item in summary["sessions"] if item["domain"] == "broken.example.com")
     assert failed_session["status"] == "failed"
     assert failed_session["reason"] == "unhandled_source_exception"
+    assert failed_session["error_type"] == "RuntimeError"
+    assert failed_session["error_message"] == "boom"
 
 
 def test_crawl_source_returns_skipped_for_unsupported_source():
@@ -333,8 +346,11 @@ def test_crawl_source_static_bootstrap_failure_releases_lease(monkeypatch):
 
     assert result["status"] == "failed"
     assert result["failed_count"] == 1
+    assert result["error_type"] == "RuntimeError"
+    assert "factory_error" in result["error_message"]
     assert session_store.finalized[0]["failed_count"] == 1
     assert session_store.finalized[0]["error_summary"][0]["code"] == "source_bootstrap_error"
+    assert session_store.finalized[0]["error_summary"][0]["error_type"] == "RuntimeError"
     # Verify lease was acquired then released
     assert len(lease.acquired) == 1
     assert len(lease.released) == 1
@@ -409,3 +425,147 @@ def test_crawl_source_dynamic_closes_scrapers(monkeypatch):
     assert FakeDynamicListingScraper.closed is True
     assert FakeDynamicDetailScraper.closed is True
     assert FakePlaywrightClient.stopped is True
+
+
+def test_crawl_source_static_processing_failure_exposes_error_details(monkeypatch):
+    class BrokenDetailScraper(FakeDetailScraper):
+        def fetch_detail_html(self, url):
+            raise ValueError("detail_boom")
+
+    monkeypatch.setattr(
+        "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
+        {
+            "cagdaskocaeli.com.tr": StaticSourceDefinition(
+                listing_scraper_factory=FakeListingScraper,
+                detail_scraper_factory=BrokenDetailScraper,
+                parser_factory=FakeParser,
+            )
+        },
+    )
+    monkeypatch.setattr("app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY", {})
+
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "cagdaskocaeli.com.tr",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+            "scraper_type": "static",
+        }
+    ]
+
+    session_store = StatusAwareSessionStore()
+    orchestrator = _make_orchestrator(
+        source_docs,
+        session_store=session_store,
+        config=SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=1,
+            max_urls_per_source=1,
+        ),
+    )
+
+    result = orchestrator.crawl_source("cagdaskocaeli.com.tr", trigger_type="manual")
+
+    assert result["status"] == "failed"
+    assert result["error_type"] == "ValueError"
+    assert "detail_boom" in result["error_message"]
+    error_summary = session_store.finalized[0]["error_summary"]
+    assert error_summary[0]["code"] == "source_processing_error"
+    assert error_summary[0]["error_type"] == "ValueError"
+
+
+def test_crawl_source_emits_progress_events(monkeypatch):
+    monkeypatch.setattr(
+        "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
+        {
+            "cagdaskocaeli.com.tr": StaticSourceDefinition(
+                listing_scraper_factory=FakeListingScraper,
+                detail_scraper_factory=FakeDetailScraper,
+                parser_factory=FakeParser,
+            )
+        },
+    )
+    monkeypatch.setattr("app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY", {})
+
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "cagdaskocaeli.com.tr",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+            "scraper_type": "static",
+            "display_name": "Cagdas Kocaeli",
+        }
+    ]
+
+    orchestrator = _make_orchestrator(source_docs)
+    events = []
+
+    result = orchestrator.crawl_source(
+        "cagdaskocaeli.com.tr",
+        trigger_type="manual",
+        progress_callback=events.append,
+    )
+
+    assert result["status"] == "success"
+    assert [event["event"] for event in events] == [
+        "source_crawl_started",
+        "source_listing_collected",
+        "source_crawl_completed",
+    ]
+    assert events[1]["details"]["listing_count"] == 1
+    assert events[2]["details"]["parsed_count"] == 1
+
+
+def test_crawl_source_skips_records_older_than_lookback(monkeypatch):
+    class OldDetailScraper(FakeDetailScraper):
+        def extract_detail_fields(self, html):
+            return {
+                "title": "Eski haber",
+                "content_text": "Eski icerik",
+                "published_at_raw": (datetime.now(timezone.utc) - timedelta(days=4)).isoformat(),
+                "image_url": "https://example.com/image.jpg",
+            }
+
+    monkeypatch.setattr(
+        "app.scheduler.orchestrator.STATIC_SOURCE_REGISTRY",
+        {
+            "cagdaskocaeli.com.tr": StaticSourceDefinition(
+                listing_scraper_factory=FakeListingScraper,
+                detail_scraper_factory=OldDetailScraper,
+                parser_factory=FakeParser,
+            )
+        },
+    )
+    monkeypatch.setattr("app.scheduler.orchestrator.DYNAMIC_SOURCE_REGISTRY", {})
+
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "cagdaskocaeli.com.tr",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+            "scraper_type": "static",
+        }
+    ]
+
+    write_service = FakeWriteService()
+    orchestrator = _make_orchestrator(
+        source_docs,
+        write_service=write_service,
+        config=SchedulerConfig(
+            enabled=True,
+            timezone="Europe/Istanbul",
+            interval_hours=3,
+            lookback_days=3,
+            max_urls_per_source=1,
+        ),
+    )
+
+    result = orchestrator.crawl_source("cagdaskocaeli.com.tr", trigger_type="manual")
+
+    assert result["status"] == "success"
+    assert result["fetched_count"] == 1
+    assert result["parsed_count"] == 0
+    assert result["failed_count"] == 0
+    assert write_service.calls == []

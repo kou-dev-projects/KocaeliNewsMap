@@ -1,15 +1,40 @@
+import os
 from pathlib import Path
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+def _find_env_file() -> Path | None:
+    explicit_env_file = os.getenv("PULSE_ENV_FILE")
+    if explicit_env_file:
+        candidate = Path(explicit_env_file).expanduser()
+        return candidate.resolve() if candidate.exists() else candidate
+
+    search_roots = (
+        Path(__file__).resolve().parent,
+        Path.cwd().resolve(),
+    )
+    seen: set[Path] = set()
+
+    for root in search_roots:
+        for directory in (root, *root.parents):
+            candidate = directory / ".env"
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if candidate.is_file():
+                return candidate
+
+    return None
+
+
+ROOT_ENV_FILE = _find_env_file()
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=ROOT_ENV_FILE,
+        env_file=str(ROOT_ENV_FILE) if ROOT_ENV_FILE is not None else None,
         env_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
@@ -38,8 +63,8 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = True
     scheduler_timezone: str = "Europe/Istanbul"
     scheduler_interval_hours: int = 3
-    scheduler_lookback_days: int = 1
-    scheduler_max_urls_per_source: int = 10
+    scheduler_lookback_days: int = 3
+    scheduler_max_urls_per_source: int = 30
     scheduler_skip_domains: str = ""
     scrape_trigger_api_key: str | None = None
     scrape_trigger_rate_limit_enabled: bool = True
@@ -52,6 +77,8 @@ class Settings(BaseSettings):
     job_max_attempts: int = 3
     job_retry_backoff_seconds: float = 5.0
     scheduled_job_lock_ttl_seconds: int = 21600
+    scrape_event_stream_maxlen: int = 2000
+    scrape_events_heartbeat_seconds: int = 15
 
     classifier_semantic_enabled: bool = False
     classifier_semantic_threshold: float = 0.3
@@ -62,6 +89,8 @@ class Settings(BaseSettings):
     gliner_threshold: float = 0.50
     gliner_model_name: str = "urchade/gliner_multi-v2.1"
     bertturk_model_name: str = "savasy/bert-base-turkish-ner-cased"
+    ml_service_url: str | None = None
+    ml_service_timeout_seconds: float = 180.0
 
     mcp_lease_ttl: int = 300
     mcp_idempotency_ttl: int = 86400

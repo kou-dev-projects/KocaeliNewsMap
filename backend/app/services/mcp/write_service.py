@@ -599,12 +599,19 @@ class NewsWriteService:
             return None
 
         try:
-            duplicate_score = self._embedding_service.decide_duplicate(
-                incoming_text=incoming_embedding,
-                incoming_image=None,
-                candidates=candidates,
-                new_source=str((source_record.get("kaynak_listesi") or [""])[0]),
-            )
+            try:
+                duplicate_score = self._embedding_service.decide_duplicate(
+                    incoming_text=incoming_embedding,
+                    candidates=candidates,
+                    new_source=str((source_record.get("kaynak_listesi") or [""])[0]),
+                )
+            except TypeError:
+                duplicate_score = self._embedding_service.decide_duplicate(
+                    incoming_text=incoming_embedding,
+                    incoming_image=None,
+                    candidates=candidates,
+                    new_source=str((source_record.get("kaynak_listesi") or [""])[0]),
+                )
         except Exception as exc:
             logger.warning(
                 "mcp.write.semantic_duplicate_failed",
@@ -651,15 +658,18 @@ class NewsWriteService:
             return None
 
         try:
-            text_embedding, _ = self._embedding_service.embed(
+            embedding_result = self._embedding_service.embed(
                 EmbeddingInput(
                     title=str(source_record.get("title") or ""),
                     summary=str(source_record.get("summary") or "") or None,
                     content=str(source_record.get("body") or "") or None,
                     source=self._embedding_source_label(source_record),
-                    image_url=None,
                 )
             )
+            if isinstance(embedding_result, tuple):
+                text_embedding = embedding_result[0]
+            else:
+                text_embedding = embedding_result
         except Exception as exc:
             logger.warning(
                 "mcp.write.text_embedding_failed",

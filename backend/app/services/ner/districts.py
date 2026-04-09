@@ -61,34 +61,49 @@ _DISTRICT_EXTENDED_SPAN_PREFIXES = tuple(
     )
 )
 
+_NORMALIZATION_REPLACEMENTS = (
+    ("İ", "I"),
+    ("I", "I"),
+    ("ı", "i"),
+    ("Ç", "C"),
+    ("ç", "c"),
+    ("Ğ", "G"),
+    ("ğ", "g"),
+    ("Ö", "O"),
+    ("ö", "o"),
+    ("Ş", "S"),
+    ("ş", "s"),
+    ("Ü", "U"),
+    ("ü", "u"),
+    ("Â", "A"),
+    ("â", "a"),
+    ("Î", "I"),
+    ("î", "i"),
+    ("Û", "U"),
+    ("û", "u"),
+    # Legacy mojibake variants still present in older data.
+    ("Ä°", "I"),
+    ("Ä±", "i"),
+    ("Ã§", "c"),
+    ("ÄŸ", "g"),
+    ("Ã¶", "o"),
+    ("ÅŸ", "s"),
+    ("Ã¼", "u"),
+    ("Ã¢", "a"),
+    ("Ã®", "i"),
+    ("Ã»", "u"),
+)
+
 
 def normalize_for_compare(text: str) -> str:
     value = text.strip()
-
-    value = value.replace("İ", "I")
-    value = value.replace("ı", "i")
-
+    for source, target in _NORMALIZATION_REPLACEMENTS:
+        value = value.replace(source, target)
+    value = value.replace("â€™", "").replace("’", "").replace("'", "")
     value = value.lower()
     value = unicodedata.normalize("NFKD", value)
     value = "".join(ch for ch in value if not unicodedata.combining(ch))
-
-    replacements = {
-        "ç": "c",
-        "ğ": "g",
-        "ö": "o",
-        "ş": "s",
-        "ü": "u",
-        "â": "a",
-        "î": "i",
-        "û": "u",
-        "'": "",
-        "’": "",
-        "-": " ",
-    }
-
-    for src, target in replacements.items():
-        value = value.replace(src, target)
-
+    value = value.replace("-", " ")
     return " ".join(value.split())
 
 
@@ -113,7 +128,7 @@ def _matches_name_with_suffix(
     if not normalized.startswith(key):
         return False
 
-    suffix = normalized[len(key):]
+    suffix = normalized[len(key) :]
     return suffix in allowed_suffixes
 
 
@@ -138,7 +153,7 @@ def _matches_extended_district_span(normalized: str, key: str) -> bool:
     if not normalized.startswith(prefix):
         return False
 
-    remainder = normalized[len(prefix):].strip()
+    remainder = normalized[len(prefix) :].strip()
     if not remainder:
         return False
 

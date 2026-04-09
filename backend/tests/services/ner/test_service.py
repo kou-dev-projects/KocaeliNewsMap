@@ -134,6 +134,55 @@ def test_multiword_neighborhood_is_detected_when_provider_fails():
     )
 
 
+def test_district_prefixed_neighborhood_does_not_fall_into_same_name_other_district():
+    service = NERService(provider=ExplodingProvider(), min_score=0.5)
+
+    result = service.extract_locations(
+        NERInput(
+            title="Izmit'te ortaokul ogrencisi darp edildi",
+            content=(
+                "Izmit Yenimahalle'de bulunan Mehmet Sinan Dereli Ortaokulu'nda "
+                "ogrenciler arasinda tartisma yasandi."
+            ),
+        )
+    )
+
+    assert any(
+        candidate.neighborhood == "Yenimahalle Mahallesi"
+        and normalize_for_compare(candidate.district or "") == "izmit"
+        for candidate in result.location_candidates
+    )
+    assert not any(
+        candidate.neighborhood == "Yenimahalle Mahallesi"
+        and normalize_for_compare(candidate.district or "") == "cayirova"
+        for candidate in result.location_candidates
+    )
+    assert normalize_for_compare(result.validated_districts[0]) == "izmit"
+
+
+def test_district_prefixed_village_name_maps_to_matching_neighborhood():
+    service = NERService(provider=ExplodingProvider(), min_score=0.5)
+
+    result = service.extract_locations(
+        NERInput(
+            title="Cetin ailesinin aci gunu",
+            content=(
+                "Kocaeli'nin Kartepe ilcesi Ketenciler Koyu (Mahallesi) "
+                "sakinlerinden merhum Sabahattin Cetin'in esi vefat etti."
+            ),
+        )
+    )
+
+    assert any(
+        candidate.neighborhood == "Ketenciler Mahallesi"
+        and normalize_for_compare(candidate.district or "") == "kartepe"
+        for candidate in result.location_candidates
+    )
+    assert "kartepe" in {
+        normalize_for_compare(value) for value in result.validated_districts
+    }
+
+
 def test_hereke_stays_validated_as_hereke():
     service = NERService(provider=ExplodingProvider(), min_score=0.5)
 

@@ -16,6 +16,8 @@ from .schemas import LocationCandidate, NERInput, NERResult, RawEntity
 
 logger = logging.getLogger(__name__)
 
+_LOCATION_TOKEN_PATTERN = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
+
 _PRECISE_LOCATION_KEYWORDS = (
     "mahallesi",
     "mahalle",
@@ -106,6 +108,23 @@ _HEURISTIC_LEADING_SUFFIX_TOKENS = {
     "kavsagi",
 }
 
+_DISTRICT_CONTEXT_SUFFIX_TOKENS = {
+    "ilce",
+    "ilcesi",
+    "ilcesinde",
+    "ilcesindeki",
+}
+
+_LOCALITY_TRAILING_TOKENS = {
+    "mahallesi",
+    "mahalle",
+    "mah",
+    "koyu",
+    "koy",
+    "koyunde",
+    "koyunden",
+}
+
 _DISTRICT_PRECEDENCE: dict[str, set[str]] = {
     "hereke": {"korfez"},
 }
@@ -134,7 +153,14 @@ class NERService:
             )
 
         title_district_hints = self._extract_title_district_hints(input_data.title)
-        gazetteer_matches = self._gazetteer_pass(text)
+        contextual_district_hints = self._merge_district_hints(
+            title_district_hints,
+            self._extract_explicit_district_hints(text),
+        )
+        gazetteer_matches = self._gazetteer_pass(
+            text,
+            contextual_district_hints=contextual_district_hints,
+        )
         heuristic_matches = self._heuristic_location_pass(text)
 
         try:
@@ -178,13 +204,18 @@ class NERService:
             provider=self._provider.name,
         )
 
-    def _gazetteer_pass(self, text: str) -> list[LocationCandidate]:
+    def _gazetteer_pass(
+        self,
+        text: str,
+        *,
+        contextual_district_hints: Optional[list[str]] = None,
+    ) -> list[LocationCandidate]:
         sanitized = text.replace("\u2019", "'")
-        tokens = re.findall(r"[A-Za-zCĞIÖŞÜcğioşüâîûÂÎÛ']+", sanitized)
+        tokens = _LOCATION_TOKEN_PATTERN.findall(sanitized)
         tokens = [token for token in tokens if len(token) >= 3]
 
         candidates: list[LocationCandidate] = []
-        seen: set[str] = set()
+        seen: set[tuple[str, str, str, str]] = set()
 
         for span_size in (4, 3, 2, 1):
             if len(tokens) < span_size:
@@ -192,11 +223,22 @@ class NERService:
 
             for start_index in range(len(tokens) - span_size + 1):
                 span = " ".join(tokens[start_index : start_index + span_size])
-                match = self._gazetteer.match(span)
-                if not match or match.canonical_name in seen:
+                match = self._match_gazetteer_with_context(
+                    span,
+                    contextual_district_hints=contextual_district_hints,
+                )
+                if not match:
                     continue
 
-                seen.add(match.canonical_name)
+                seen_key = (
+                    match.canonical_name,
+                    normalize_for_compare(match.district or ""),
+                    match.feature_type or "",
+                    match.source_key or "",
+                )
+                if seen_key in seen:
+                    continue
+                seen.add(seen_key)
                 original_text = match.original_text
                 normalized_original = normalize_for_compare(original_text)
                 if (
@@ -231,9 +273,146 @@ class NERService:
         fallback = self._district_fallback_pass(tokens)
         return [fallback] if fallback else []
 
+    def _match_gazetteer_with_context(
+        self,
+        span: str,
+        *,
+        contextual_district_hints: Optional[list[str]] = None,
+    ):
+        district_prefixed_match = self._match_district_prefixed_neighborhood(span)
+        if district_prefixed_match is not None:
+            return district_prefixed_match
+
+        direct_match = self._gazetteer.match(span)
+        if not contextual_district_hints:
+            return direct_match
+
+        hint_scoped_match = self._match_hint_scoped_neighborhood(
+            span,
+            contextual_district_hints,
+        )
+        if hint_scoped_match is None:
+            return direct_match
+
+        if direct_match is None:
+            return hint_scoped_match
+
+        if (
+            direct_match.feature_type == "neighborhood"
+            and normalize_for_compare(direct_match.district or "")
+            not in {
+                normalize_for_compare(district)
+                for district in contextual_district_hints
+            }
+        ):
+            return hint_scoped_match
+
+        return direct_match
+
+    def _match_district_prefixed_neighborhood(self, span: str):
+        tokens = self._tokenize_contextual_span(span)
+        if len(tokens) < 2:
+            return None
+
+        district = recover_district_name(tokens[0])
+        if district is None:
+            return None
+
+        base_tokens = tokens[1:]
+        while base_tokens and base_tokens[0] in _DISTRICT_CONTEXT_SUFFIX_TOKENS:
+            base_tokens = base_tokens[1:]
+        while base_tokens and base_tokens[-1] in _LOCALITY_TRAILING_TOKENS:
+            base_tokens = base_tokens[:-1]
+
+        return self._match_neighborhood_base_for_district(
+            base_tokens,
+            district=district,
+            original_text=span,
+            confidence_floor=0.99,
+            match_type="district_prefixed_neighborhood",
+        )
+
+    def _match_hint_scoped_neighborhood(
+        self,
+        span: str,
+        contextual_district_hints: list[str],
+    ):
+        unique_hints = self._merge_district_hints(contextual_district_hints)
+        if len(unique_hints) != 1:
+            return None
+
+        tokens = self._tokenize_contextual_span(span)
+        if not tokens or len(tokens) > 3:
+            return None
+        while tokens and tokens[-1] in _LOCALITY_TRAILING_TOKENS:
+            tokens = tokens[:-1]
+
+        return self._match_neighborhood_base_for_district(
+            tokens,
+            district=unique_hints[0],
+            original_text=span,
+            confidence_floor=0.97,
+            match_type="hint_scoped_neighborhood",
+        )
+
+    def _match_neighborhood_base_for_district(
+        self,
+        base_tokens: list[str],
+        *,
+        district: str,
+        original_text: str,
+        confidence_floor: float,
+        match_type: str,
+    ):
+        if not base_tokens:
+            return None
+
+        base = " ".join(base_tokens).strip()
+        if not base:
+            return None
+
+        for query in (
+            f"{district} {base} Mahallesi",
+            f"{base} Mahallesi {district}",
+        ):
+            match = self._gazetteer.match(query)
+            if (
+                match is None
+                or match.feature_type != "neighborhood"
+                or normalize_for_compare(match.district or "")
+                != normalize_for_compare(district)
+            ):
+                continue
+
+            return match.__class__(
+                original_text=original_text,
+                canonical_name=match.canonical_name,
+                match_type=match_type,
+                confidence=max(match.confidence, confidence_floor),
+                feature_type=match.feature_type,
+                district=match.district,
+                source_key=match.source_key,
+            )
+
+        return None
+
+    @staticmethod
+    def _tokenize_contextual_span(span: str) -> list[str]:
+        sanitized = span.replace("\u2019", "'")
+        raw_tokens = _LOCATION_TOKEN_PATTERN.findall(sanitized)
+        tokens: list[str] = []
+
+        for token in raw_tokens:
+            cleaned = normalize_location_text(token) if "'" in token else token.strip()
+            normalized = normalize_for_compare(cleaned)
+            if normalized:
+                tokens.append(normalized)
+
+        return tokens
+
     def _heuristic_location_pass(self, text: str) -> list[LocationCandidate]:
         sanitized = text.replace("\u2019", "'").replace("\n", " ")
-        tokens = re.findall(r"[A-Za-z0-9CĞIÖŞÜcğioşü']+", sanitized)
+        tokens = _LOCATION_TOKEN_PATTERN.findall(sanitized)
         candidates: list[LocationCandidate] = []
         seen: set[str] = set()
 
@@ -359,14 +538,33 @@ class NERService:
                 validated.append(district)
 
             if district:
-                candidate = LocationCandidate(
-                    original_text=entity.text,
-                    normalized_text=normalized,
-                    score=entity.score,
-                    is_kocaeli_district=normalize_for_compare(normalized)
-                    == normalize_for_compare(district),
-                    district=district,
+                contextual_match = self._match_district_prefixed_neighborhood(
+                    entity.text
                 )
+                if (
+                    contextual_match is not None
+                    and normalize_for_compare(contextual_match.district or "")
+                    == normalize_for_compare(district)
+                ):
+                    candidate = LocationCandidate(
+                        original_text=contextual_match.original_text,
+                        normalized_text=contextual_match.canonical_name,
+                        score=max(entity.score, contextual_match.confidence),
+                        is_kocaeli_district=False,
+                        district=contextual_match.district,
+                        neighborhood=contextual_match.canonical_name,
+                        feature_type=contextual_match.feature_type,
+                        source_key=contextual_match.source_key,
+                    )
+                else:
+                    candidate = LocationCandidate(
+                        original_text=entity.text,
+                        normalized_text=normalized,
+                        score=entity.score,
+                        is_kocaeli_district=normalize_for_compare(normalized)
+                        == normalize_for_compare(district),
+                        district=district,
+                    )
             else:
                 candidate = LocationCandidate(
                     original_text=entity.text,
@@ -379,7 +577,14 @@ class NERService:
 
             merge_candidate(candidate)
 
-        return self._apply_district_precedence(all_candidates, validated)
+        filtered_candidates, filtered_validated = self._apply_district_precedence(
+            all_candidates,
+            validated,
+        )
+        return self._suppress_ambiguous_neighborhood_collisions(
+            filtered_candidates,
+            filtered_validated,
+        )
 
     def _extract_title_district_hints(self, title: str) -> list[str]:
         if not title.strip():
@@ -398,6 +603,46 @@ class NERService:
             hints.append(candidate.district)
 
         return hints
+
+    def _extract_explicit_district_hints(self, text: str) -> list[str]:
+        sanitized = text.replace("\u2019", "'")
+        tokens = _LOCATION_TOKEN_PATTERN.findall(sanitized)
+        tokens = [token for token in tokens if len(token) >= 3]
+
+        hints: list[str] = []
+        seen: set[str] = set()
+
+        for span_size in (3, 2, 1):
+            if len(tokens) < span_size:
+                continue
+
+            for start_index in range(len(tokens) - span_size + 1):
+                span = " ".join(tokens[start_index : start_index + span_size])
+                district = recover_district_name(span)
+                if not district:
+                    continue
+                normalized = normalize_for_compare(district)
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                hints.append(district)
+
+        return hints
+
+    @staticmethod
+    def _merge_district_hints(*district_groups: list[str]) -> list[str]:
+        merged: list[str] = []
+        seen: set[str] = set()
+
+        for group in district_groups:
+            for district in group:
+                normalized = normalize_for_compare(district)
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                merged.append(district)
+
+        return merged
 
     @staticmethod
     def _apply_district_precedence(
@@ -428,6 +673,76 @@ class NERService:
             for candidate in candidates
             if normalize_for_compare(candidate.district or "") not in suppressed
             or candidate.neighborhood is not None
+        ]
+        return filtered_candidates, filtered_validated
+
+    @staticmethod
+    def _suppress_ambiguous_neighborhood_collisions(
+        candidates: list[LocationCandidate],
+        validated: list[str],
+    ) -> tuple[list[LocationCandidate], list[str]]:
+        grouped: dict[str, list[LocationCandidate]] = {}
+
+        for candidate in candidates:
+            locality_name = candidate.neighborhood or (
+                candidate.normalized_text
+                if candidate.feature_type == "neighborhood"
+                else None
+            )
+            if not locality_name or not candidate.district:
+                continue
+
+            grouped.setdefault(normalize_for_compare(locality_name), []).append(
+                candidate
+            )
+
+        suppressed_by_locality: dict[str, set[str]] = {}
+        for locality_key, locality_candidates in grouped.items():
+            distinct_districts = {
+                normalize_for_compare(candidate.district or "")
+                for candidate in locality_candidates
+                if candidate.district
+            }
+            if len(distinct_districts) <= 1:
+                continue
+
+            explicit_districts = {
+                normalize_for_compare(candidate.district or "")
+                for candidate in locality_candidates
+                if candidate.district
+                and normalize_for_compare(candidate.district or "")
+                in normalize_for_compare(candidate.original_text)
+            }
+            if not explicit_districts:
+                continue
+
+            suppressed_by_locality[locality_key] = (
+                distinct_districts - explicit_districts
+            )
+
+        if not suppressed_by_locality:
+            return candidates, validated
+
+        filtered_candidates = [
+            candidate
+            for candidate in candidates
+            if normalize_for_compare(candidate.neighborhood or candidate.normalized_text)
+            not in suppressed_by_locality
+            or normalize_for_compare(candidate.district or "")
+            not in suppressed_by_locality[
+                normalize_for_compare(candidate.neighborhood or candidate.normalized_text)
+            ]
+        ]
+
+        surviving_districts = {
+            normalize_for_compare(candidate.district or "")
+            for candidate in filtered_candidates
+            if candidate.district
+        }
+        filtered_validated = [
+            district
+            for district in validated
+            if normalize_for_compare(district) in surviving_districts
         ]
         return filtered_candidates, filtered_validated
 
@@ -541,15 +856,7 @@ class NERService:
     @staticmethod
     def _extract_neighborhood(text: str) -> str | None:
         lower = text.lower().strip()
-        keywords = [
-            "mahallesi",
-            "mahalle",
-            "mah.",
-        ]
-        for keyword in keywords:
-            if keyword in lower:
-                return text.strip()
-        return None
+        return text.strip() if re.search(r"\b(mahallesi|mahalle|mah\.)\b", lower) else None
 
     @staticmethod
     def _recover_embedded_district(text: str) -> str | None:
@@ -583,6 +890,10 @@ class NERService:
                 for keyword in _NEIGHBORHOOD_LOCATION_KEYWORDS
             )
             has_noise = any(token in _HEURISTIC_NOISE_TOKENS for token in tokens)
+            mentions_candidate_district = (
+                bool(candidate.district)
+                and normalize_for_compare(candidate.district or "") in normalized
+            )
             long_span_penalty = 1 if token_count > 4 else 0
 
             if has_street_keyword:
@@ -598,6 +909,7 @@ class NERService:
 
             return (
                 specificity_rank,
+                0 if mentions_candidate_district else 1,
                 1 if starts_with_suffix_token else 0,
                 1 if has_noise else 0,
                 long_span_penalty,

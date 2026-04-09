@@ -402,9 +402,15 @@ class SourceRecordMaterializer:
                 continue
 
             resolved_district = fallback_district
-            if not resolved_district and result.district:
+            if result.district:
                 district_enum = normalize_kocaeli_district(result.district)
-                resolved_district = district_enum.value if district_enum else None
+                result_district = district_enum.value if district_enum else None
+                if result_district and (
+                    logical_candidate is not None
+                    or not is_district_level_geocoding_input(geocoding_input)
+                    or resolved_district is None
+                ):
+                    resolved_district = result_district
 
             return {
                 "geocode_status": self._geocode_status_from_result(

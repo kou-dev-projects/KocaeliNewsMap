@@ -62,6 +62,12 @@ def test_normalized_turkish_i_is_stable():
     ).normalized()
 
 
+def test_normalized_turkish_characters_match_ascii_equivalent():
+    assert GeocodingInput(address="Çayırova").normalized() == GeocodingInput(
+        address="Cayirova"
+    ).normalized()
+
+
 def test_known_district_returns_result(svc):
     result = svc.geocode(GeocodingInput(address="Izmit"))
     assert isinstance(result, GeocodingResult)

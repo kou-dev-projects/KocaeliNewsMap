@@ -9,6 +9,7 @@ from app.pipelines.location_versions import (
 from app.pipelines.source_record_materializer import SourceRecordMaterializer
 from app.services.classifier.schemas import ClassificationResult
 from app.services.geocoding.schemas import GeocodingFailure, GeocodingResult
+from app.services.ner.service import NERService
 from app.services.ner.schemas import LocationCandidate, NERResult
 
 
@@ -20,6 +21,15 @@ class ExplodingClassifier:
 class ExplodingNER:
     def extract_locations(self, input_data):
         raise RuntimeError("ner unavailable")
+
+
+class GazetteerOnlyNER:
+    @property
+    def name(self):
+        return "gazetteer-only"
+
+    def extract_entities(self, text: str):
+        raise RuntimeError("provider unavailable")
 
 
 def test_materializer_falls_back_when_services_fail():
@@ -237,6 +247,55 @@ class DistrictOnlyGeocoder:
         )
 
 
+class StadiumFallbackNER:
+    def extract_locations(self, input_data):
+        return NERResult(
+            raw_entities=[],
+            location_candidates=[
+                LocationCandidate(
+                    original_text="Cayirova Yeni Mahalle",
+                    normalized_text="Cayirova Yeni Mahalle",
+                    score=0.86,
+                    is_kocaeli_district=False,
+                    district="Cayirova",
+                    neighborhood="Cayirova Yeni Mahalle",
+                ),
+                LocationCandidate(
+                    original_text="Kocaeli Stadyumu",
+                    normalized_text="Kocaeli Stadyumu",
+                    score=1.0,
+                    is_kocaeli_district=False,
+                    district="Izmit",
+                    feature_type="stadium",
+                ),
+            ],
+            validated_districts=["Cayirova", "Izmit"],
+            provider="fixed_ner",
+        )
+
+
+class StadiumGeocoder:
+    def geocode(self, input_data):
+        if input_data.address == "Kocaeli Stadyumu":
+            return GeocodingResult(
+                address=input_data.address,
+                lat=40.7751,
+                lng=30.0170,
+                display_name="Kocaeli Stadyumu, Izmit, Kocaeli, Turkey",
+                confidence=0.97,
+                source="mock",
+                provider_version="test",
+                district="Izmit",
+            )
+
+        return GeocodingFailure(
+            address=input_data.address,
+            reason="Not found",
+            failure_type="not_found",
+            news_id=input_data.news_id,
+        )
+
+
 class MovieRoundupClassifier:
     def classify(self, input_data):
         return ClassificationResult(
@@ -329,6 +388,45 @@ def test_materializer_prefers_sorted_location_candidate_district_over_validated_
     assert record["district_predicted"] == "izmit"
     assert record["district_confidence"] == 0.95
     assert record["location_text_extracted"] == "İzmit Özel Eğitim Uygulama Okulu"
+
+
+def test_materializer_prefers_precise_geocoded_district_over_wrong_fallback():
+    materializer = SourceRecordMaterializer(
+        classifier_service=ExplodingClassifier(),
+        ner_service=StadiumFallbackNER(),
+        geocoding_service=StadiumGeocoder(),
+    )
+
+    record = materializer.materialize(
+        raw_document={
+            "_id": "raw_2c",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/stadium-guide",
+            "title_raw": "Kocaelispor - Basaksehir maci ulasim rehberi aciklandi: Stadyuma nasil gidilir?",
+            "content_raw": (
+                "Mac gunu ulasim ozeti. Kocaeli Stadyumu icin ilce ilce otobus "
+                "seferleri ve ek tramvay planlandi."
+            ),
+            "text_raw": (
+                "Mac gunu ulasim ozeti. Kocaeli Stadyumu icin ilce ilce otobus "
+                "seferleri ve ek tramvay planlandi."
+            ),
+            "published_at_raw": "2026-03-23T10:30:00+03:00",
+            "scraped_at": "2026-03-23T10:45:00+03:00",
+            "language": "tr",
+            "domain": "cagdaskocaeli.com.tr",
+            "resolved_url": "https://example.com/stadium-guide",
+        },
+        source_document={
+            "_id": "source_1",
+            "display_name": "Cagdas Kocaeli",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+        },
+    )
+
+    assert record["district_predicted"] == "izmit"
+    assert record["location_text_extracted"] == "Kocaeli Stadyumu"
+    assert record["geocode_status"] == "resolved"
 
 
 def test_materializer_keeps_approximate_status_without_fake_coordinates():
@@ -557,6 +655,84 @@ def test_materializer_preserves_precise_detected_text_when_only_district_point_r
     assert record["district_predicted"] == "izmit"
     assert record["geocode_status"] == "approximate"
     assert record["location_text_extracted"] == "Yenisehir Mahallesi"
+
+
+def test_materializer_prefers_explicit_district_prefixed_neighborhood_over_same_name_collision():
+    materializer = SourceRecordMaterializer(
+        classifier_service=MovieRoundupClassifier(),
+        ner_service=NERService(provider=GazetteerOnlyNER(), min_score=0.5),
+        geocoding_service=FailingGeocoder(),
+    )
+
+    record = materializer.materialize(
+        raw_document={
+            "_id": "raw_6d",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/yenimahalle-school",
+            "title_raw": "Izmit'te ortaokul ogrencisi darp edildi",
+            "content_raw": (
+                "Izmit Yenimahalle'de bulunan Mehmet Sinan Dereli Ortaokulu'nda "
+                "ogrenciler arasinda tartisma yasandi."
+            ),
+            "text_raw": (
+                "Izmit Yenimahalle'de bulunan Mehmet Sinan Dereli Ortaokulu'nda "
+                "ogrenciler arasinda tartisma yasandi."
+            ),
+            "published_at_raw": "2026-04-08T00:16:00+03:00",
+            "scraped_at": "2026-04-08T00:20:00+03:00",
+            "language": "tr",
+            "domain": "ozgurkocaeli.com.tr",
+            "resolved_url": "https://example.com/yenimahalle-school",
+        },
+        source_document={
+            "_id": "source_1",
+            "display_name": "Ozgur Kocaeli",
+            "base_url": "https://www.ozgurkocaeli.com.tr",
+        },
+    )
+
+    assert record["district_predicted"] == "izmit"
+    assert record["location_text_extracted"] == "Yenimahalle Mahallesi"
+    assert record["geocode_status"] == "approximate"
+
+
+def test_materializer_keeps_kartepe_ketenciler_instead_of_city_center_fallback():
+    materializer = SourceRecordMaterializer(
+        classifier_service=MovieRoundupClassifier(),
+        ner_service=NERService(provider=GazetteerOnlyNER(), min_score=0.5),
+        geocoding_service=FailingGeocoder(),
+    )
+
+    record = materializer.materialize(
+        raw_document={
+            "_id": "raw_6e",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/ketenciler-obit",
+            "title_raw": "Cetin ailesinin aci gunu",
+            "content_raw": (
+                "Kocaeli'nin Kartepe ilcesi Ketenciler Koyu (Mahallesi) "
+                "sakinlerinden merhum Sabahattin Cetin'in esi vefat etti."
+            ),
+            "text_raw": (
+                "Kocaeli'nin Kartepe ilcesi Ketenciler Koyu (Mahallesi) "
+                "sakinlerinden merhum Sabahattin Cetin'in esi vefat etti."
+            ),
+            "published_at_raw": "2026-04-06T08:00:00+03:00",
+            "scraped_at": "2026-04-06T08:05:00+03:00",
+            "language": "tr",
+            "domain": "cagdaskocaeli.com.tr",
+            "resolved_url": "https://example.com/ketenciler-obit",
+        },
+        source_document={
+            "_id": "source_1",
+            "display_name": "Cagdas Kocaeli",
+            "base_url": "https://www.cagdaskocaeli.com.tr",
+        },
+    )
+
+    assert record["district_predicted"] == "kartepe"
+    assert "Ketenciler" in (record["location_text_extracted"] or "")
+    assert record["geocode_status"] == "approximate"
 
 
 class BankOnlyNER:

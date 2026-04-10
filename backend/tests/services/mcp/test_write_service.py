@@ -61,6 +61,11 @@ class DummySemanticMaterializer(DummyMaterializer):
         return doc
 
 
+class ExplodingMaterializer:
+    def materialize(self, *, raw_document, source_document, now=None):
+        raise AssertionError("full materializer should not run for lexical preflight duplicates")
+
+
 class DummyEmbeddingService:
     def __init__(self):
         self._cfg = type("Cfg", (), {"duplicate_threshold": 0.90})()
@@ -508,6 +513,77 @@ def test_cross_source_semantic_duplicate_merges_when_hashes_differ():
     assert merged_doc["duplicate_text_similarity"] >= 0.90
 
 
+def test_cross_source_lexical_duplicate_merges_before_full_materialization():
+    idem = DummyIdempotency()
+    mongo = FakeMongo(
+        duplicate_source_record_doc={
+            "_id": "lexical_canonical_id",
+            "raw_document_id": "raw_lexical_canonical_id",
+            "dedupe_hash": "old-story-hash",
+            "record_status": "active",
+            "title": "Verdigi paranin 2 katini alacagi vaadiyle 3 milyon TL dolandirildi",
+            "body": (
+                "Cayirova'da nakliyecilik yapan Seyfi Kutuk, cezaevinde tanistigi kisiye "
+                "15-20 gun icinde iki katini geri alma vaadiyle milyonlarca lira verdi. "
+                "Daha sonra dolandirildigini anlayip sikayetci oldu."
+            ),
+            "summary": (
+                "Cayirova'da nakliyecilik yapan Seyfi Kutuk, cezaevinde tanistigi kisiye "
+                "milyonlarca lira verdi."
+            ),
+            "kaynak_listesi": ["bizimyaka.com"],
+            "category_predicted": "hirsizlik",
+            "category_confidence": 0.8,
+            "geocode_status": "approximate",
+            "district_predicted": "cayirova",
+            "location_text_extracted": "Cayirova",
+            "pipeline_status": "geocoded",
+            "schema_version": "1.0",
+            "updated_at": "old_time",
+        },
+        raw_upserted_id="raw_lexical_new_id",
+        source_record_upserted_id="source_lexical_new_id",
+    )
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=ExplodingMaterializer(),
+        embedding_service=None,
+    )
+
+    result = svc.write(
+        _req(
+            "https://other.example.com/cezaevinde-tanistigi-adama-3-milyon-kaptirdi",
+            source="ozgurkocaeli.com.tr",
+            title="Cezaevinde tanistigi adama 3 milyon TL kaptirdi",
+            content=(
+                "Cayirova'da nakliyecilik yapan Seyfi Kutuk, cezaevinde tanistigi kisiye "
+                "kisa surede iki katini geri alma vaadiyle milyonlarca lira verdi. "
+                "Daha sonra dolandirildigini anlayarak savciliga sikayette bulundu."
+            ),
+        )
+    )
+
+    assert result.status == WriteStatus.DUPLICATE_MERGED
+    assert result.news_id == "lexical_canonical_id"
+    assert result.was_duplicate is True
+
+    canonical_doc = mongo.source_records.find_one({"_id": "lexical_canonical_id"})
+    merged_doc = mongo.source_records.find_one({"raw_document_id": "raw_lexical_new_id"})
+    assert canonical_doc["kaynak_listesi"] == [
+        "bizimyaka.com",
+        "ozgurkocaeli.com.tr",
+    ]
+    assert merged_doc["record_status"] == "merged_duplicate"
+    assert merged_doc["duplicate_of_record_id"] == "lexical_canonical_id"
+    assert merged_doc["duplicate_reason"] == "lexical_similarity_match"
+    assert merged_doc["category_predicted"] == "hirsizlik"
+
+
 def test_fail_closed_dead_letters_when_queue_full():
     idem = DummyIdempotency()
     queue = WriteQueue(0, 3)
@@ -577,6 +653,81 @@ def test_merge_duplicate_prefers_higher_priority_category_when_confidence_ties()
     assert update["category_predicted"] == "trafik_kazasi"
     assert update["category_confidence"] == 0.45
     assert update["category_model_version"] == "resolver_priority"
+
+
+def test_merge_duplicate_skips_null_district_confidence():
+    canonical_doc = {
+        "kaynak_listesi": ["bizimyaka.com"],
+        "updated_at": "old",
+        "district_predicted": None,
+        "geocode_status": "pending",
+    }
+    incoming_doc = {
+        "kaynak_listesi": ["yenikocaeli.com"],
+        "updated_at": "new",
+        "district_predicted": "izmit",
+        "district_confidence": None,
+        "geocode_status": "pending",
+    }
+
+    update = merge_duplicate_source_record_docs(canonical_doc, incoming_doc)
+
+    assert update["district_predicted"] == "izmit"
+    assert "district_confidence" not in update
+
+
+def test_passthrough_duplicate_omits_null_district_confidence():
+    service = NewsWriteService.__new__(NewsWriteService)
+
+    record = NewsWriteService._build_passthrough_duplicate_source_record(
+        service,
+        raw_document={
+            "domain": "ozgurkocaeli.com.tr",
+            "canonical_url": "https://example.com/haber",
+            "resolved_url": "https://example.com/haber",
+        },
+        source_document={
+            "display_name": "Ozgur Kocaeli",
+            "base_url": "https://www.ozgurkocaeli.com.tr",
+        },
+        duplicate_target={
+            "category_predicted": "hirsizlik",
+            "category_confidence": 0.82,
+            "district_predicted": "izmit",
+            "district_confidence": None,
+            "location_text_extracted": "Izmit",
+            "geocode_status": "approximate",
+            "pipeline_status": "geocoded",
+            "schema_version": "1.0",
+        },
+        source_record={
+            "raw_document_id": "raw_1",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/haber",
+            "title": "ornek",
+            "body": "ornek govde",
+            "summary": "ornek ozet",
+            "published_at": "2026-04-10T00:00:00Z",
+            "detected_language": "tr",
+            "category_predicted": "unknown",
+            "category_confidence": 0.0,
+            "district_predicted": None,
+            "location_text_extracted": None,
+            "geocode_status": "not_needed",
+            "text_hash": "hash_1",
+            "dedupe_hash": "hash_2",
+            "source_name_snapshot": "Ozgur Kocaeli",
+            "source_url_snapshot": "https://www.ozgurkocaeli.com.tr",
+            "kaynak_listesi": ["ozgurkocaeli.com.tr"],
+            "pipeline_status": "normalized",
+            "record_status": "active",
+            "schema_version": "1.0",
+            "updated_at": "2026-04-10T00:00:00Z",
+        },
+    )
+
+    assert record["district_predicted"] == "izmit"
+    assert "district_confidence" not in record
 
 
 def test_merge_duplicate_prefers_more_specific_location_on_same_geocode_rank():

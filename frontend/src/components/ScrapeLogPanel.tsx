@@ -275,6 +275,7 @@ export function ScrapeLogPanel({
   const [actionError, setActionError] = useState<string | null>(null);
   const [jobStatusMessage, setJobStatusMessage] = useState("Scrape paneli hazır.");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeTriggerType, setActiveTriggerType] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -296,6 +297,7 @@ export function ScrapeLogPanel({
   });
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const lastInvalidatedEventIdRef = useRef<string | null>(null);
+  const lastLiveInvalidateAtRef = useRef(0);
   const latestRunUpdatedAtRef = useRef<number | null>(null);
   const latestRunPollCounterRef = useRef(0);
   const controlsDisabled =
@@ -323,6 +325,8 @@ export function ScrapeLogPanel({
     () => buildLiveJobMessage(latestNarrativeEvent, jobStatusMessage),
     [jobStatusMessage, latestNarrativeEvent],
   );
+  const shouldStreamVisibleNews =
+    Boolean(activeJobId) && activeTriggerType !== "refresh";
 
   const clearVisibleNewsData = () => {
     queryClient.removeQueries({ queryKey: newsKeys.all });
@@ -341,6 +345,42 @@ export function ScrapeLogPanel({
     lastInvalidatedEventIdRef.current = latestEvent.id;
     void queryClient.invalidateQueries({ queryKey: newsKeys.all });
   }, [latestEvent, queryClient]);
+
+  useEffect(() => {
+    if (!shouldStreamVisibleNews || !latestEvent) {
+      return;
+    }
+
+    if (
+      latestEvent.event !== "source_progress_checkpoint" &&
+      latestEvent.event !== "source_crawl_completed"
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastLiveInvalidateAtRef.current < 2_000) {
+      return;
+    }
+
+    lastLiveInvalidateAtRef.current = now;
+    void queryClient.invalidateQueries({ queryKey: newsKeys.all });
+  }, [latestEvent, queryClient, shouldStreamVisibleNews]);
+
+  useEffect(() => {
+    if (!shouldStreamVisibleNews) {
+      lastLiveInvalidateAtRef.current = 0;
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: newsKeys.all });
+    }, 4_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [queryClient, shouldStreamVisibleNews]);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,10 +407,12 @@ export function ScrapeLogPanel({
 
         if (isActiveScrapeStatus(latestRun.status) && latestRun.job_id) {
           setActiveJobId(latestRun.job_id);
+          setActiveTriggerType(latestRun.trigger_type ?? null);
           setIsSubmitting(true);
           setIsCancelPending(false);
         } else {
           setActiveJobId(null);
+          setActiveTriggerType(null);
           setIsSubmitting(false);
           setIsStopping(false);
           setIsCancelPending(false);
@@ -398,6 +440,7 @@ export function ScrapeLogPanel({
 
         replaceEvents([]);
         setActiveJobId(null);
+        setActiveTriggerType(null);
         setIsSubmitting(false);
         setIsStopping(false);
         setIsCancelPending(false);
@@ -501,6 +544,7 @@ export function ScrapeLogPanel({
 
         if (status.status === "pending") {
           await refreshLatestRunSnapshot();
+          setActiveTriggerType(status.trigger_type ?? null);
           setIsCancelPending(Boolean(status.cancel_requested));
           setJobStatusMessage(
             status.cancel_requested
@@ -512,6 +556,7 @@ export function ScrapeLogPanel({
 
         if (status.status === "running") {
           await refreshLatestRunSnapshot();
+          setActiveTriggerType(status.trigger_type ?? null);
           setIsCancelPending(Boolean(status.cancel_requested));
           setJobStatusMessage(
             status.cancel_requested
@@ -525,6 +570,7 @@ export function ScrapeLogPanel({
         setIsStopping(false);
         setIsCancelPending(false);
         setActiveJobId(null);
+        setActiveTriggerType(null);
 
         if (status.status === "completed") {
           setActionError(null);
@@ -550,6 +596,7 @@ export function ScrapeLogPanel({
         setIsStopping(false);
         setIsCancelPending(false);
         setActiveJobId(null);
+        setActiveTriggerType(null);
         setActionError(
           error instanceof Error
             ? error.message
@@ -577,6 +624,7 @@ export function ScrapeLogPanel({
     latestRunPollCounterRef.current = 0;
     setActionError(null);
     setActiveJobId(result.job_id);
+    setActiveTriggerType(result.trigger_type ?? null);
     setIsCancelPending(false);
     setJobStatusMessage(message);
     clearVisibleNewsData();
@@ -593,6 +641,7 @@ export function ScrapeLogPanel({
         setIsSubmitting(false);
         setActionError(null);
         setActiveJobId(null);
+        setActiveTriggerType(null);
         setJobStatusMessage(
           "Veritabanı temizlendi ancak yeni scrape kuyruğa alınmadı. Son durum yeniden yükleniyor.",
         );
@@ -604,6 +653,7 @@ export function ScrapeLogPanel({
         setIsSubmitting(false);
         setActionError(null);
         setActiveJobId(result.job_id);
+        setActiveTriggerType(result.trigger_type ?? null);
         setIsCancelPending(false);
         setJobStatusMessage("Devam eden scrape sürüyor. Mevcut iş izleniyor.");
         setLatestRunReloadCount((current) => current + 1);
@@ -636,6 +686,7 @@ export function ScrapeLogPanel({
     try {
       const result = await stopScrape({ jobId: activeJobId });
       setActiveJobId(result.job_id);
+      setActiveTriggerType(result.trigger_type ?? null);
       setIsCancelPending(true);
       setJobStatusMessage("Scrape durdurma isteği alındı. Worker güvenli noktada işi kapatacak.");
       setLatestRunReloadCount((current) => current + 1);
@@ -658,6 +709,7 @@ export function ScrapeLogPanel({
       await resetScrapeWorkspace();
       clearVisibleNewsData();
       setActiveJobId(null);
+      setActiveTriggerType(null);
       setIsCancelPending(false);
       setJobStatusMessage("Veritabanı temizlendi. Yeni scrape için hazır.");
       setLatestRunReloadCount((current) => current + 1);

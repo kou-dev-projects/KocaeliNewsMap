@@ -86,7 +86,6 @@ DYNAMIC_SOURCE_REGISTRY: dict[str, DynamicSourceDefinition] = {
             listing_url=base_url,
         ),
         detail_scraper_factory=lambda client: SesKocaeliDetailScraper(client=client),
-        per_url_delay_seconds=1.0,
     ),
     "bizimyaka.com": DynamicSourceDefinition(
         listing_scraper_factory=lambda client, base_url: BizimYakaListingScraper(

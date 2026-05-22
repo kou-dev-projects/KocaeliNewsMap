@@ -363,12 +363,33 @@ def _source_site_url(domain: str, preferred_url: Any = None) -> str | None:
 
 
 def _source_site_key(domain: str) -> str:
-    return domain.casefold().removeprefix("www.")
+    normalized = str(domain or "").strip()
+    if not normalized:
+        return ""
+
+    parsed = urlparse(normalized)
+    host = (parsed.netloc or parsed.path or normalized).strip().casefold()
+    host = host.removeprefix("www.")
+    return host.split(".", 1)[0] if "." in host else host
 
 
-def _source_sites(doc: dict[str, Any]) -> list[dict[str, Any]]:
-    primary_domain = _source_domain(doc)
-    primary_url = _source_site_url(primary_domain, doc.get("source_url_snapshot"))
+def _source_site_entry(doc: dict[str, Any], *, is_primary: bool) -> dict[str, Any] | None:
+    domain = _source_domain(doc)
+    url = _source_site_url(domain, doc.get("canonical_url") or doc.get("source_url_snapshot"))
+    if not domain or not url:
+        return None
+    return {
+        "domain": domain,
+        "url": url,
+        "is_primary": is_primary,
+    }
+
+
+def _source_sites(
+    doc: dict[str, Any],
+    *,
+    related_source_docs: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     sites: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -377,7 +398,7 @@ def _source_sites(doc: dict[str, Any]) -> list[dict[str, Any]]:
         clean_url = str(url or "").strip()
         if not clean_domain or not clean_url:
             return
-        domain_key = _source_site_key(clean_domain)
+        domain_key = _source_site_key(clean_domain) or _source_site_key(clean_url)
         if domain_key in seen:
             return
         seen.add(domain_key)
@@ -389,7 +410,19 @@ def _source_sites(doc: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
-    append_site(primary_domain, primary_url, is_primary=True)
+    primary_entry = _source_site_entry(doc, is_primary=True)
+    if primary_entry is not None:
+        append_site(primary_entry["domain"], primary_entry["url"], is_primary=True)
+
+    for related_doc in related_source_docs or []:
+        related_entry = _source_site_entry(related_doc, is_primary=False)
+        if related_entry is None:
+            continue
+        append_site(
+            related_entry["domain"],
+            related_entry["url"],
+            is_primary=False,
+        )
 
     for raw_domain in doc.get("kaynak_listesi") or []:
         domain = str(raw_domain or "").strip()
@@ -398,9 +431,7 @@ def _source_sites(doc: dict[str, Any]) -> list[dict[str, Any]]:
         append_site(
             domain,
             _source_site_url(domain),
-            is_primary=_source_site_key(domain) == _source_site_key(primary_domain)
-            if primary_domain
-            else False,
+            is_primary=False,
         )
 
     return sites
@@ -451,13 +482,17 @@ def map_doc_to_news_map_item(doc: dict[str, Any]) -> NewsMapItem:
     )
 
 
-def map_doc_to_news_response(doc: dict[str, Any]) -> NewsResponse:
+def map_doc_to_news_response(
+    doc: dict[str, Any],
+    *,
+    related_source_docs: Optional[list[dict[str, Any]]] = None,
+) -> NewsResponse:
     item = map_doc_to_news_list_item(doc)
     return NewsResponse(
         **item.model_dump(),
         content_text=clean_news_text(doc.get("body")) or "",
         location_text_extracted=clean_news_text(doc.get("location_text_extracted")),
-        source_sites=_source_sites(doc),
+        source_sites=_source_sites(doc, related_source_docs=related_source_docs),
     )
 
 
@@ -724,4 +759,16 @@ def _get_news_detail_payload(news_id: str) -> NewsResponse:
     if doc is None:
         raise HTTPException(status_code=404, detail="News not found")
 
-    return map_doc_to_news_response(doc)
+    related_query: dict[str, Any] = {
+        "duplicate_of_record_id": doc["_id"],
+        "record_status": "merged_duplicate",
+    }
+    dataset_generation = doc.get("dataset_generation")
+    if dataset_generation is not None:
+        related_query["dataset_generation"] = dataset_generation
+    related_source_docs = list(db["source_records"].find(related_query))
+
+    return map_doc_to_news_response(
+        doc,
+        related_source_docs=related_source_docs,
+    )

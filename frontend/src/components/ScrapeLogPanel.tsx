@@ -831,7 +831,6 @@ export function ScrapeLogPanel({
             type="button"
             onClick={() => setIsLogOpen((current) => !current)}
             className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
-            aria-expanded={isLogOpen}
           >
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">Canlı log</p>

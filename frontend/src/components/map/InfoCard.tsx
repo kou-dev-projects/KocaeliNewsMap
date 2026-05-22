@@ -317,8 +317,10 @@ function buildFallbackSourceSites(item: NewsMapItem, detail?: NewsDetail): NewsD
       seen.add(key)
 
       const isPrimary = index === 0
-      const url = isPrimary && detail?.source_base_url
-        ? detail.source_base_url
+      const url = isPrimary && normalizeText(detail?.url || item.url)
+        ? normalizeText(detail?.url || item.url)
+        : isPrimary && detail?.source_base_url
+          ? detail.source_base_url
         : cleanDomain.startsWith("http")
           ? cleanDomain
           : `https://${cleanDomain}`

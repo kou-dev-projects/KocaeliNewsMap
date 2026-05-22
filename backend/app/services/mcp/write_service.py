@@ -76,10 +76,24 @@ _DUPLICATE_LEXICAL_STOPWORDS = frozenset(
     }
 )
 _DUPLICATE_LEXICAL_MAX_BODY_CHARS = 900
-_DUPLICATE_LEXICAL_MIN_BODY_SCORE = 0.78
+_DUPLICATE_LEXICAL_MIN_BODY_SCORE = 0.72
 _DUPLICATE_LEXICAL_MIN_TITLE_SCORE = 0.45
-_DUPLICATE_LEXICAL_MIN_COMBINED_SCORE = 0.66
+_DUPLICATE_LEXICAL_MIN_COMBINED_SCORE = 0.64
 _DUPLICATE_LEXICAL_MIN_SHARED_TITLE_TOKENS = 1
+_OPTIONAL_STRING_FIELDS = {
+    "summary",
+    "category_model_version",
+    "geocode_provider",
+    "geocode_provider_version",
+    "location_resolution_method",
+    "location_pipeline_version",
+    "gazetteer_version",
+    "logical_catalog_version",
+    "location_benchmark_version",
+    "duplicate_reason",
+    "pipeline_run_id",
+    "dataset_generation",
+}
 
 
 def _merge_unique_sources(*source_groups: list[str] | None) -> list[str]:
@@ -232,6 +246,14 @@ def _is_lexical_duplicate_match(metrics: dict[str, float | int]) -> bool:
     ):
         return True
     return combined_score >= _DUPLICATE_LEXICAL_MIN_COMBINED_SCORE and shared_title_tokens >= 2
+
+
+def _strip_invalid_optional_fields(document: dict[str, object]) -> dict[str, object]:
+    cleaned = dict(document)
+    for field in _OPTIONAL_STRING_FIELDS:
+        if cleaned.get(field) is None:
+            cleaned.pop(field, None)
+    return cleaned
 
 
 def _should_promote_geocode(canonical_doc: dict, incoming_doc: dict) -> bool:
@@ -671,7 +693,8 @@ class NewsWriteService:
         summary = self._build_summary(body)
         updated_at = raw_document.get("updated_at") or datetime.now(timezone.utc)
 
-        return {
+        return _strip_invalid_optional_fields(
+            {
             "raw_document_id": raw_document["_id"],
             "source_id": source_document["_id"],
             "canonical_url": raw_document["canonical_url"],
@@ -708,7 +731,8 @@ class NewsWriteService:
             "record_status": "active",
             "schema_version": "1.0",
             "updated_at": updated_at,
-        }
+            }
+        )
 
     def _build_passthrough_duplicate_source_record(
         self,
@@ -770,7 +794,7 @@ class NewsWriteService:
             if field in duplicate_target:
                 passthrough_record[field] = duplicate_target.get(field)
 
-        return passthrough_record
+        return _strip_invalid_optional_fields(passthrough_record)
 
     def _find_preflight_duplicate_target(
         self,
@@ -1199,6 +1223,7 @@ class NewsWriteService:
     def _handle_failure(
         self, request: NewsWriteRequest, idem_key: str, error: str
     ) -> WriteResult:
+        error_prefix = self._failure_reason_prefix(error)
         queued = self._queue.enqueue(request)
 
         if queued:
@@ -1207,7 +1232,7 @@ class NewsWriteService:
                 news_id=None,
                 was_duplicate=False,
                 idempotency_key=idem_key,
-                reason=f"mongo_down_queued: {error[:60]}",
+                reason=f"{error_prefix}_queued: {error[:60]}",
             )
 
         self._dead_letter.add(request, error, attempt_count=0)
@@ -1216,5 +1241,14 @@ class NewsWriteService:
             news_id=None,
             was_duplicate=False,
             idempotency_key=idem_key,
-            reason=f"queue_full_dead_lettered: {error[:60]}",
+            reason=f"{error_prefix}_dead_lettered: {error[:60]}",
         )
+
+    @staticmethod
+    def _failure_reason_prefix(error: str) -> str:
+        normalized = str(error or "").casefold()
+        if "document failed validation" in normalized:
+            return "mongo_validation_failed"
+        if "duplicate key error" in normalized:
+            return "mongo_duplicate_key"
+        return "mongo_write_failed"

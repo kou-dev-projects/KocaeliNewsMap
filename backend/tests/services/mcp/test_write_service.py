@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from app.services.embedding.schemas import DuplicateScore, TextEmbedding
 from app.services.mcp.config import MCPConfig
 from app.services.mcp.dead_letter import DeadLetterStore
@@ -582,6 +584,41 @@ def test_cross_source_lexical_duplicate_merges_before_full_materialization():
     assert merged_doc["duplicate_of_record_id"] == "lexical_canonical_id"
     assert merged_doc["duplicate_reason"] == "lexical_similarity_match"
     assert merged_doc["category_predicted"] == "hirsizlik"
+
+
+def test_preflight_source_record_omits_null_optional_string_fields():
+    svc = NewsWriteService(
+        idempotency=DummyIdempotency(),
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=None,
+        materializer=DummyMaterializer(),
+    )
+
+    record = svc._build_preflight_source_record(
+        raw_document={
+            "_id": "raw_id",
+            "canonical_url": "https://example.com/a",
+            "resolved_url": "https://example.com/a",
+            "title_raw": "Baslik",
+            "content_raw": "",
+            "text_raw": "",
+            "published_at_raw": None,
+            "scraped_at": datetime.now(timezone.utc),
+            "language": "tr",
+            "domain": "example.com",
+            "updated_at": datetime.now(timezone.utc),
+        },
+        source_document={
+            "_id": "source_id",
+            "display_name": "Example",
+            "base_url": "https://example.com",
+        },
+    )
+
+    assert "summary" not in record
+    assert "duplicate_reason" not in record
 
 
 def test_fail_closed_dead_letters_when_queue_full():

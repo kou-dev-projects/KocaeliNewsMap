@@ -16,7 +16,14 @@ logger = logging.getLogger(__name__)
 class BizimYakaDetailScraper:
     def __init__(self, client: PlaywrightClient):
         self.client = client
-        self.static_client = StaticHttpClient(timeout=15, delay_seconds=0.2)
+        self.static_client = StaticHttpClient(
+            timeout=10,
+            delay_seconds=0.2,
+            retry_total=0,
+            retry_connect=0,
+            retry_read=0,
+            retry_status=0,
+        )
 
     async def fetch_detail(self, url: str) -> dict:
         # 1) Static HTTP — hızlı, hafif

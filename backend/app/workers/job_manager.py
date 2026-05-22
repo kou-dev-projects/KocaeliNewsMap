@@ -32,7 +32,7 @@ class ScheduledJobAlreadyQueuedError(RuntimeError):
 @dataclass
 class JobInfo:
     job_id: str
-    status: str  # pending | running | completed | failed
+    status: str  # pending | running | completed | failed | cancelled
     source: str | None
     trigger_type: str
     created_at: float
@@ -42,6 +42,8 @@ class JobInfo:
     error: str | None = None
     attempt_count: int = 0
     last_heartbeat_at: float | None = None
+    cancel_requested: bool = False
+    cancel_requested_at: float | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +208,58 @@ class JobManager:
 
         return JobInfo(**json.loads(raw))
 
+    def request_cancel(self, job_id: str, *, base_job: JobInfo | None = None) -> JobInfo:
+        requested_at = time.time()
+        return self._update_job(
+            job_id,
+            base_job=base_job,
+            cancel_requested=True,
+            cancel_requested_at=requested_at,
+        )
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        job = self.get_job(job_id)
+        if job is None:
+            return False
+        return bool(job.cancel_requested)
+
+    def find_latest_active_job(self) -> JobInfo | None:
+        client = self._require_redis()
+        latest_job: JobInfo | None = None
+        now = time.time()
+
+        try:
+            for key in client.scan_iter(match=f"{_JOB_KEY_PREFIX}:*"):
+                raw = client.get(key)
+                if raw is None:
+                    continue
+
+                candidate = JobInfo(**json.loads(raw))
+                if candidate.status not in {"pending", "running"}:
+                    continue
+
+                if self._is_stale_active_job(candidate, now=now):
+                    continue
+
+                if latest_job is None or self._activity_timestamp(candidate) >= self._activity_timestamp(
+                    latest_job
+                ):
+                    latest_job = candidate
+        except Exception as exc:
+            self._handle_redis_error(exc, "job_manager.job.scan_active_failed")
+            raise JobQueueUnavailableError("job_manager: failed to scan active jobs") from exc
+
+        return latest_job
+
+    def _is_stale_active_job(self, job: JobInfo, *, now: float) -> bool:
+        stale_after_seconds = max(self._claim_idle_seconds, settings.job_heartbeat_seconds * 4, 120)
+        activity_at = self._activity_timestamp(job)
+        return (now - activity_at) > stale_after_seconds
+
+    @staticmethod
+    def _activity_timestamp(job: JobInfo) -> float:
+        return float(job.last_heartbeat_at or job.started_at or job.created_at)
+
     def dequeue_job(self, timeout: int = 5) -> ClaimedJob | None:
         client = self._require_redis()
         self._ensure_group(client)
@@ -265,6 +319,24 @@ class JobManager:
             completed_at=time.time(),
             error=error[:500],
             last_heartbeat_at=time.time(),
+        )
+
+    def mark_cancelled(
+        self,
+        job_id: str,
+        reason: str,
+        *,
+        base_job: JobInfo | None = None,
+    ) -> JobInfo:
+        return self._update_job(
+            job_id,
+            base_job=base_job,
+            status="cancelled",
+            completed_at=time.time(),
+            error=reason[:500],
+            last_heartbeat_at=time.time(),
+            cancel_requested=True,
+            cancel_requested_at=time.time(),
         )
 
     def heartbeat_job(

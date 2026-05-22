@@ -109,7 +109,6 @@ class FakeDetailScraper:
             "title": "Test baslik",
             "content_text": "Test icerik",
             "published_at_raw": datetime.now(timezone.utc).isoformat(),
-            "image_url": "https://example.com/image.jpg",
         }
 
 
@@ -121,7 +120,6 @@ class FakeParser:
             "title": detail_data["title"],
             "content_text": detail_data["content_text"],
             "published_at_raw": detail_data["published_at_raw"],
-            "image_url": detail_data["image_url"],
             "scraped_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -151,7 +149,6 @@ class FakeDynamicDetailScraper:
             "content": "Dynamic icerik",
             "summary": "",
             "published_at_raw": "",
-            "image_url": "",
         }
 
     def close(self):
@@ -261,10 +258,12 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
         trigger_type,
         dataset_generation=None,
         progress_callback=None,
+        should_cancel=None,
     ):
         assert trigger_type == "scheduled"
         assert dataset_generation is None
         assert progress_callback is None
+        assert should_cancel is None
         if source_document["domain"] == "broken.example.com":
             raise RuntimeError("boom")
         return {
@@ -289,6 +288,49 @@ def test_crawl_active_sources_continues_when_single_source_raises(monkeypatch):
     assert failed_session["reason"] == "unhandled_source_exception"
     assert failed_session["error_type"] == "RuntimeError"
     assert failed_session["error_message"] == "boom"
+    assert summary["failed_sources"] == 1
+    assert summary["status"] == "completed_with_errors"
+
+
+def test_crawl_active_sources_marks_failed_when_all_processed_sources_fail(monkeypatch):
+    source_docs = [
+        {
+            "_id": "source_1",
+            "domain": "broken-a.example.com",
+            "base_url": "https://broken-a.example.com",
+            "scraper_type": "static",
+        },
+        {
+            "_id": "source_2",
+            "domain": "broken-b.example.com",
+            "base_url": "https://broken-b.example.com",
+            "scraper_type": "static",
+        },
+    ]
+
+    orchestrator = _make_orchestrator(source_docs)
+
+    def fake_crawl_single_source(
+        *,
+        source_document,
+        trigger_type,
+        dataset_generation=None,
+        progress_callback=None,
+        should_cancel=None,
+    ):
+        return {
+            "domain": source_document["domain"],
+            "status": "failed",
+            "failed_count": 1,
+        }
+
+    monkeypatch.setattr(orchestrator, "_crawl_single_source", fake_crawl_single_source)
+
+    summary = orchestrator.crawl_active_sources(trigger_type="scheduled")
+
+    assert summary["processed_sources"] == 2
+    assert summary["failed_sources"] == 2
+    assert summary["status"] == "failed"
 
 
 def test_crawl_source_returns_skipped_for_unsupported_source():
@@ -512,10 +554,16 @@ def test_crawl_source_emits_progress_events(monkeypatch):
     assert [event["event"] for event in events] == [
         "source_crawl_started",
         "source_listing_collected",
+        "source_progress_checkpoint",
         "source_crawl_completed",
     ]
     assert events[1]["details"]["listing_count"] == 1
+    assert events[1]["details"]["sample_url"] == "https://example.com/news-1"
+    assert events[2]["details"]["url_index"] == 1
+    assert events[2]["details"]["total_urls"] == 1
+    assert events[2]["details"]["outcome"] == "inserted"
     assert events[2]["details"]["parsed_count"] == 1
+    assert events[3]["details"]["parsed_count"] == 1
 
 
 def test_crawl_source_skips_records_older_than_lookback(monkeypatch):
@@ -525,7 +573,6 @@ def test_crawl_source_skips_records_older_than_lookback(monkeypatch):
                 "title": "Eski haber",
                 "content_text": "Eski icerik",
                 "published_at_raw": (datetime.now(timezone.utc) - timedelta(days=4)).isoformat(),
-                "image_url": "https://example.com/image.jpg",
             }
 
     monkeypatch.setattr(

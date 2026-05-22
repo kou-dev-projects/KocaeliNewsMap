@@ -1,17 +1,29 @@
 import { type NextRequest } from "next/server";
 
 import {
+  authorizeScrapeControlRequest,
   buildScrapeBackendUrl,
   createScrapeProxyHeaders,
 } from "../_proxy";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: NextRequest): Promise<Response> {
+export async function POST(request: NextRequest): Promise<Response> {
+  const authError = authorizeScrapeControlRequest(request);
+  if (authError) {
+    return authError;
+  }
+
+  const upstreamUrl = buildScrapeBackendUrl("/api/v1/scrape/bootstrap");
+  const reset = request.nextUrl.searchParams.get("reset");
+  if (reset === "true") {
+    upstreamUrl.searchParams.set("reset", "true");
+  }
+
   let upstream: Response;
 
   try {
-    upstream = await fetch(buildScrapeBackendUrl("/api/v1/scrape/bootstrap"), {
+    upstream = await fetch(upstreamUrl, {
       method: "POST",
       headers: createScrapeProxyHeaders(),
       cache: "no-store",

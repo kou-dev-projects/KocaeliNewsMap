@@ -1,6 +1,9 @@
 import pytest
 from app.services.classifier import build_classifier_service
+from app.services.classifier.config import ClassifierConfig
+from app.services.classifier.factory import build_classifier_service as build_service_from_factory
 from app.services.classifier.service import ClassifierService
+from app.services.classifier.resolver import ConflictResolver
 from app.services.classifier.schemas import (
     ClassificationInput, ClassificationResult, NewsCategory
 )
@@ -42,8 +45,11 @@ def test_unknown_returns_unknown_or_closest(svc):
 
 def test_result_has_method(svc):
     r = svc.classify(ClassificationInput(title="Yangın çıktı"))
-    assert r.method in ("keyword", "semantic", "semantic_mock",
-                        "resolver_agree", "resolver_keyword", "resolver_priority")
+    assert r.method in (
+        "keyword", "semantic", "semantic_mock",
+        "resolver_agree", "resolver_keyword", "resolver_priority",
+        "keyword_only", "keyword_fallback_semantic_error", "semantic_error_unknown",
+    )
 
 
 def test_news_id_propagated(svc):
@@ -84,15 +90,21 @@ class _StubSemanticClassifier:
         return self._result
 
 
+class _FailingSemanticClassifier:
+    def classify(self, input_data):
+        raise RuntimeError("semantic backend unavailable")
+
+
 class _StubResolver:
     def resolve(self, keyword_result, semantic_result):
         return semantic_result
 
 
 def test_semantic_disabled_skips_semantic_stage():
+    """semantic_enabled=False olunca semantic classifier hiç çağrılmamalı."""
     keyword_result = ClassificationResult(
         category=NewsCategory.YANGIN,
-        confidence=0.6,
+        confidence=0.55,  # dynamic confidence artık 0.55
         method="keyword",
     )
     semantic_result = ClassificationResult(
@@ -111,7 +123,35 @@ def test_semantic_disabled_skips_semantic_stage():
     result = service.classify(ClassificationInput(title="test"))
 
     assert result.category == NewsCategory.YANGIN
-    assert semantic.calls == 0
+    assert semantic.calls == 0  # semantic devre dışı
+
+
+def test_semantic_always_runs_when_enabled():
+    """semantic_enabled=True olunca keyword eşleşme olsa bile semantic çalışmalı."""
+    keyword_result = ClassificationResult(
+        category=NewsCategory.YANGIN,
+        confidence=0.55,
+        method="keyword",
+    )
+    semantic_result = ClassificationResult(
+        category=NewsCategory.YANGIN,
+        confidence=0.80,
+        method="semantic",
+    )
+    semantic = _StubSemanticClassifier(semantic_result)
+    service = ClassifierService(
+        keyword_classifier=_StubKeywordClassifier(keyword_result),
+        semantic_classifier=semantic,
+        resolver=ConflictResolver(),
+        semantic_enabled=True,
+        keyword_only_mode=False,
+    )
+
+    result = service.classify(ClassificationInput(title="test"))
+
+    # Semantic her zaman çalıştı — confidence == 1.0 bypass kaldırıldı
+    assert semantic.calls == 1
+    assert result.category == NewsCategory.YANGIN
 
 
 def test_keyword_only_without_keyword_match_returns_unknown():
@@ -133,3 +173,89 @@ def test_keyword_only_without_keyword_match_returns_unknown():
     assert result.category == NewsCategory.UNKNOWN
     assert result.method == "keyword_only"
     assert semantic.calls == 0
+
+
+def test_resolver_allows_semantic_unknown_to_override_weak_keyword():
+    keyword_result = ClassificationResult(
+        category=NewsCategory.KULTUREL_ETKINLIK,
+        confidence=0.45,
+        method="keyword",
+    )
+    semantic_result = ClassificationResult(
+        category=NewsCategory.UNKNOWN,
+        confidence=0.72,
+        method="semantic",
+    )
+    service = ClassifierService(
+        keyword_classifier=_StubKeywordClassifier(keyword_result),
+        semantic_classifier=_StubSemanticClassifier(semantic_result),
+        resolver=ConflictResolver(),
+        semantic_enabled=True,
+        keyword_only_mode=False,
+    )
+
+    result = service.classify(ClassificationInput(title="Kocaelispor kart projesi"))
+
+    assert result.category == NewsCategory.UNKNOWN
+    assert result.method == "resolver_semantic_unknown"
+
+
+def test_factory_builds_embedding_service_when_semantic_is_enabled(monkeypatch):
+    sentinel_embedding = object()
+
+    monkeypatch.setattr(
+        "app.services.classifier.factory.load_classifier_config",
+        lambda: ClassifierConfig(
+            semantic_enabled=True,
+            semantic_confidence_threshold=0.42,
+            semantic_margin_threshold=0.08,
+            keyword_only_mode=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.classifier.factory.build_embedding_service",
+        lambda: sentinel_embedding,
+    )
+
+    service = build_service_from_factory()
+
+    assert service._semantic_enabled is True
+    assert service._semantic._embedding_service is sentinel_embedding
+
+
+def test_semantic_failure_falls_back_to_keyword_result():
+    keyword_result = ClassificationResult(
+        category=NewsCategory.HIRSIZLIK,
+        confidence=0.66,
+        method="keyword",
+        matched_keywords=["dolandirildi"],
+        all_scores={"hirsizlik": 0.66},
+    )
+    service = ClassifierService(
+        keyword_classifier=_StubKeywordClassifier(keyword_result),
+        semantic_classifier=_FailingSemanticClassifier(),
+        resolver=ConflictResolver(),
+        semantic_enabled=True,
+        keyword_only_mode=False,
+    )
+
+    result = service.classify(ClassificationInput(title="3 milyon TL dolandirildi"))
+
+    assert result.category == NewsCategory.HIRSIZLIK
+    assert result.method == "keyword_fallback_semantic_error"
+    assert result.matched_keywords == ["dolandirildi"]
+
+
+def test_semantic_failure_without_keyword_returns_unknown():
+    service = ClassifierService(
+        keyword_classifier=_StubKeywordClassifier(None),
+        semantic_classifier=_FailingSemanticClassifier(),
+        resolver=ConflictResolver(),
+        semantic_enabled=True,
+        keyword_only_mode=False,
+    )
+
+    result = service.classify(ClassificationInput(title="belirsiz haber"))
+
+    assert result.category == NewsCategory.UNKNOWN
+    assert result.method == "semantic_error_unknown"

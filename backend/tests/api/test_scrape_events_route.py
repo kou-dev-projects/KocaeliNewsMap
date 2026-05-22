@@ -8,8 +8,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.scrape_events import _HEARTBEAT_SENTINEL
 
-API_KEY = "secret"
-
 _SAMPLE_FIELDS = {
     "event": "job_submitted",
     "message": "Manual scrape job queued",
@@ -42,12 +40,17 @@ class FakeScrapeEventReader:
 
 @pytest.fixture(autouse=True)
 def _reset_scrape_auth(monkeypatch):
-    monkeypatch.setattr("app.routes.scrape.settings.scrape_trigger_api_key", API_KEY)
     monkeypatch.setattr("app.routes.scrape.settings.scrape_events_heartbeat_seconds", 999)
+
+    class _FakeJobManager:
+        def find_latest_active_job(self):
+            return None
+
+    monkeypatch.setattr("app.routes.scrape._get_job_manager", lambda: _FakeJobManager())
 
 
 def _authorized_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
-    headers = {"X-API-Key": API_KEY}
+    headers: dict[str, str] = {}
     if extra:
         headers.update(extra)
     return headers
@@ -99,7 +102,7 @@ class TestScrapeEventsRoute:
             "app.routes.scrape.get_latest_scrape_run",
             lambda: {
                 "job_id": "abc123",
-                "status": "running",
+                "status": "completed",
                 "source": None,
                 "trigger_type": "refresh",
                 "started_at": 1.0,
@@ -113,7 +116,7 @@ class TestScrapeEventsRoute:
                         "job_id": "abc123",
                         "source": None,
                         "trigger_type": "refresh",
-                        "status": "running",
+                        "status": "completed",
                         "attempt_count": None,
                         "details": {},
                     }
@@ -147,22 +150,11 @@ class TestScrapeEventsRoute:
         assert response.headers.get("cache-control") == "no-cache"
         assert response.headers.get("x-accel-buffering") == "no"
 
-    def test_auth_returns_401_when_key_configured_and_missing(self, monkeypatch):
+    def test_events_route_allows_requests_without_auth(self, monkeypatch):
         _make_reader_with([], monkeypatch)
 
         with TestClient(app) as client:
             response = client.get("/api/v1/scrape/events")
-
-        assert response.status_code == 401
-
-    def test_auth_accepts_valid_api_key(self, monkeypatch):
-        _make_reader_with([], monkeypatch)
-
-        with TestClient(app) as client:
-            response = client.get(
-                "/api/v1/scrape/events",
-                headers=_authorized_headers(),
-            )
 
         assert response.status_code == 200
 

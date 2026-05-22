@@ -41,6 +41,12 @@ function hydrateRootEnv() {
 hydrateRootEnv();
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: [
+    "localhost",
+    "127.0.0.1",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+  ],
   // Hot-reload for Docker volumes
   experimental: {
     // App Router is active by default in Next.js 15

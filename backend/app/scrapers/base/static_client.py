@@ -24,16 +24,20 @@ class StaticHttpClient:
         timeout: int = 20,
         delay_seconds: float = 1.0,
         headers: Optional[dict] = None,
+        retry_total: int = 3,
+        retry_connect: int = 3,
+        retry_read: int = 3,
+        retry_status: int = 3,
     ) -> None:
         self.timeout = timeout
         self.delay_seconds = delay_seconds
         self.session = requests.Session()
         self.session.headers.update(headers or DEFAULT_HEADERS)
         retry_strategy = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            status=3,
+            total=retry_total,
+            connect=retry_connect,
+            read=retry_read,
+            status=retry_status,
             backoff_factor=0.5,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=frozenset(["GET", "HEAD"]),

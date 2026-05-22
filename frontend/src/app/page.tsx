@@ -1,8 +1,9 @@
 "use client"
 
-import { Suspense, useDeferredValue, useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useEffect, useMemo, useState } from "react"
 import { motion } from "framer-motion"
 import { Globe2, Loader2, MapPinned, Newspaper, TrendingUp, X } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 
 import { ScrapeLogPanel } from "@/components/ScrapeLogPanel"
 import InfoCard from "@/components/map/InfoCard"
@@ -18,6 +19,14 @@ import { StatsCard } from "@/components/pulse/stats-card"
 import { useNewsDashboard } from "@/hooks/useNewsDashboard"
 import type { NewsQueryFilters } from "@/lib/filter-state"
 import { EMPTY_DASHBOARD_RESPONSE } from "@/lib/news-api"
+import { newsKeys } from "@/lib/news-query-keys"
+import { bootstrapScrape, fetchLatestScrapeRun } from "@/lib/scrape-api"
+
+declare global {
+  interface Window {
+    __pulseHomeAutoScrapeStarted?: boolean
+  }
+}
 
 const DEFAULT_MAP_LIMIT = Number(process.env.NEXT_PUBLIC_MAP_LIMIT || "1000")
 type PulseCategory = LiveNewsFeedItem["pulseCategory"]
@@ -188,6 +197,7 @@ function HomeFallback() {
 }
 
 function HomeContent() {
+  const queryClient = useQueryClient()
   const defaultDateRange = useMemo(() => getDefaultDateRange(), [])
   const [selectedNews, setSelectedNews] = useState<NewsMapItem | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<PulseCategory | null>(null)
@@ -198,6 +208,7 @@ function HomeContent() {
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [mapThemeMode, setMapThemeMode] = useState<MapThemeMode>("light")
   const [showSplash, setShowSplash] = useState(true)
+  const [scrapeReloadSignal, setScrapeReloadSignal] = useState(0)
   const deferredSearchKeyword = useDeferredValue(searchKeyword)
   const normalizedSearchKeyword = deferredSearchKeyword.trim()
   const normalizedDateRange = useMemo(
@@ -289,7 +300,7 @@ function HomeContent() {
 
   const globalTotalNews = stats.total || mapData.total
   const liveCount = useMemo(() => visibleMapItems.filter(isLikelyLive).length, [visibleMapItems])
-  const filteredGeocodeCount = visibleMapItems.length
+  const visibleMapCount = visibleMapItems.length
   const filteredSourceCount = useMemo(
     () =>
       new Set(
@@ -309,6 +320,74 @@ function HomeContent() {
       ? dashboardError.message
       : "Veri akışında beklenmeyen bir hata oluştu."
   }, [dashboardError])
+
+  const isActiveScrapeStatus = (status?: string | null) =>
+    status === "pending" || status === "running"
+
+  const wait = (durationMs: number) =>
+    new Promise((resolve) => window.setTimeout(resolve, durationMs))
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    if (window.__pulseHomeAutoScrapeStarted) {
+      return
+    }
+
+    window.__pulseHomeAutoScrapeStarted = true
+    let cancelled = false
+
+    const triggerInitialScrape = async () => {
+      try {
+        const latestRun = await fetchLatestScrapeRun()
+        if (cancelled) {
+          return
+        }
+
+        if (isActiveScrapeStatus(latestRun.status) && latestRun.job_id) {
+          setScrapeReloadSignal((current) => current + 1)
+          return
+        }
+
+        let result: Awaited<ReturnType<typeof bootstrapScrape>> | null = null
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            result = await bootstrapScrape({ reset: true })
+            break
+          } catch {
+            if (attempt === 2 || cancelled) {
+              break
+            }
+            await wait(1200 * (attempt + 1))
+          }
+        }
+
+        if (cancelled) {
+          return
+        }
+
+        if (result && "job_id" in result && result.reason !== "job_already_running") {
+          queryClient.removeQueries({ queryKey: newsKeys.all })
+          queryClient.setQueryData(
+            newsKeys.dashboard(dashboardFilters),
+            EMPTY_DASHBOARD_RESPONSE,
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setScrapeReloadSignal((current) => current + 1)
+        }
+      }
+    }
+
+    void triggerInitialScrape()
+
+    return () => {
+      cancelled = true
+    }
+  }, [dashboardFilters, queryClient])
 
   return (
     <>
@@ -430,15 +509,15 @@ function HomeContent() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <StatsCard
-                title="Görünüm"
-                value={visibleMapItems.length}
+                title="Toplam"
+                value={globalTotalNews}
                 icon={<Newspaper className="h-4 w-4" />}
                 color="bg-primary"
                 delay={0}
               />
               <StatsCard
-                title="Konumlu"
-                value={filteredGeocodeCount}
+                title="Haritada"
+                value={visibleMapCount}
                 icon={<MapPinned className="h-4 w-4" />}
                 color="bg-emerald-500"
                 delay={0.05}
@@ -463,10 +542,10 @@ function HomeContent() {
               className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-xs text-muted-foreground"
               data-testid="visible-news-count"
             >
-              {visibleMapItems.length} / {stats.total || mapData.total} haber gösteriliyor
+              Haritada {visibleMapCount} / toplam {globalTotalNews} haber
             </div>
 
-            <ScrapeLogPanel variant="embedded" />
+            <ScrapeLogPanel variant="embedded" reloadSignal={scrapeReloadSignal} />
           </div>
         </EnhancedSidebar>
 

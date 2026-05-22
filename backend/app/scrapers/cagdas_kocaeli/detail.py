@@ -7,7 +7,6 @@ from app.scrapers.base.static_helpers import clean_text
 from app.scrapers.cagdas_kocaeli.selectors import (
     CONTENT_SELECTORS,
     DATE_SELECTORS,
-    IMAGE_SELECTORS,
     TITLE_SELECTORS,
 )
 
@@ -25,13 +24,11 @@ class CagdasKocaeliDetailScraper:
         title = self._extract_text_by_selectors(soup, TITLE_SELECTORS)
         content = self._extract_content(soup)
         published_at_raw = self._extract_published_at(soup)
-        image_url = self._extract_image(soup)
 
         return {
             "title": title,
             "content_text": content,
             "published_at_raw": published_at_raw,
-            "image_url": image_url,
         }
 
     def _extract_text_by_selectors(
@@ -78,22 +75,5 @@ class CagdasKocaeliDetailScraper:
             text_value = clean_text(node.get_text(" ", strip=True))
             if text_value and ":" not in text_value:
                 return text_value
-
-        return ""
-
-    def _extract_image(self, soup: BeautifulSoup) -> str:
-        for selector in IMAGE_SELECTORS:
-            node = soup.select_one(selector)
-            if not node:
-                continue
-
-            if node.name == "meta":
-                content = node.get("content")
-                if content:
-                    return content.strip()
-
-            src = node.get("src")
-            if src:
-                return src.strip()
 
         return ""

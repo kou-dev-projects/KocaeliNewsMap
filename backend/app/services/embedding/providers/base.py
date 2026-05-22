@@ -16,18 +16,3 @@ class TextProvider(Protocol):
     def embed_text(self, text: str) -> np.ndarray:
        
         ...
-
-
-@runtime_checkable
-class ImageProvider(Protocol):
-  
-
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def dimension(self) -> int: ...
-
-    def embed_image(self, image_url: str) -> np.ndarray | None:
-       
-        ...

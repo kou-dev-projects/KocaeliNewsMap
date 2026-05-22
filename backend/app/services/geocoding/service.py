@@ -6,6 +6,7 @@ from collections import OrderedDict
 
 from app.domain.enums import normalize_kocaeli_district
 
+from ..ner.normalizer import normalize_location_text
 from ..ner.schemas import NERResult
 from .cache import RedisGeoCache
 from .config import GeocodingConfig
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 _LAT_MIN, _LAT_MAX = 40.35, 41.15
 _LNG_MIN, _LNG_MAX = 29.10, 30.90
-_MAX_LOCATION_CANDIDATES = 5
+_MAX_LOCATION_CANDIDATES = 8
 _GENERIC_LOCATION_TOKENS = {
     "belediyesi",
     "belediye",
@@ -79,6 +80,11 @@ KOCAELI_DISTRICTS = frozenset(
 _PRECISE_LOCATION_HINTS = (
     "mahallesi",
     "mahalle",
+    "sokak",
+    "cadde",
+    "caddesi",
+    "bulvar",
+    "blv",
     "baraji",
     "goleti",
     "tesisi",
@@ -96,6 +102,16 @@ _PRECISE_LOCATION_HINTS = (
     "terminali",
     "kavsagi",
     "meydani",
+)
+
+_INVALID_NEIGHBORHOOD_PREFIX_TOKENS = (
+    "mahallesi",
+    "mahalle",
+    "sokak",
+    "cadde",
+    "caddesi",
+    "bulvar",
+    "blv",
 )
 _USE_NER_FALLBACK = object()
 
@@ -251,10 +267,7 @@ def build_geocoding_inputs_from_ner(
     if not ner_result.location_candidates and not ner_result.validated_districts:
         return []
 
-    deduped: OrderedDict[
-        tuple[str, str | None, str | None],
-        GeocodingInput,
-    ] = OrderedDict()
+    deduped: OrderedDict[tuple[str, str | None], GeocodingInput] = OrderedDict()
 
     def add_input(
         *,
@@ -267,16 +280,13 @@ def build_geocoding_inputs_from_ner(
 
         clean_address = address.strip()
         clean_district = district_hint.strip() if district_hint else None
-        clean_neighborhood = neighborhood.strip() if neighborhood else None
+        clean_neighborhood = _clean_location_value(neighborhood)
         if not clean_address:
             return
 
         key = (
             _normalize_for_compare(clean_address),
             _normalize_for_compare(clean_district) if clean_district else None,
-            _normalize_for_compare(clean_neighborhood)
-            if clean_neighborhood
-            else None,
         )
         if key in deduped:
             return
@@ -306,34 +316,43 @@ def build_geocoding_inputs_from_ner(
 
     for candidate in ner_result.location_candidates[:_MAX_LOCATION_CANDIDATES]:
         district = candidate.district or resolved_fallback_district
-        original_text = (
-            candidate.original_text.strip() if candidate.original_text else None
-        )
+        raw_original_text = candidate.original_text or candidate.normalized_text
+        if raw_original_text and (
+            candidate.is_kocaeli_district
+            or normalize_kocaeli_district(raw_original_text) is not None
+        ):
+            original_text = raw_original_text.strip()
+        else:
+            original_text = _clean_location_value(raw_original_text)
+        neighborhood_text = _clean_location_value(candidate.neighborhood)
+        if neighborhood_text and _is_malformed_neighborhood_text(neighborhood_text):
+            neighborhood_text = None
+
         should_geocode_candidate = bool(
             candidate.district
-            or candidate.neighborhood
+            or neighborhood_text
             or candidate.is_kocaeli_district
             or looks_like_precise_location(original_text or "")
         )
         if original_text and is_generic_location_text(
             original_text,
             district_hint=candidate.district,
-            neighborhood=candidate.neighborhood,
+            neighborhood=neighborhood_text,
             is_kocaeli_district=candidate.is_kocaeli_district,
         ):
             should_geocode_candidate = False
 
-        if candidate.neighborhood and district:
+        if neighborhood_text and district:
             add_input(
-                address=f"{candidate.neighborhood}, {district}",
+                address=f"{neighborhood_text}, {district}",
                 district_hint=district,
-                neighborhood=candidate.neighborhood,
+                neighborhood=neighborhood_text,
             )
-        elif candidate.neighborhood:
+        elif neighborhood_text:
             add_input(
-                address=candidate.neighborhood,
+                address=neighborhood_text,
                 district_hint=district,
-                neighborhood=candidate.neighborhood,
+                neighborhood=neighborhood_text,
             )
 
         if original_text and should_geocode_candidate:
@@ -345,9 +364,6 @@ def build_geocoding_inputs_from_ner(
                     address=f"{original_text}, {district}",
                     district_hint=district,
                 )
-
-        if district and looks_like_precise_location(original_text or ""):
-            add_input(address=district, district_hint=district)
 
     if resolved_fallback_district:
         add_input(
@@ -361,6 +377,30 @@ def build_geocoding_inputs_from_ner(
 def looks_like_precise_location(value: str) -> bool:
     normalized = _normalize_for_compare(value)
     return any(hint in normalized for hint in _PRECISE_LOCATION_HINTS)
+
+
+def _clean_location_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized = normalize_location_text(value)
+    if normalized:
+        return normalized.strip()
+
+    stripped = value.strip()
+    return stripped or None
+
+
+def _is_malformed_neighborhood_text(value: str) -> bool:
+    normalized = _normalize_for_compare(value)
+    if not normalized:
+        return True
+
+    parts = normalized.split()
+    if not parts:
+        return True
+
+    return parts[0] in _INVALID_NEIGHBORHOOD_PREFIX_TOKENS
 
 
 def is_generic_location_text(

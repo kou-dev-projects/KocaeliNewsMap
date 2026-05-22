@@ -2,9 +2,11 @@ from app.services.scrape_reset import (
     SCRAPED_DATA_COLLECTIONS,
     ScrapeRefreshCleanupResult,
     ScrapeResetResult,
+    clear_scraped_news_generation_state,
     cleanup_pending_refresh_data,
     cleanup_stale_refresh_data,
     reset_scraped_news_data,
+    reset_scraped_news_workspace,
 )
 
 
@@ -41,10 +43,20 @@ class FakeDatabase:
             "source_records": FakeCollection(8),
             "crawl_sessions": FakeCollection(3),
             "sources": FakeCollection(99),
+            "dataset_state": FakeStateCollection(),
         }
 
     def __getitem__(self, name: str):
         return self.collections[name]
+
+
+class FakeStateCollection:
+    def __init__(self):
+        self.calls: list[tuple[dict, dict, bool]] = []
+
+    def update_one(self, query: dict, update: dict, upsert: bool = False):
+        self.calls.append((query, update, upsert))
+        return None
 
 
 def test_reset_scraped_news_data_only_clears_target_collections():
@@ -64,6 +76,34 @@ def test_reset_scraped_news_data_only_clears_target_collections():
         assert database.collections[collection_name].calls == [{}]
 
     assert database.collections["sources"].calls == []
+
+
+def test_clear_scraped_news_generation_state_unsets_active_generations():
+    database = FakeDatabase()
+
+    clear_scraped_news_generation_state(database)
+
+    assert len(database.collections["dataset_state"].calls) == 1
+    query, update, upsert = database.collections["dataset_state"].calls[0]
+    assert query == {"_id": "news_feed"}
+    assert update["$unset"] == {
+        "active_generation": "",
+        "pending_refresh_generation": "",
+    }
+    assert upsert is True
+
+
+def test_reset_scraped_news_workspace_clears_news_and_dataset_state():
+    database = FakeDatabase()
+
+    result = reset_scraped_news_workspace(database)
+
+    assert result.deleted_counts == {
+        "raw_documents": 12,
+        "source_records": 8,
+        "crawl_sessions": 3,
+    }
+    assert len(database.collections["dataset_state"].calls) == 1
 
 
 def test_cleanup_stale_refresh_data_removes_only_documents_outside_active_generation():

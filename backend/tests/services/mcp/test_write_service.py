@@ -1,9 +1,14 @@
+from datetime import datetime, timezone
+
 from app.services.embedding.schemas import DuplicateScore, TextEmbedding
 from app.services.mcp.config import MCPConfig
 from app.services.mcp.dead_letter import DeadLetterStore
 from app.services.mcp.queue import WriteQueue
 from app.services.mcp.schemas import NewsWriteRequest, WriteStatus
-from app.services.mcp.write_service import NewsWriteService
+from app.services.mcp.write_service import (
+    NewsWriteService,
+    merge_duplicate_source_record_docs,
+)
 
 
 class DummyIdempotency:
@@ -58,6 +63,11 @@ class DummySemanticMaterializer(DummyMaterializer):
         return doc
 
 
+class ExplodingMaterializer:
+    def materialize(self, *, raw_document, source_document, now=None):
+        raise AssertionError("full materializer should not run for lexical preflight duplicates")
+
+
 class DummyEmbeddingService:
     def __init__(self):
         self._cfg = type("Cfg", (), {"duplicate_threshold": 0.90})()
@@ -75,7 +85,7 @@ class DummyEmbeddingService:
             None,
         )
 
-    def decide_duplicate(self, incoming_text, incoming_image, candidates, new_source):
+    def decide_duplicate(self, incoming_text, candidates, new_source, incoming_image=None):
         best = None
         best_score = -1.0
         for candidate in candidates:
@@ -90,7 +100,6 @@ class DummyEmbeddingService:
         is_duplicate = best is not None and best_score >= 0.90
         return DuplicateScore(
             text_similarity=best_score if best_score > 0 else 0.0,
-            image_similarity=None,
             final_score=best_score if best_score > 0 else 0.0,
             is_duplicate=is_duplicate,
             matched_news_id=best["id"] if is_duplicate and best is not None else None,
@@ -506,6 +515,112 @@ def test_cross_source_semantic_duplicate_merges_when_hashes_differ():
     assert merged_doc["duplicate_text_similarity"] >= 0.90
 
 
+def test_cross_source_lexical_duplicate_merges_before_full_materialization():
+    idem = DummyIdempotency()
+    mongo = FakeMongo(
+        duplicate_source_record_doc={
+            "_id": "lexical_canonical_id",
+            "raw_document_id": "raw_lexical_canonical_id",
+            "dedupe_hash": "old-story-hash",
+            "record_status": "active",
+            "title": "Verdigi paranin 2 katini alacagi vaadiyle 3 milyon TL dolandirildi",
+            "body": (
+                "Cayirova'da nakliyecilik yapan Seyfi Kutuk, cezaevinde tanistigi kisiye "
+                "15-20 gun icinde iki katini geri alma vaadiyle milyonlarca lira verdi. "
+                "Daha sonra dolandirildigini anlayip sikayetci oldu."
+            ),
+            "summary": (
+                "Cayirova'da nakliyecilik yapan Seyfi Kutuk, cezaevinde tanistigi kisiye "
+                "milyonlarca lira verdi."
+            ),
+            "kaynak_listesi": ["bizimyaka.com"],
+            "category_predicted": "hirsizlik",
+            "category_confidence": 0.8,
+            "geocode_status": "approximate",
+            "district_predicted": "cayirova",
+            "location_text_extracted": "Cayirova",
+            "pipeline_status": "geocoded",
+            "schema_version": "1.0",
+            "updated_at": "old_time",
+        },
+        raw_upserted_id="raw_lexical_new_id",
+        source_record_upserted_id="source_lexical_new_id",
+    )
+
+    svc = NewsWriteService(
+        idempotency=idem,
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=mongo,
+        materializer=ExplodingMaterializer(),
+        embedding_service=None,
+    )
+
+    result = svc.write(
+        _req(
+            "https://other.example.com/cezaevinde-tanistigi-adama-3-milyon-kaptirdi",
+            source="ozgurkocaeli.com.tr",
+            title="Cezaevinde tanistigi adama 3 milyon TL kaptirdi",
+            content=(
+                "Cayirova'da nakliyecilik yapan Seyfi Kutuk, cezaevinde tanistigi kisiye "
+                "kisa surede iki katini geri alma vaadiyle milyonlarca lira verdi. "
+                "Daha sonra dolandirildigini anlayarak savciliga sikayette bulundu."
+            ),
+        )
+    )
+
+    assert result.status == WriteStatus.DUPLICATE_MERGED
+    assert result.news_id == "lexical_canonical_id"
+    assert result.was_duplicate is True
+
+    canonical_doc = mongo.source_records.find_one({"_id": "lexical_canonical_id"})
+    merged_doc = mongo.source_records.find_one({"raw_document_id": "raw_lexical_new_id"})
+    assert canonical_doc["kaynak_listesi"] == [
+        "bizimyaka.com",
+        "ozgurkocaeli.com.tr",
+    ]
+    assert merged_doc["record_status"] == "merged_duplicate"
+    assert merged_doc["duplicate_of_record_id"] == "lexical_canonical_id"
+    assert merged_doc["duplicate_reason"] == "lexical_similarity_match"
+    assert merged_doc["category_predicted"] == "hirsizlik"
+
+
+def test_preflight_source_record_omits_null_optional_string_fields():
+    svc = NewsWriteService(
+        idempotency=DummyIdempotency(),
+        queue=WriteQueue(10, 3),
+        dead_letter=DeadLetterStore(),
+        config=_cfg(),
+        mongo_client=None,
+        materializer=DummyMaterializer(),
+    )
+
+    record = svc._build_preflight_source_record(
+        raw_document={
+            "_id": "raw_id",
+            "canonical_url": "https://example.com/a",
+            "resolved_url": "https://example.com/a",
+            "title_raw": "Baslik",
+            "content_raw": "",
+            "text_raw": "",
+            "published_at_raw": None,
+            "scraped_at": datetime.now(timezone.utc),
+            "language": "tr",
+            "domain": "example.com",
+            "updated_at": datetime.now(timezone.utc),
+        },
+        source_document={
+            "_id": "source_id",
+            "display_name": "Example",
+            "base_url": "https://example.com",
+        },
+    )
+
+    assert "summary" not in record
+    assert "duplicate_reason" not in record
+
+
 def test_fail_closed_dead_letters_when_queue_full():
     idem = DummyIdempotency()
     queue = WriteQueue(0, 3)
@@ -526,58 +641,6 @@ def test_fail_closed_dead_letters_when_queue_full():
     assert result.status == WriteStatus.DEAD_LETTERED
     assert queue.size == 0
     assert dead.size == 1
-
-
-def test_relative_image_url_is_normalized_for_raw_document():
-    idem = DummyIdempotency()
-    mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
-    svc = NewsWriteService(
-        idempotency=idem,
-        queue=WriteQueue(10, 3),
-        dead_letter=DeadLetterStore(),
-        config=_cfg(),
-        mongo_client=mongo,
-        materializer=DummyMaterializer(),
-    )
-
-    request = NewsWriteRequest(
-        title="Test haber",
-        url="https://example.com/haber/1",
-        source="example.com",
-        content="icerik",
-        image_url="/images/test.jpg",
-    )
-
-    svc.write(request)
-
-    assert mongo.raw_documents.last_update["$set"]["image_urls_raw"] == [
-        "https://example.com/images/test.jpg"
-    ]
-
-
-def test_invalid_image_url_is_dropped_from_raw_document():
-    idem = DummyIdempotency()
-    mongo = FakeMongo(raw_upserted_id="raw_new_id", source_record_upserted_id="source_new_id")
-    svc = NewsWriteService(
-        idempotency=idem,
-        queue=WriteQueue(10, 3),
-        dead_letter=DeadLetterStore(),
-        config=_cfg(),
-        mongo_client=mongo,
-        materializer=DummyMaterializer(),
-    )
-
-    request = NewsWriteRequest(
-        title="Test haber",
-        url="https://example.com/haber/1",
-        source="example.com",
-        content="icerik",
-        image_url="javascript:alert(1)",
-    )
-
-    svc.write(request)
-
-    assert mongo.raw_documents.last_update["$set"]["image_urls_raw"] == []
 
 
 def test_dataset_generation_is_written_to_raw_and_source_records():
@@ -605,6 +668,139 @@ def test_dataset_generation_is_written_to_raw_and_source_records():
     assert mongo.raw_documents.last_filter["dataset_generation"] == "generation-42"
     assert mongo.raw_documents.last_update["$set"]["dataset_generation"] == "generation-42"
     assert mongo.source_records.last_update["$set"]["dataset_generation"] == "generation-42"
+
+
+def test_merge_duplicate_prefers_higher_priority_category_when_confidence_ties():
+    canonical_doc = {
+        "kaynak_listesi": ["bizimyaka.com"],
+        "updated_at": "old",
+        "category_predicted": "yangin",
+        "category_confidence": 0.45,
+    }
+    incoming_doc = {
+        "kaynak_listesi": ["cagdaskocaeli.com.tr"],
+        "updated_at": "new",
+        "category_predicted": "trafik_kazasi",
+        "category_confidence": 0.45,
+        "category_model_version": "resolver_priority",
+    }
+
+    update = merge_duplicate_source_record_docs(canonical_doc, incoming_doc)
+
+    assert update["category_predicted"] == "trafik_kazasi"
+    assert update["category_confidence"] == 0.45
+    assert update["category_model_version"] == "resolver_priority"
+
+
+def test_merge_duplicate_skips_null_district_confidence():
+    canonical_doc = {
+        "kaynak_listesi": ["bizimyaka.com"],
+        "updated_at": "old",
+        "district_predicted": None,
+        "geocode_status": "pending",
+    }
+    incoming_doc = {
+        "kaynak_listesi": ["yenikocaeli.com"],
+        "updated_at": "new",
+        "district_predicted": "izmit",
+        "district_confidence": None,
+        "geocode_status": "pending",
+    }
+
+    update = merge_duplicate_source_record_docs(canonical_doc, incoming_doc)
+
+    assert update["district_predicted"] == "izmit"
+    assert "district_confidence" not in update
+
+
+def test_passthrough_duplicate_omits_null_district_confidence():
+    service = NewsWriteService.__new__(NewsWriteService)
+
+    record = NewsWriteService._build_passthrough_duplicate_source_record(
+        service,
+        raw_document={
+            "domain": "ozgurkocaeli.com.tr",
+            "canonical_url": "https://example.com/haber",
+            "resolved_url": "https://example.com/haber",
+        },
+        source_document={
+            "display_name": "Ozgur Kocaeli",
+            "base_url": "https://www.ozgurkocaeli.com.tr",
+        },
+        duplicate_target={
+            "category_predicted": "hirsizlik",
+            "category_confidence": 0.82,
+            "district_predicted": "izmit",
+            "district_confidence": None,
+            "location_text_extracted": "Izmit",
+            "geocode_status": "approximate",
+            "pipeline_status": "geocoded",
+            "schema_version": "1.0",
+        },
+        source_record={
+            "raw_document_id": "raw_1",
+            "source_id": "source_1",
+            "canonical_url": "https://example.com/haber",
+            "title": "ornek",
+            "body": "ornek govde",
+            "summary": "ornek ozet",
+            "published_at": "2026-04-10T00:00:00Z",
+            "detected_language": "tr",
+            "category_predicted": "unknown",
+            "category_confidence": 0.0,
+            "district_predicted": None,
+            "location_text_extracted": None,
+            "geocode_status": "not_needed",
+            "text_hash": "hash_1",
+            "dedupe_hash": "hash_2",
+            "source_name_snapshot": "Ozgur Kocaeli",
+            "source_url_snapshot": "https://www.ozgurkocaeli.com.tr",
+            "kaynak_listesi": ["ozgurkocaeli.com.tr"],
+            "pipeline_status": "normalized",
+            "record_status": "active",
+            "schema_version": "1.0",
+            "updated_at": "2026-04-10T00:00:00Z",
+        },
+    )
+
+    assert record["district_predicted"] == "izmit"
+    assert "district_confidence" not in record
+
+
+def test_merge_duplicate_prefers_more_specific_location_on_same_geocode_rank():
+    canonical_doc = {
+        "kaynak_listesi": ["bizimyaka.com"],
+        "updated_at": "old",
+        "geocode_status": "approximate",
+        "geocode_provider": "district_fallback",
+        "location_text_extracted": "izmit",
+    }
+    incoming_doc = {
+        "kaynak_listesi": ["cagdaskocaeli.com.tr"],
+        "updated_at": "new",
+        "geocode_status": "approximate",
+        "geocode_provider": "nominatim",
+        "geocode_provider_version": "v1",
+        "geocode_point": {
+            "type": "Point",
+            "coordinates": [29.94074, 40.76539],
+        },
+        "geocode_bbox": None,
+        "location_resolution_method": "ner_precise_candidate",
+        "district_predicted": "izmit",
+        "district_confidence": 0.99,
+        "location_text_extracted": "Yahya Kaptan Mahallesi Bestekar Amir Ates Caddesi",
+    }
+
+    update = merge_duplicate_source_record_docs(canonical_doc, incoming_doc)
+
+    assert update["location_text_extracted"] == "Yahya Kaptan Mahallesi Bestekar Amir Ates Caddesi"
+    assert update["geocode_provider"] == "nominatim"
+    assert update["geocode_provider_version"] == "v1"
+    assert update["geocode_point"] == {
+        "type": "Point",
+        "coordinates": [29.94074, 40.76539],
+    }
 
 
 class FakeUpdateResult:

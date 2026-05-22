@@ -11,7 +11,6 @@ def test_build_record_returns_expected_fields() -> None:
         "summary": "Örnek özet",
         "content_text": "Örnek içerik",
         "published_at_raw": "2026-03-21T01:39:00+03:00",
-        "image_url": "https://example.com/image.jpg",
     }
 
     record = parser.build_record(
@@ -24,6 +23,5 @@ def test_build_record_returns_expected_fields() -> None:
     assert record["summary"] == "Örnek özet"
     assert record["content_text"] == "Örnek içerik"
     assert record["published_at_raw"] == "2026-03-21T01:39:00+03:00"
-    assert record["image_url"] == "https://example.com/image.jpg"
     assert record["url"] == "https://www.yenikocaeli.com/haber/123/ornek-haber"
     assert "scraped_at" in record

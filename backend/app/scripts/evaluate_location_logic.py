@@ -163,13 +163,14 @@ def _predict_variant_districts(
     if variant.use_provider:
         entities = service._provider.extract_entities(text)
 
-    _, validated = service._merge_and_validate(seeds, entities)
+    location_candidates, validated = service._merge_and_validate(seeds, entities)
     title_district_hints = (
         service._extract_title_district_hints(title) if variant.use_gazetteer else []
     )
     validated = service._finalize_validated_districts(
         validated_districts=validated,
         title_district_hints=title_district_hints,
+        location_candidates=location_candidates,
     )
     return _normalize_districts(validated)
 

@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     scrape_trigger_rate_limit_window_seconds: int = 60
     trusted_proxy_cidrs: str = ""
     job_ttl_seconds: int = 86400
-    job_claim_idle_seconds: int = 14400
+    job_claim_idle_seconds: int = 120
     job_heartbeat_seconds: int = 30
     job_max_attempts: int = 3
     job_retry_backoff_seconds: float = 5.0
@@ -80,9 +80,10 @@ class Settings(BaseSettings):
     scrape_event_stream_maxlen: int = 2000
     scrape_events_heartbeat_seconds: int = 15
 
-    classifier_semantic_enabled: bool = False
+    classifier_semantic_enabled: bool = True
     classifier_semantic_threshold: float = 0.3
-    classifier_keyword_only: bool = True
+    classifier_semantic_margin_threshold: float = 0.08
+    classifier_keyword_only: bool = False
 
     ner_provider: str = "mock"
     ner_min_score: float = 0.50

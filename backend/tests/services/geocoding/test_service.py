@@ -62,6 +62,12 @@ def test_normalized_turkish_i_is_stable():
     ).normalized()
 
 
+def test_normalized_turkish_characters_match_ascii_equivalent():
+    assert GeocodingInput(address="Çayırova").normalized() == GeocodingInput(
+        address="Cayirova"
+    ).normalized()
+
+
 def test_known_district_returns_result(svc):
     result = svc.geocode(GeocodingInput(address="Izmit"))
     assert isinstance(result, GeocodingResult)
@@ -293,3 +299,67 @@ def test_build_geocoding_inputs_treats_municipality_name_as_generic_even_with_di
     )
 
     assert [item.address for item in results] == ["Izmit"]
+
+
+def test_build_geocoding_inputs_prioritizes_street_level_candidate():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Bestekar Amir Ates Caddesi'nde",
+                normalized_text="bestekar amir ates caddesi",
+                score=0.86,
+                is_kocaeli_district=False,
+                district=None,
+            ),
+            LocationCandidate(
+                original_text="Yahya Kaptan Mahallesi",
+                normalized_text="yahya kaptan mahallesi",
+                score=1.0,
+                is_kocaeli_district=False,
+                district="Izmit",
+                neighborhood="Yahya Kaptan Mahallesi",
+            ),
+        ],
+        validated_districts=["Izmit"],
+        provider="stub",
+    )
+
+    results = build_geocoding_inputs_from_ner(
+        ner_result,
+        news_id="n5",
+        fallback_district="izmit",
+    )
+
+    assert results[0].address == "Bestekar Amir Ates Caddesi"
+    assert results[0].district_hint == "izmit"
+
+
+def test_build_geocoding_inputs_put_district_fallback_after_neighborhood_candidates():
+    ner_result = NERResult(
+        raw_entities=[],
+        location_candidates=[
+            LocationCandidate(
+                original_text="Yenisehir Mahallesi'nde",
+                normalized_text="Yenisehir Mahallesi",
+                score=0.91,
+                is_kocaeli_district=False,
+                district="Izmit",
+                neighborhood="Yenisehir Mahallesi",
+            )
+        ],
+        validated_districts=["Izmit"],
+        provider="stub",
+    )
+
+    results = build_geocoding_inputs_from_ner(
+        ner_result,
+        news_id="n6",
+        fallback_district="Izmit",
+    )
+
+    assert [item.address for item in results] == [
+        "Yenisehir Mahallesi, Izmit",
+        "Yenisehir Mahallesi",
+        "Izmit",
+    ]

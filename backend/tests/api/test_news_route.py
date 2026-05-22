@@ -278,7 +278,6 @@ def _doc(
         "created_at": published_at + timedelta(minutes=5),
         "source_name_snapshot": "Ozgur Kocaeli",
         "source_url_snapshot": "https://www.ozgurkocaeli.com.tr",
-        "image_url": "https://cdn.example.com/news.jpg",
         "category_predicted": category,
         "category_confidence": 0.92,
         "district_predicted": district,
@@ -334,7 +333,6 @@ def test_list_news_returns_enriched_items(monkeypatch, sample_docs):
     assert response.items[0].district == "izmit"
     assert response.items[0].latitude == 40.76
     assert response.items[0].longitude == 29.94
-    assert response.items[0].image_url == "https://cdn.example.com/news.jpg"
     assert response.items[0].source_domains == ["ozgurkocaeli.com.tr"]
 
 
@@ -568,23 +566,32 @@ def test_get_news_detail_returns_enriched_payload(monkeypatch, sample_docs):
         "bizimyaka.com.tr",
         "kocaeligazetesi.com.tr",
     ]
-    monkeypatch.setattr("app.routes.news.db", FakeDB(sample_docs))
+    duplicate_doc = dict(
+        sample_docs[1],
+        _id=ObjectId("65f1b5f1b5f1b5f1b5f1b5fb"),
+        canonical_url="https://www.bizimyaka.com/haber/ornek-ikinci-kaynak",
+        source_url_snapshot="https://www.bizimyaka.com",
+        kaynak_listesi=["bizimyaka.com.tr"],
+        record_status="merged_duplicate",
+        duplicate_of_record_id=sample_docs[0]["_id"],
+    )
+    monkeypatch.setattr("app.routes.news.db", FakeDB([sample_docs[0], duplicate_doc]))
 
     response = _get_news_detail_payload(str(sample_docs[0]["_id"]))
 
     assert response.category == "yangin"
     assert response.district == "izmit"
     assert response.latitude == 40.76
-    assert response.image_url == "https://cdn.example.com/news.jpg"
     assert response.content_text == "Izmit yangin body"
     assert response.location_text_extracted == "izmit"
     assert [site.domain for site in response.source_sites] == [
         "www.ozgurkocaeli.com.tr",
-        "bizimyaka.com.tr",
+        "www.bizimyaka.com",
         "kocaeligazetesi.com.tr",
     ]
     assert response.source_sites[0].is_primary is True
-    assert response.source_sites[0].url == "https://www.ozgurkocaeli.com.tr"
+    assert response.source_sites[0].url == sample_docs[0]["canonical_url"]
+    assert response.source_sites[1].url == duplicate_doc["canonical_url"]
 
 
 def test_news_routes_clean_ui_artifacts_in_existing_records(monkeypatch, sample_docs):

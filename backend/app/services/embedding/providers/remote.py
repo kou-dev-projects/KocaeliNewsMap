@@ -64,23 +64,3 @@ class RemoteTextProvider(_BaseRemoteProvider):
             },
         )
         return np.array(payload["vector"], dtype=np.float32)
-
-
-class RemoteImageProvider(_BaseRemoteProvider):
-    @property
-    def name(self) -> str:
-        return f"remote-{self._provider}"
-
-    def embed_image(self, image_url: str) -> np.ndarray | None:
-        payload = self._post(
-            "/embedding/image",
-            {
-                "provider": self._provider,
-                "image_url": image_url,
-                "dimension": self._dimension,
-            },
-        )
-        vector = payload.get("vector")
-        if vector is None:
-            return None
-        return np.array(vector, dtype=np.float32)

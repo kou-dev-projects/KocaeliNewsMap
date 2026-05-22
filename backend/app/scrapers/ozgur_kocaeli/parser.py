@@ -20,6 +20,5 @@ class OzgurKocaeliParser:
             "summary": detail_data.get("summary", ""),
             "content_text": detail_data.get("content_text", ""),
             "published_at_raw": detail_data.get("published_at_raw", ""),
-            "image_url": detail_data.get("image_url", ""),
             "scraped_at": datetime.now(timezone.utc).isoformat(),
         }

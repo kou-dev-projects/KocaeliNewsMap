@@ -13,7 +13,8 @@ def test_yangin_keyword(clf):
     result = clf.classify(ClassificationInput(title="Gebze'de fabrika yangını çıktı"))
     assert result is not None
     assert result.category == NewsCategory.YANGIN
-    assert result.confidence == 1.0
+    # Dynamic confidence: keyword classifier artık sabit 1.0 değil
+    assert 0.0 < result.confidence < 1.0
     assert "yangın" in result.matched_keywords
 
 
@@ -137,9 +138,75 @@ def test_matched_keywords_populated(clf):
 
 
 def test_method_is_keyword(clf):
-    result = clf.classify(ClassificationInput(title="Kaza haberi yaralı var"))
+    result = clf.classify(
+        ClassificationInput(title="D-100'de kaza haberi: yarali surucu hastaneye kaldirildi")
+    )
     assert result is not None
     assert result.method == "keyword"
+
+
+def test_itfaiye_without_fire_context_is_not_classified_as_yangin(clf):
+    result = clf.classify(
+        ClassificationInput(
+            title="Fabrikada makineye sikisan iscinin yardimina itfaiye ekipleri kostu",
+            content=(
+                "Saglik ve itfaiye ekipleri olay yerine sevk edildi. Teknik ekipler "
+                "makineyi keserek isciyi cikardi."
+            ),
+        )
+    )
+    if result is not None:
+        assert result.category != NewsCategory.YANGIN
+
+
+def test_generic_is_kazasi_is_not_classified_as_trafik(clf):
+    result = clf.classify(
+        ClassificationInput(
+            title="Fabrikada is kazasi: genc isci makineye sikisarak hayatini kaybetti",
+            content=(
+                "Olay, lastik fabrikasinda meydana geldi. Isci makineye sikisti ve "
+                "tum mudahalelere ragmen kurtarilamadi."
+            ),
+        )
+    )
+    if result is not None:
+        assert result.category != NewsCategory.TRAFIK_KAZASI
+
+
+# --- Regression: Bug #4 — "tahliye edildi" hukuki bağlamda YANGIN olmamalı ---
+def test_tahliye_in_legal_context_is_not_yangin(clf):
+    """'tahliye edildi' sadece hukuki bir haberde geçtiğinde YANGIN sınıflandırılmamalı."""
+    result = clf.classify(
+        ClassificationInput(
+            title="Tutuklanan İzmitli fenomen tahliye edildi",
+            content=(
+                "Sosyal medya operasyonunda yakalanan şüpheli hakim karşısına çıktı. "
+                "Savcılık tarafından tutuklanma talebiyle mahkemeye sevk edildi, "
+                "mahkeme ise tahliye kararı verdi."
+            ),
+        )
+    )
+    # Hiç bir yangın keyword'ü yok — result None olmalı ya da YANGIN olmamalı
+    if result is not None:
+        assert result.category != NewsCategory.YANGIN, (
+            f"'tahliye edildi' hukuki bağlamda YANGIN sınıflandırmamalı, "
+            f"ama {result.category} döndü (matched: {result.matched_keywords})"
+        )
+
+
+def test_yangin_bağlamli_tahliye_doğru_siniflandirilir(clf):
+    """Bağlam-bağımlı tahliye formu ('duman nedeniyle tahliye') YANGIN'a işaret etmeli."""
+    result = clf.classify(
+        ClassificationInput(
+            title="Kocaeli'de 5 katlı binada yangın",
+            content=(
+                "İtfaiye ekipleri müdahaleye devam ederken duman nedeniyle tahliye "
+                "edilen apartman sakinleri güvenli bölgeye getirildi."
+            ),
+        )
+    )
+    assert result is not None
+    assert result.category == NewsCategory.YANGIN
 
 
 def test_trafik_keyword_does_not_match_tem_substring(clf):

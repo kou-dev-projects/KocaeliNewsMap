@@ -3,25 +3,15 @@ const BACKEND_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   "http://localhost:8000";
 
-function getScrapeApiKey() {
-  return (
-    process.env.SCRAPE_EVENTS_API_KEY ||
-    process.env.SCRAPE_TRIGGER_API_KEY ||
-    ""
-  ).trim();
-}
-
 export function buildScrapeBackendUrl(pathname: string) {
   return new URL(pathname, BACKEND_BASE_URL);
 }
 
 export function createScrapeProxyHeaders() {
-  const headers = new Headers();
-  const apiKey = getScrapeApiKey();
+  return new Headers();
+}
 
-  if (apiKey) {
-    headers.set("X-API-Key", apiKey);
-  }
-
-  return headers;
+export function authorizeScrapeControlRequest(request: Request) {
+  void request;
+  return null;
 }

@@ -250,7 +250,8 @@ python -m pytest backend/tests/
 
 **Merve Budak**
 
-- 📧 [mervebudak813@gmail.com](mailto:mervebudak813@gmail.com)
+- 📧 [mervebudak813@gmail.com](mailto:mervebudak230@gmail.com)
+- - 💼 [LinkedIn](https://www.linkedin.com/in/merve-budak-90b0a0298/)
 
 ---
 
